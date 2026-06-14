@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DataChat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f5f5; color: #111; }
+    .stub-banner {
+      background: #fff3cd; border-bottom: 2px solid #f0ad4e;
+      padding: 10px 20px; text-align: center; font-weight: 600; font-size: 0.95rem;
+    }
+    .container { max-width: 860px; margin: 0 auto; padding: 32px 16px; }
+    h1 { margin: 0 0 8px; font-size: 2rem; }
+    .subtitle { color: #555; margin: 0 0 32px; }
+    .card {
+      background: #fff; border: 1px solid #ddd; border-radius: 8px;
+      padding: 24px; margin-bottom: 24px;
+    }
+    h2 { margin: 0 0 16px; font-size: 1.2rem; }
+    label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.9rem; }
+    input[type="file"], textarea {
+      width: 100%; border: 1px solid #ccc; border-radius: 4px; padding: 8px; font-size: 0.95rem;
+    }
+    textarea { resize: vertical; min-height: 80px; margin-bottom: 12px; }
+    button {
+      background: #2563eb; color: #fff; border: none; border-radius: 4px;
+      padding: 10px 20px; font-size: 0.95rem; cursor: pointer; margin-top: 12px;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .status { margin-top: 12px; font-size: 0.9rem; color: #444; }
+    .columns { margin-top: 12px; }
+    .columns span {
+      display: inline-block; background: #e0e7ff; color: #3730a3;
+      border-radius: 4px; padding: 3px 8px; margin: 3px; font-size: 0.82rem;
+    }
+    .answer-box {
+      background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;
+      padding: 16px; margin-top: 16px; white-space: pre-wrap; font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .error { color: #dc2626; margin-top: 8px; font-size: 0.9rem; }
+    #query-section { display: none; }
+  </style>
+</head>
+<body>
+
+{% if is_stub %}
+<div class="stub-banner">
+  ⚠ Stub Mode — No GEMINI_API_KEY set. Answers are placeholder text. Set the key and restart to use real Gemini.
+</div>
+{% endif %}
+
+<div class="container">
+  <h1>DataChat</h1>
+  <p class="subtitle">Upload a CSV, then ask questions about your data in plain English.</p>
+
+  <!-- Upload Panel -->
+  <div class="card" id="upload-card">
+    <h2>1. Upload your CSV</h2>
+    <label for="csv-file">Choose a CSV file</label>
+    <input type="file" id="csv-file" accept=".csv" />
+    <button id="upload-btn" onclick="uploadFile()">Upload</button>
+    <div class="status" id="upload-status"></div>
+    <div class="columns" id="column-list"></div>
+  </div>
+
+  <!-- Query Panel -->
+  <div class="card" id="query-section">
+    <h2>2. Ask a question</h2>
+    <label for="question-input">Your question</label>
+    <textarea id="question-input" placeholder="e.g. What is the average value in column 'price'?"></textarea>
+    <button id="query-btn" onclick="askQuestion()">Ask</button>
+    <div class="status" id="query-status"></div>
+    <div class="answer-box" id="answer-box" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+  let currentUploadId = null;
+
+  async function uploadFile() {
+    const fileInput = document.getElementById('csv-file');
+    const statusEl = document.getElementById('upload-status');
+    const colEl = document.getElementById('column-list');
+    const btn = document.getElementById('upload-btn');
+
+    if (!fileInput.files.length) {
+      statusEl.textContent = 'Please select a CSV file first.';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.textContent = 'Uploading…';
+    colEl.innerHTML = '';
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', body: formData });
+      const json = await res.json();
+      if (!res.ok) {
+        statusEl.innerHTML = `<span class="error">Error: ${json.detail?.message || res.statusText}</span>`;
+        return;
+      }
+      const data = json.data;
+      currentUploadId = data.id;
+      statusEl.textContent = `✓ Uploaded "${data.original_filename}" — ${data.row_count} rows`;
+      colEl.innerHTML = '<strong>Columns:</strong> ' + data.columns.map(c => `<span>${c}</span>`).join('');
+      document.getElementById('query-section').style.display = 'block';
+    } catch (err) {
+      statusEl.innerHTML = `<span class="error">Upload failed: ${err.message}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function askQuestion() {
+    const questionEl = document.getElementById('question-input');
+    const statusEl = document.getElementById('query-status');
+    const answerEl = document.getElementById('answer-box');
+    const btn = document.getElementById('query-btn');
+
+    const question = questionEl.value.trim();
+    if (!question) { statusEl.textContent = 'Please enter a question.'; return; }
+
+    btn.disabled = true;
+    statusEl.textContent = 'Thinking…';
+    answerEl.style.display = 'none';
+    answerEl.textContent = '';
+
+    try {
+      const res = await fetch('/api/queries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_id: currentUploadId, question }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        statusEl.innerHTML = `<span class="error">Error: ${json.detail?.message || res.statusText}</span>`;
+        return;
+      }
+      statusEl.textContent = '';
+      answerEl.textContent = json.data.answer;
+      answerEl.style.display = 'block';
+    } catch (err) {
+      statusEl.innerHTML = `<span class="error">Request failed: ${err.message}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>
