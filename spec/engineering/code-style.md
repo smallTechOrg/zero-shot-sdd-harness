@@ -17,27 +17,110 @@ These apply regardless of language or framework:
 
 ## Naming Conventions
 
-<!-- FILL IN: Filled in by tech-designer based on language choice. -->
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Modules / files | `snake_case` | `csv_parser.py`, `llm_client.py` |
+| Classes | `PascalCase` | `CsvUpload`, `AnalysisSession` |
+| Functions / methods | `snake_case` | `parse_csv()`, `run_query()` |
+| Variables | `snake_case` | `row_count`, `session_id` |
+| Constants | `UPPER_SNAKE_CASE` | `MAX_CSV_ROWS`, `DEFAULT_LLM_MODEL` |
+| Pydantic models | `PascalCase` with noun suffix | `QuestionRequest`, `AnswerResponse` |
+| FastAPI routers | `snake_case` module, `router` variable | `router = APIRouter()` in `routes/upload.py` |
+| SQLAlchemy models | `PascalCase`, singular noun | `Session`, `Upload` |
+| Alembic migrations | auto-generated timestamps + short description | `2024_01_15_0001_create_sessions.py` |
+
+All Python code is formatted with **Black** (line length 88, the Black default). Run `uv run black .` before committing. Type hints are required on every function signature that crosses a module boundary — no raw `dict` or `Any` at boundaries; use Pydantic models instead.
 
 ## File Organization
 
-<!-- FILL IN: Filled in by tech-designer. How are files grouped — by layer, by feature, by type? -->
+Files are grouped **by layer**, following `spec/engineering/project-layout.md`. The application package lives entirely under `src/datachat/`:
+
+```
+src/datachat/
+  config/
+    settings.py         # Pydantic-settings Settings class; resolved_llm_provider property
+  db/
+    models.py           # SQLAlchemy ORM models
+    session.py          # SessionLocal factory; get_db() dependency
+    migrations/         # Alembic env.py + versions/
+  llm/
+    client.py           # get_llm_client() — returns real Gemini or stub based on settings
+    stub.py             # StubLlmClient with node-tag-based deterministic responses
+    gemini.py           # GeminiClient wrapping google-generativeai
+  pipeline/
+    analyze.py          # run_pipeline(question, dataframe) → PipelineResult
+  routes/
+    upload.py           # POST /upload
+    query.py            # POST /query
+    pages.py            # GET / (index), GET /session/{id}
+  static/               # CSS, JS (vanilla, no build)
+  templates/            # Jinja2 HTML templates
+  main.py               # FastAPI app factory; lifespan; include_router calls
+```
+
+One responsibility per file. If a file is doing two things, split it.
 
 ## Error Handling Pattern
 
-<!-- FILL IN: Filled in by tech-designer. How are errors represented and propagated? -->
+**API layer (routes):** Never raise `HTTPException` for pipeline or LLM errors — render `error.html` instead (see Pipeline Errors rule in the Framework Gotchas section).
+
+**Pipeline / service layer:** Functions return a typed result object (e.g. `PipelineResult`) that carries either a value or an `error: str | None` field. Do not raise exceptions across layer boundaries for expected failure modes (bad CSV, LLM error, empty result). Raise only for truly unexpected programmer errors.
+
+**LLM errors:** Catch `google.api_core.exceptions.GoogleAPIError` (and subclasses) in `GeminiClient`. Log the exception with `log.error(...)`, then return a structured error string — do not let the raw exception propagate to a route handler.
+
+**Database errors:** Catch `sqlalchemy.exc.SQLAlchemyError` in the DB layer. Log and return a structured error; never expose raw DB error messages to the frontend.
+
+**No bare `except`:** Always name the exception class. `except Exception as e:` is acceptable only at the outermost route handler as a last-resort catch-all, and must always log and return a rendered error page — never swallow.
+
+Structured error responses from JSON endpoints follow this shape:
+```json
+{ "error": "human-readable description", "detail": "optional technical detail" }
+```
 
 ## Logging Pattern
 
-<!-- FILL IN: Filled in by tech-designer. Structured vs. unstructured? What fields are always included? -->
+Use Python's stdlib `logging` module with structured key=value fields (no third-party logging library in v0.1).
+
+```python
+import logging
+log = logging.getLogger(__name__)
+
+# Good — key=value fields make log lines greppable
+log.error("llm.call_failed", extra={"error": str(e), "node": "analyze", "session_id": sid})
+
+# Bad — unstructured prose
+log.error(f"LLM call failed: {e}")
+```
+
+Every log record at WARNING or above must include at minimum:
+- `session_id` (if available in the current request context)
+- the subsystem (`llm`, `db`, `pipeline`, `route`)
+- the error/exception string
+
+Log level defaults to `INFO`. Set `DATACHAT_LOG_LEVEL=DEBUG` in `.env` for verbose output.
 
 ## Testing Conventions
 
-<!-- FILL IN: Filled in by tech-designer. Unit test location, naming, runner. -->
+- **Runner:** `uv run pytest`
+- **Test location:** `tests/` at the repo root, mirroring the `src/datachat/` layout (e.g. `tests/pipeline/test_analyze.py`)
+- **Naming:** test files prefixed with `test_`, test functions prefixed with `test_`
+- **DB in tests:** SQLite in-memory or `tmp_path` file. `conftest.py` creates all tables via `Base.metadata.create_all()` and drops them after. Since production is also SQLite, this satisfies the "same DB as production" rule.
+- **LLM in tests:** Always use the stub client. Set `GEMINI_API_KEY` to an empty string (or unset it) in the test environment so `resolved_llm_provider` returns `stub`. Never make real Gemini calls in the test suite.
+- **FastAPI routes:** Test with `httpx.AsyncClient` + `ASGITransport` or FastAPI's `TestClient`. Always override `get_db` via `app.dependency_overrides` to inject a test session.
+- **No integration tests against live Gemini** in CI. Keep those in a separate `tests/integration/` directory guarded by a `pytest.mark.integration` marker and skipped by default.
 
 ## What NOT to Do
 
-<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by tech-designer. -->
+- **No `from module import *`** — explicit imports only.
+- **No bare `except:`** — always name the exception type.
+- **No global mutable state** — no module-level dicts or lists that accumulate state across requests. Pass state through function arguments or FastAPI `Depends()`.
+- **No `print()` for logging** — use `logging.getLogger(__name__)`.
+- **No direct `os.environ` access in business logic** — read all config from the `Settings` object, injected via `Depends(get_settings)`.
+- **No hardcoded model names** outside of `Settings.llm_model` default — every call site reads from settings.
+- **No synchronous file I/O inside async route handlers** — use `await anyio.to_thread.run_sync(...)` for blocking file operations, or keep routes sync (FastAPI handles sync routes in a thread pool automatically).
+- **No storing raw DataFrames in the DB** — persist only metadata (filename, row count, column names). DataFrames are reconstructed from the uploaded CSV file on demand.
+- **No LLM calls in Alembic migration scripts** — migrations must be pure DDL.
+- **No inline `# type: ignore` without an explanation comment** explaining why it is unavoidable.
 
 ---
 

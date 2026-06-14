@@ -13,11 +13,10 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file. -->
-
 | # | Capability | File |
 |---|-----------|------|
-| 1 | <!-- name --> | [01-name.md](01-name.md) |
+| 1 | CSV Upload — accept a CSV file, parse structure, persist metadata, return `upload_id` | [01-csv-upload.md](01-csv-upload.md) |
+| 2 | Natural Language Query — ask a question about an uploaded CSV, call Gemini, return answer | [02-nl-query.md](02-nl-query.md) |
 
 ## How to Add a New Capability
 
