@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from datachat.api.common import api_error, ok
 from datachat.config.settings import get_settings
-from datachat.db.models import DatasetQueryRow, DatasetRow, DatasetUploadRow, UploadRow
+from datachat.db.models import DashboardRow, DatasetQueryRow, DatasetRow, DatasetUploadRow, UploadRow
 from datachat.db.session import get_session
 from datachat.pipeline.csv_reader import read_csv_metadata
+from datachat.pipeline.dashboard_generator import generate_dashboard
 from datachat.pipeline.dataset_query_runner import run_dataset_query
 
 router = APIRouter(prefix="/api/datasets")
@@ -196,3 +197,61 @@ def list_dataset_queries(dataset_id: str, session: Session = Depends(get_session
         }
         for r in rows
     ])
+
+
+# --- Dashboard ---
+
+def _dashboard_out(row: DashboardRow) -> dict:
+    return {
+        "dataset_id": row.dataset_id,
+        "insights": row.insights,
+        "charts": row.charts,
+        "tokens": {
+            "input": row.input_tokens,
+            "output": row.output_tokens,
+            "total": row.input_tokens + row.output_tokens,
+        },
+        "cost_usd": row.cost_usd,
+        "generated_at": row.generated_at.isoformat(),
+    }
+
+
+@router.post("/{dataset_id}/dashboard")
+def generate_dataset_dashboard(
+    dataset_id: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Generate (or regenerate) the dashboard for a dataset."""
+    ds = session.get(DatasetRow, dataset_id)
+    if ds is None:
+        raise api_error("not_found", "Dataset not found.", status_code=404)
+
+    try:
+        row = generate_dashboard(
+            dataset_id=dataset_id,
+            session=session,
+            upload_dir=get_settings().upload_dir,
+        )
+    except ValueError as exc:
+        raise api_error("no_files", str(exc), status_code=400)
+    except Exception as exc:
+        raise api_error("generation_error", f"Failed to generate dashboard: {exc}", status_code=500)
+
+    return ok(_dashboard_out(row))
+
+
+@router.get("/{dataset_id}/dashboard")
+def get_dataset_dashboard(
+    dataset_id: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return the cached dashboard, or 404 if not yet generated."""
+    ds = session.get(DatasetRow, dataset_id)
+    if ds is None:
+        raise api_error("not_found", "Dataset not found.", status_code=404)
+
+    row = session.get(DashboardRow, dataset_id)
+    if row is None:
+        raise api_error("not_generated", "Dashboard not yet generated.", status_code=404)
+
+    return ok(_dashboard_out(row))

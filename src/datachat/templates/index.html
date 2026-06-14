@@ -4,268 +4,1013 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DataChat</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f5f5; color: #111; }
-    .stub-banner {
-      background: #fff3cd; border-bottom: 2px solid #f0ad4e;
-      padding: 10px 20px; text-align: center; font-weight: 600; font-size: 0.95rem;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f0f2f5;
+      --sidebar-bg: #1a1f2e;
+      --sidebar-hover: #252d40;
+      --sidebar-active: #2563eb;
+      --header-bg: #1a1f2e;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --blue: #2563eb;
+      --blue-hover: #1d4ed8;
+      --blue-light: #eff6ff;
+      --green: #16a34a;
+      --red: #dc2626;
+      --yellow-bg: #fefce8;
+      --yellow-border: #fde047;
+      --tag-bg: #e0e7ff;
+      --tag-text: #3730a3;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
     }
-    .container { max-width: 920px; margin: 0 auto; padding: 32px 16px; }
-    h1 { margin: 0 0 4px; font-size: 2rem; }
-    .subtitle { color: #555; margin: 0 0 28px; }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    .app-header {
+      background: var(--header-bg);
+      color: #fff;
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .app-header .logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #fff;
+    }
+    .app-header .logo span { color: #60a5fa; }
+    .stub-badge {
+      margin-left: auto;
+      background: #78350f;
+      color: #fef3c7;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Layout ── */
+    .app-body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 240px;
+      background: var(--sidebar-bg);
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow-y: auto;
+      padding: 16px 0;
+    }
+    .sidebar-section {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #475569;
+      padding: 12px 16px 6px;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-radius: 0;
+      color: #94a3b8;
+      transition: background 0.12s, color 0.12s;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .sidebar-item:hover { background: var(--sidebar-hover); color: #e2e8f0; }
+    .sidebar-item.active { background: var(--sidebar-active); color: #fff; }
+    .sidebar-item .icon { width: 16px; text-align: center; flex-shrink: 0; }
+
+    .sidebar-ds-list { padding: 4px 0; }
+    .sidebar-ds-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px 7px 28px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: #94a3b8;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-ds-item:hover { background: var(--sidebar-hover); color: #e2e8f0; }
+    .sidebar-ds-item.active { color: #60a5fa; font-weight: 600; }
+
+    .sidebar-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.06);
+      margin: 8px 0;
+    }
+
+    /* ── Main content ── */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    .page-header {
+      margin-bottom: 24px;
+    }
+    .page-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .page-header p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Cards ── */
     .card {
-      background: #fff; border: 1px solid #ddd; border-radius: 8px;
-      padding: 24px; margin-bottom: 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
     }
-    h2 { margin: 0 0 14px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
-    label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+    .card-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+    }
+    .stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--text); margin-top: 4px; }
+    .stat-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ── Forms ── */
+    label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
     input[type="text"], input[type="file"], textarea, select {
-      width: 100%; border: 1px solid #ccc; border-radius: 4px;
-      padding: 8px; font-size: 0.95rem; background: #fff;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 0.875rem;
+      background: #fff;
+      color: var(--text);
+      transition: border-color 0.15s;
     }
-    textarea { resize: vertical; min-height: 72px; margin-bottom: 10px; }
+    input[type="text"]:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+    textarea { resize: vertical; min-height: 80px; }
+
     .row { display: flex; gap: 10px; align-items: flex-end; }
-    .row input[type="text"] { flex: 1; }
+    .row > * { flex: 1; }
+    .row > button { flex: 0 0 auto; }
+
     button {
-      background: #2563eb; color: #fff; border: none; border-radius: 4px;
-      padding: 9px 18px; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 20px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
     }
-    button:hover { background: #1d4ed8; }
+    button:hover { background: var(--blue-hover); }
     button:disabled { background: #93c5fd; cursor: not-allowed; }
-    .status { margin-top: 10px; font-size: 0.88rem; color: #444; min-height: 1.2em; }
-    .error { color: #dc2626; }
-    .success { color: #16a34a; }
+    .btn-secondary {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--bg); }
+    .btn-danger {
+      background: #fee2e2;
+      color: var(--red);
+      border: 1px solid #fecaca;
+    }
+    .btn-danger:hover { background: #fecaca; }
+
+    /* ── Status / feedback ── */
+    .status { font-size: 0.82rem; color: var(--text-muted); min-height: 1.3em; margin-top: 8px; }
+    .err { color: var(--red); }
+    .ok { color: var(--green); }
+
+    /* ── Tags ── */
     .tag {
-      display: inline-block; background: #e0e7ff; color: #3730a3;
-      border-radius: 4px; padding: 2px 7px; margin: 2px; font-size: 0.8rem;
+      display: inline-block;
+      background: var(--tag-bg);
+      color: var(--tag-text);
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin: 2px;
+      font-size: 0.75rem;
+      font-weight: 500;
     }
-    .file-list { margin-top: 10px; }
+
+    /* ── File items ── */
     .file-item {
-      padding: 8px 10px; background: #f9fafb; border: 1px solid #e5e7eb;
-      border-radius: 4px; margin-bottom: 6px; font-size: 0.88rem;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
     }
-    .answer-box {
-      background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;
-      padding: 14px; margin-top: 14px; white-space: pre-wrap; font-size: 0.93rem;
-      line-height: 1.6;
+    .file-item strong { color: var(--text); }
+    .file-meta { color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; }
+
+    /* ── Answer / markdown ── */
+    .answer-wrap {
+      background: var(--blue-light);
+      border: 1px solid #bfdbfe;
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-top: 16px;
+      line-height: 1.7;
+      font-size: 0.9rem;
     }
-    .token-info {
-      margin-top: 8px; font-size: 0.8rem; color: #6b7280;
-      display: flex; gap: 16px; flex-wrap: wrap;
+    .answer-wrap h1, .answer-wrap h2, .answer-wrap h3 {
+      font-size: 1rem; font-weight: 700; margin: 16px 0 8px;
     }
-    .token-info strong { color: #374151; }
-    .hidden { display: none; }
-    .step-num {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 22px; height: 22px; background: #2563eb; color: #fff;
-      border-radius: 50%; font-size: 0.75rem; font-weight: 700; flex-shrink: 0;
+    .answer-wrap h1:first-child, .answer-wrap h2:first-child { margin-top: 0; }
+    .answer-wrap p { margin-bottom: 10px; }
+    .answer-wrap ul, .answer-wrap ol { padding-left: 20px; margin-bottom: 10px; }
+    .answer-wrap li { margin-bottom: 4px; }
+    .answer-wrap code { background: #dbeafe; padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+    .answer-wrap pre { background: #1e293b; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin-bottom: 10px; }
+    .answer-wrap pre code { background: none; padding: 0; }
+    .answer-wrap strong { font-weight: 700; }
+    .answer-wrap table { border-collapse: collapse; width: 100%; margin-bottom: 10px; font-size: 0.85rem; }
+    .answer-wrap th, .answer-wrap td { border: 1px solid #bfdbfe; padding: 6px 10px; text-align: left; }
+    .answer-wrap th { background: #dbeafe; font-weight: 600; }
+
+    .token-bar {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .token-bar strong { color: var(--text); }
+
+    /* ── Query history ── */
+    .history-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .history-q {
+      padding: 12px 16px;
+      background: var(--bg);
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .history-q:hover { background: var(--border); }
+    .history-a {
+      padding: 14px 16px;
+      display: none;
+      font-size: 0.875rem;
+      line-height: 1.65;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+    }
+    .history-a.open { display: block; }
+    .history-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 8px; }
+
+    /* ── Insights list ── */
+    .insights-list { list-style: none; padding: 0; }
+    .insights-list li {
+      padding: 12px 16px 12px 42px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 0.875rem;
+      line-height: 1.55;
+      position: relative;
+    }
+    .insights-list li::before {
+      content: "💡";
+      position: absolute;
+      left: 14px;
+      top: 12px;
+    }
+
+    /* ── Charts grid ── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .chart-card h3 {
+      font-size: 0.875rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .chart-card .chart-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .chart-container { position: relative; height: 220px; }
+
+    /* ── Dashboard actions ── */
+    .dashboard-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    /* ── Empty states ── */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .empty-state p { font-size: 0.875rem; max-width: 340px; margin: 0 auto; }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(37,99,235,0.2);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .sidebar { width: 200px; }
+      .main { padding: 20px 16px; }
     }
   </style>
 </head>
 <body>
 
-{% if is_stub %}
-<div class="stub-banner">
-  ⚠ Stub Mode — No GEMINI_API_KEY set. Answers are placeholder text, token counts show 0. Set the key and restart for real Gemini.
-</div>
-{% endif %}
+<!-- Header -->
+<header class="app-header">
+  <div class="logo">Data<span>Chat</span></div>
+  {% if is_stub %}
+  <span class="stub-badge">⚠ Stub Mode — Set GEMINI_API_KEY for real AI</span>
+  {% endif %}
+</header>
 
-<div class="container">
-  <h1>DataChat</h1>
-  <p class="subtitle">Create a dataset, upload multiple CSVs, then ask questions across all of them.</p>
+<div class="app-body">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-section">Navigation</div>
+    <button class="sidebar-item active" id="nav-home" onclick="showPage('home')">
+      <span class="icon">🏠</span> Home
+    </button>
+    <button class="sidebar-item" id="nav-new-dataset" onclick="showPage('new-dataset')">
+      <span class="icon">＋</span> New Dataset
+    </button>
 
-  <!-- Step 1: Dataset -->
-  <div class="card">
-    <h2><span class="step-num">1</span>Dataset</h2>
-    <div class="row">
-      <input type="text" id="dataset-name" placeholder="Dataset name (e.g. Q1 Sales)" />
-      <button onclick="createDataset()">Create new</button>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">My Datasets</div>
+    <div class="sidebar-ds-list" id="sidebar-ds-list">
+      <div style="padding: 8px 16px; font-size: 0.78rem; color: #475569;">Loading…</div>
     </div>
-    <div class="status" id="dataset-status"></div>
+  </nav>
 
-    <div id="existing-wrap" class="hidden" style="margin-top:14px;">
-      <label for="dataset-select">Or select an existing dataset:</label>
-      <select id="dataset-select" onchange="selectDataset(this.value)">
-        <option value="">— choose —</option>
-      </select>
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Home page -->
+    <div class="page active" id="page-home">
+      <div class="page-header">
+        <h1>Welcome to DataChat</h1>
+        <p>Upload CSV files, ask questions in natural language, and explore AI-generated insights and charts.</p>
+      </div>
+      <div class="stats-row" id="home-stats">
+        <div class="stat-card">
+          <div class="stat-label">Datasets</div>
+          <div class="stat-value" id="stat-datasets">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Files</div>
+          <div class="stat-value" id="stat-files">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Queries Run</div>
+          <div class="stat-value" id="stat-queries">—</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Getting Started</div>
+        <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;">
+          Click <strong>New Dataset</strong> in the sidebar to create your first dataset,
+          upload one or more CSV files, then ask questions or generate a dashboard to explore the data.
+        </p>
+      </div>
     </div>
-  </div>
 
-  <!-- Step 2: Upload CSVs -->
-  <div class="card hidden" id="upload-card">
-    <h2><span class="step-num">2</span>Upload CSV files</h2>
-    <p style="margin:0 0 12px;font-size:0.88rem;color:#555;">
-      Dataset: <strong id="dataset-label"></strong>
-    </p>
-    <div class="row">
-      <input type="file" id="csv-file" accept=".csv" multiple />
-      <button onclick="uploadFiles(event)">Upload</button>
+    <!-- New Dataset page -->
+    <div class="page" id="page-new-dataset">
+      <div class="page-header">
+        <h1>New Dataset</h1>
+        <p>Give your dataset a name to get started.</p>
+      </div>
+      <div class="card" style="max-width:500px;">
+        <div class="card-title">Dataset Details</div>
+        <div style="margin-bottom:14px;">
+          <label for="new-ds-name">Name</label>
+          <input type="text" id="new-ds-name" placeholder="e.g. Q1 Sales, Customer Survey" />
+        </div>
+        <button onclick="createDataset()">Create Dataset</button>
+        <div class="status" id="new-ds-status"></div>
+      </div>
     </div>
-    <div class="status" id="upload-status"></div>
-    <div class="file-list" id="file-list"></div>
-  </div>
 
-  <!-- Step 3: Query -->
-  <div class="card hidden" id="query-card">
-    <h2><span class="step-num">3</span>Ask a question across all files</h2>
-    <label for="question-input">Your question</label>
-    <textarea id="question-input" placeholder="e.g. Which month had the highest total revenue across all files?"></textarea>
-    <button id="query-btn" onclick="askQuestion()">Ask Gemini</button>
-    <div class="status" id="query-status"></div>
-    <div class="answer-box hidden" id="answer-box"></div>
-    <div class="token-info hidden" id="token-info"></div>
-  </div>
+    <!-- Dataset detail page -->
+    <div class="page" id="page-dataset">
+      <div class="page-header">
+        <h1 id="ds-page-title">Dataset</h1>
+        <p id="ds-page-sub"></p>
+      </div>
+
+      <!-- Tab bar -->
+      <div style="display:flex;gap:4px;margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:0;">
+        <button class="btn-secondary" id="tab-files" onclick="switchTab('files')"
+          style="border-radius:6px 6px 0 0;border-bottom:none;padding:8px 18px;">Files</button>
+        <button class="btn-secondary" id="tab-query" onclick="switchTab('query')"
+          style="border-radius:6px 6px 0 0;border-bottom:none;padding:8px 18px;">Ask</button>
+        <button class="btn-secondary" id="tab-dashboard" onclick="switchTab('dashboard')"
+          style="border-radius:6px 6px 0 0;border-bottom:none;padding:8px 18px;">Dashboard</button>
+      </div>
+
+      <!-- Files tab -->
+      <div id="tab-content-files">
+        <div class="card">
+          <div class="card-title">Upload CSV Files</div>
+          <div class="row">
+            <div>
+              <label for="csv-file">Select files</label>
+              <input type="file" id="csv-file" accept=".csv" multiple />
+            </div>
+            <button onclick="uploadFiles()">Upload</button>
+          </div>
+          <div class="status" id="upload-status"></div>
+        </div>
+        <div id="file-list"></div>
+      </div>
+
+      <!-- Query tab -->
+      <div id="tab-content-query" class="hidden">
+        <div class="card">
+          <div class="card-title">Ask a Question</div>
+          <label for="question-input">Your question</label>
+          <textarea id="question-input" placeholder="e.g. Which month had the highest total revenue across all files?"></textarea>
+          <div style="margin-top:12px;">
+            <button id="query-btn" onclick="askQuestion()">Ask Gemini</button>
+          </div>
+          <div class="status" id="query-status"></div>
+          <div id="answer-wrap" class="hidden"></div>
+        </div>
+
+        <!-- History -->
+        <div id="query-history-wrap" class="hidden">
+          <div class="card-title" style="margin-bottom:12px;">Previous Questions</div>
+          <div id="query-history"></div>
+        </div>
+      </div>
+
+      <!-- Dashboard tab -->
+      <div id="tab-content-dashboard" class="hidden">
+        <div class="dashboard-actions">
+          <button id="dashboard-gen-btn" onclick="generateDashboard()">Generate Dashboard</button>
+          <div class="status" id="dashboard-status"></div>
+        </div>
+        <div id="dashboard-content"></div>
+      </div>
+    </div>
+
+  </main>
 </div>
 
 <script>
-  let currentDatasetId = null;
-  window._datasets = [];
+// ── State ──────────────────────────────────────────────────────────────────
+let allDatasets = [];
+let currentDataset = null;
+let activeTab = 'files';
+const chartInstances = {};
 
-  window.addEventListener('DOMContentLoaded', loadDatasets);
+// ── Boot ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  await loadDatasets();
+  updateHomeStats();
+});
 
-  async function loadDatasets() {
+// ── Page navigation ───────────────────────────────────────────────────────
+function showPage(name, dsId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sidebar-ds-item').forEach(b => b.classList.remove('active'));
+
+  if (name === 'home') {
+    document.getElementById('page-home').classList.add('active');
+    document.getElementById('nav-home').classList.add('active');
+    updateHomeStats();
+  } else if (name === 'new-dataset') {
+    document.getElementById('page-new-dataset').classList.add('active');
+    document.getElementById('nav-new-dataset').classList.add('active');
+    document.getElementById('new-ds-status').textContent = '';
+    document.getElementById('new-ds-name').value = '';
+  } else if (name === 'dataset' && dsId) {
+    document.getElementById('page-dataset').classList.add('active');
+    const btn = document.querySelector(`.sidebar-ds-item[data-id="${dsId}"]`);
+    if (btn) btn.classList.add('active');
+    openDataset(dsId);
+  }
+}
+
+// ── Dataset sidebar ───────────────────────────────────────────────────────
+async function loadDatasets() {
+  try {
+    const res = await fetch('/api/datasets');
+    const json = await res.json();
+    allDatasets = json.data || [];
+  } catch (_) {
+    allDatasets = [];
+  }
+  renderSidebarDatasets();
+}
+
+function renderSidebarDatasets() {
+  const list = document.getElementById('sidebar-ds-list');
+  if (!allDatasets.length) {
+    list.innerHTML = '<div style="padding:8px 16px;font-size:0.78rem;color:#475569;">No datasets yet</div>';
+    return;
+  }
+  list.innerHTML = allDatasets.map(ds => `
+    <button class="sidebar-ds-item" data-id="${ds.id}" onclick="showPage('dataset','${ds.id}')">
+      <span>📊</span> ${escHtml(ds.name)}
+    </button>
+  `).join('');
+}
+
+// ── Home stats ────────────────────────────────────────────────────────────
+function updateHomeStats() {
+  const totalFiles = allDatasets.reduce((s, d) => s + (d.uploads || []).length, 0);
+  document.getElementById('stat-datasets').textContent = allDatasets.length;
+  document.getElementById('stat-files').textContent = totalFiles;
+  // queries stat is approximate from dataset list page only
+  document.getElementById('stat-queries').textContent = '—';
+}
+
+// ── Create dataset ────────────────────────────────────────────────────────
+async function createDataset() {
+  const name = document.getElementById('new-ds-name').value.trim();
+  const statusEl = document.getElementById('new-ds-status');
+  if (!name) { statusEl.innerHTML = '<span class="err">Enter a name.</span>'; return; }
+
+  statusEl.innerHTML = '<span class="spinner"></span> Creating…';
+  const res = await fetch('/api/datasets', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    statusEl.innerHTML = `<span class="err">${json.detail?.message || 'Error'}</span>`;
+    return;
+  }
+  allDatasets.unshift(json.data);
+  renderSidebarDatasets();
+  showPage('dataset', json.data.id);
+}
+
+// ── Open dataset ──────────────────────────────────────────────────────────
+async function openDataset(dsId) {
+  const res = await fetch(`/api/datasets/${dsId}`);
+  const json = await res.json();
+  if (!res.ok) { alert('Dataset not found.'); return; }
+  currentDataset = json.data;
+
+  document.getElementById('ds-page-title').textContent = currentDataset.name;
+  document.getElementById('ds-page-sub').textContent =
+    `${currentDataset.uploads.length} file${currentDataset.uploads.length !== 1 ? 's' : ''} · ID: ${currentDataset.id}`;
+
+  switchTab('files');
+  renderFileList(currentDataset.uploads);
+  clearQuery();
+  clearDashboard();
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  activeTab = tab;
+  ['files','query','dashboard'].forEach(t => {
+    document.getElementById(`tab-content-${t}`).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(`tab-${t}`);
+    btn.style.background = t === tab ? '#fff' : '';
+    btn.style.fontWeight = t === tab ? '700' : '';
+    btn.style.borderBottom = t === tab ? '2px solid var(--blue)' : '';
+    btn.style.color = t === tab ? 'var(--blue)' : '';
+  });
+  if (tab === 'query') loadQueryHistory();
+  if (tab === 'dashboard') loadDashboard();
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────
+async function uploadFiles() {
+  const input = document.getElementById('csv-file');
+  const statusEl = document.getElementById('upload-status');
+  if (!input.files.length) { statusEl.textContent = 'Select at least one CSV file.'; return; }
+  if (!currentDataset) return;
+
+  statusEl.innerHTML = `<span class="spinner"></span> Uploading ${input.files.length} file(s)…`;
+  let ok = 0;
+  for (const file of input.files) {
+    const fd = new FormData();
+    fd.append('file', file);
     try {
-      const res = await fetch('/api/datasets');
+      const res = await fetch(`/api/datasets/${currentDataset.id}/uploads`, {method:'POST', body:fd});
       const json = await res.json();
-      if (!res.ok || !json.data.length) return;
-      window._datasets = json.data;
-      const sel = document.getElementById('dataset-select');
-      json.data.forEach(ds => {
-        const opt = document.createElement('option');
-        opt.value = ds.id;
-        opt.textContent = `${ds.name} (${ds.uploads.length} file${ds.uploads.length !== 1 ? 's' : ''})`;
-        sel.appendChild(opt);
-      });
-      document.getElementById('existing-wrap').classList.remove('hidden');
-    } catch (_) {}
+      if (!res.ok) {
+        statusEl.innerHTML += `<br><span class="err">${escHtml(file.name)}: ${json.detail?.message}</span>`;
+      } else {
+        currentDataset.uploads.push(json.data.upload);
+        addFileCard(json.data.upload);
+        ok++;
+      }
+    } catch (err) {
+      statusEl.innerHTML += `<br><span class="err">${escHtml(file.name)}: ${err.message}</span>`;
+    }
   }
+  statusEl.innerHTML = `<span class="ok">✓ ${ok}/${input.files.length} file(s) uploaded.</span>`;
+  input.value = '';
+  updateSidebarDatasetCount();
+}
 
-  function selectDataset(id) {
-    if (!id) return;
-    const ds = window._datasets.find(d => d.id === id);
-    if (ds) activateDataset(ds.id, ds.name, ds.uploads);
+function renderFileList(uploads) {
+  const el = document.getElementById('file-list');
+  el.innerHTML = '';
+  if (!uploads.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">📂</div><h3>No files yet</h3><p>Upload a CSV file above to get started.</p></div>`;
+    return;
   }
+  uploads.forEach(addFileCard);
+}
 
-  async function createDataset() {
-    const name = document.getElementById('dataset-name').value.trim();
-    const statusEl = document.getElementById('dataset-status');
-    if (!name) { statusEl.innerHTML = '<span class="error">Enter a dataset name.</span>'; return; }
+function addFileCard(upload) {
+  const el = document.getElementById('file-list');
+  // Remove empty state if present
+  el.querySelector('.empty-state')?.remove();
+  const div = document.createElement('div');
+  div.className = 'file-item';
+  div.innerHTML = `
+    <strong>${escHtml(upload.original_filename)}</strong>
+    <div class="file-meta">
+      ${upload.row_count.toLocaleString()} rows &nbsp;·&nbsp;
+      ${upload.columns.length} columns
+    </div>
+    <div style="margin-top:6px;">${upload.columns.map(c => `<span class="tag">${escHtml(c)}</span>`).join('')}</div>
+  `;
+  el.appendChild(div);
+}
 
-    const res = await fetch('/api/datasets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+function updateSidebarDatasetCount() {
+  const btn = document.querySelector(`.sidebar-ds-item[data-id="${currentDataset?.id}"]`);
+  // Just refresh the sidebar list
+  const ds = allDatasets.find(d => d.id === currentDataset?.id);
+  if (ds) ds.uploads = currentDataset.uploads;
+  renderSidebarDatasets();
+  document.querySelector(`.sidebar-ds-item[data-id="${currentDataset?.id}"]`)?.classList.add('active');
+}
+
+// ── Query ─────────────────────────────────────────────────────────────────
+function clearQuery() {
+  document.getElementById('question-input').value = '';
+  document.getElementById('query-status').textContent = '';
+  document.getElementById('answer-wrap').classList.add('hidden');
+  document.getElementById('answer-wrap').innerHTML = '';
+  document.getElementById('query-history-wrap').classList.add('hidden');
+  document.getElementById('query-history').innerHTML = '';
+}
+
+async function askQuestion() {
+  const question = document.getElementById('question-input').value.trim();
+  const statusEl = document.getElementById('query-status');
+  const answerWrap = document.getElementById('answer-wrap');
+  const btn = document.getElementById('query-btn');
+  if (!question) { statusEl.textContent = 'Enter a question first.'; return; }
+  if (!currentDataset) return;
+
+  btn.disabled = true;
+  statusEl.innerHTML = '<span class="spinner"></span> Asking Gemini…';
+  answerWrap.classList.add('hidden');
+
+  try {
+    const res = await fetch(`/api/datasets/${currentDataset.id}/queries`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({question}),
     });
     const json = await res.json();
     if (!res.ok) {
-      statusEl.innerHTML = `<span class="error">${json.detail?.message || 'Error'}</span>`;
+      statusEl.innerHTML = `<span class="err">${json.detail?.message || res.statusText}</span>`;
       return;
     }
-    statusEl.innerHTML = `<span class="success">✓ Dataset "${json.data.name}" created.</span>`;
-    activateDataset(json.data.id, json.data.name, []);
-  }
-
-  function activateDataset(id, name, existingUploads) {
-    currentDatasetId = id;
-    document.getElementById('dataset-label').textContent = name;
-    document.getElementById('upload-card').classList.remove('hidden');
-    document.getElementById('query-card').classList.remove('hidden');
-
-    const fileList = document.getElementById('file-list');
-    fileList.innerHTML = '';
-    existingUploads.forEach(renderFileItem);
-    if (existingUploads.length) {
-      document.getElementById('upload-status').textContent =
-        `${existingUploads.length} file(s) already in this dataset.`;
-    }
-  }
-
-  async function uploadFiles(event) {
-    const input = document.getElementById('csv-file');
-    const statusEl = document.getElementById('upload-status');
-    const btn = event.target;
-    if (!input.files.length) { statusEl.textContent = 'Select at least one CSV file.'; return; }
-
-    btn.disabled = true;
-    statusEl.textContent = `Uploading ${input.files.length} file(s)…`;
-
-    let ok = 0;
-    for (const file of input.files) {
-      const fd = new FormData();
-      fd.append('file', file);
-      try {
-        const res = await fetch(`/api/datasets/${currentDatasetId}/uploads`, { method: 'POST', body: fd });
-        const json = await res.json();
-        if (!res.ok) {
-          statusEl.innerHTML += `<br><span class="error">${file.name}: ${json.detail?.message}</span>`;
-        } else {
-          renderFileItem(json.data.upload);
-          ok++;
-        }
-      } catch (err) {
-        statusEl.innerHTML += `<br><span class="error">${file.name}: ${err.message}</span>`;
-      }
-    }
-    statusEl.innerHTML = `<span class="success">✓ ${ok}/${input.files.length} file(s) uploaded.</span>`;
-    input.value = '';
+    const data = json.data;
+    statusEl.textContent = '';
+    answerWrap.innerHTML = renderAnswer(data);
+    answerWrap.classList.remove('hidden');
+    loadQueryHistory();
+  } catch (err) {
+    statusEl.innerHTML = `<span class="err">Request failed: ${err.message}</span>`;
+  } finally {
     btn.disabled = false;
   }
+}
 
-  function renderFileItem(upload) {
-    const div = document.createElement('div');
-    div.className = 'file-item';
-    div.innerHTML = `<strong>${upload.original_filename}</strong>
-      <span style="color:#6b7280;margin-left:8px;">${upload.row_count.toLocaleString()} rows</span>
-      <div style="margin-top:4px;">${upload.columns.map(c => `<span class="tag">${c}</span>`).join('')}</div>`;
-    document.getElementById('file-list').appendChild(div);
+function renderAnswer(data) {
+  const t = data.tokens || {};
+  const costStr = data.cost_usd > 0 ? `$${data.cost_usd.toFixed(6)}` : 'stub ($0)';
+  return `
+    <div class="answer-wrap">${marked.parse(data.answer)}</div>
+    <div class="token-bar">
+      <span>📥 Input: <strong>${(t.input||0).toLocaleString()} tokens</strong></span>
+      <span>📤 Output: <strong>${(t.output||0).toLocaleString()} tokens</strong></span>
+      <span>∑ Total: <strong>${(t.total||0).toLocaleString()} tokens</strong></span>
+      <span>💰 Cost: <strong>${costStr}</strong></span>
+    </div>
+  `;
+}
+
+async function loadQueryHistory() {
+  if (!currentDataset) return;
+  const res = await fetch(`/api/datasets/${currentDataset.id}/queries`);
+  const json = await res.json();
+  const rows = json.data || [];
+  const wrap = document.getElementById('query-history-wrap');
+  const el = document.getElementById('query-history');
+  if (!rows.length) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  el.innerHTML = rows.map((r, i) => `
+    <div class="history-item">
+      <div class="history-q" onclick="toggleHistory(${i})">
+        <span>${escHtml(r.question)}</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);flex-shrink:0;">${new Date(r.created_at).toLocaleString()}</span>
+      </div>
+      <div class="history-a" id="hist-${i}">
+        ${marked.parse(r.answer)}
+        <div class="history-meta">
+          Tokens: ${(r.tokens?.total||0).toLocaleString()} · Cost: ${r.cost_usd > 0 ? '$'+r.cost_usd.toFixed(6) : 'stub ($0)'}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleHistory(i) {
+  const el = document.getElementById(`hist-${i}`);
+  el.classList.toggle('open');
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────
+function clearDashboard() {
+  document.getElementById('dashboard-content').innerHTML = '';
+  document.getElementById('dashboard-status').textContent = '';
+  Object.values(chartInstances).forEach(c => c.destroy());
+  Object.keys(chartInstances).forEach(k => delete chartInstances[k]);
+}
+
+async function loadDashboard() {
+  if (!currentDataset) return;
+  clearDashboard();
+  const res = await fetch(`/api/datasets/${currentDataset.id}/dashboard`);
+  if (res.status === 404) {
+    document.getElementById('dashboard-content').innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📊</div>
+        <h3>No dashboard yet</h3>
+        <p>Click "Generate Dashboard" to create AI-powered insights and charts for this dataset.</p>
+      </div>`;
+    return;
   }
+  const json = await res.json();
+  if (!res.ok) {
+    document.getElementById('dashboard-status').innerHTML = `<span class="err">${json.detail?.message}</span>`;
+    return;
+  }
+  renderDashboard(json.data);
+}
 
-  async function askQuestion() {
-    const question = document.getElementById('question-input').value.trim();
-    const statusEl = document.getElementById('query-status');
-    const answerEl = document.getElementById('answer-box');
-    const tokenEl = document.getElementById('token-info');
-    const btn = document.getElementById('query-btn');
+async function generateDashboard() {
+  if (!currentDataset) return;
+  const btn = document.getElementById('dashboard-gen-btn');
+  const statusEl = document.getElementById('dashboard-status');
+  btn.disabled = true;
+  statusEl.innerHTML = '<span class="spinner"></span> Generating with Gemini…';
+  clearDashboard();
+  document.getElementById('dashboard-status').innerHTML = '<span class="spinner"></span> Generating with Gemini…';
 
-    if (!question) { statusEl.textContent = 'Enter a question first.'; return; }
-    btn.disabled = true;
-    statusEl.textContent = 'Asking Gemini…';
-    answerEl.classList.add('hidden');
-    tokenEl.classList.add('hidden');
-
-    try {
-      const res = await fetch(`/api/datasets/${currentDatasetId}/queries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        statusEl.innerHTML = `<span class="error">${json.detail?.message || res.statusText}</span>`;
-        return;
-      }
-      const data = json.data;
-      statusEl.textContent = '';
-      answerEl.textContent = data.answer;
-      answerEl.classList.remove('hidden');
-
-      const t = data.tokens || {};
-      const costStr = (data.cost_usd > 0)
-        ? `$${data.cost_usd.toFixed(6)}`
-        : '(stub — no cost)';
-      tokenEl.innerHTML = `
-        <span>📥 Input: <strong>${(t.input || 0).toLocaleString()} tokens</strong></span>
-        <span>📤 Output: <strong>${(t.output || 0).toLocaleString()} tokens</strong></span>
-        <span>∑ Total: <strong>${(t.total || 0).toLocaleString()} tokens</strong></span>
-        <span>💰 Est. cost: <strong>${costStr}</strong></span>`;
-      tokenEl.classList.remove('hidden');
-    } catch (err) {
-      statusEl.innerHTML = `<span class="error">Request failed: ${err.message}</span>`;
-    } finally {
-      btn.disabled = false;
+  try {
+    const res = await fetch(`/api/datasets/${currentDataset.id}/dashboard`, {method:'POST'});
+    const json = await res.json();
+    if (!res.ok) {
+      statusEl.innerHTML = `<span class="err">${json.detail?.message}</span>`;
+      return;
     }
+    statusEl.textContent = '';
+    renderDashboard(json.data);
+  } catch (err) {
+    statusEl.innerHTML = `<span class="err">Failed: ${err.message}</span>`;
+  } finally {
+    btn.disabled = false;
   }
+}
+
+function renderDashboard(data) {
+  const t = data.tokens || {};
+  const costStr = data.cost_usd > 0 ? `$${data.cost_usd.toFixed(6)}` : 'stub ($0)';
+  const genAt = data.generated_at ? new Date(data.generated_at).toLocaleString() : '';
+
+  const insights = data.insights || [];
+  const charts = data.charts || [];
+
+  const insightsHtml = insights.length ? `
+    <div class="card">
+      <div class="card-title">🧠 AI Insights</div>
+      <ul class="insights-list">
+        ${insights.map(ins => `<li>${escHtml(ins)}</li>`).join('')}
+      </ul>
+    </div>
+  ` : '';
+
+  const chartsPlaceholders = charts.map((_, i) => `
+    <div class="chart-card">
+      <h3>${escHtml(charts[i].title || 'Chart')}</h3>
+      <div class="chart-sub">${escHtml(charts[i].reasoning || '')}</div>
+      <div class="chart-container"><canvas id="chart-canvas-${i}"></canvas></div>
+    </div>
+  `).join('');
+
+  document.getElementById('dashboard-content').innerHTML = `
+    ${insightsHtml}
+    ${charts.length ? `<div class="card-title" style="margin-bottom:12px;">📈 Charts</div><div class="charts-grid">${chartsPlaceholders}</div>` : ''}
+    <div class="token-bar" style="margin-top:16px;">
+      <span>Generated: <strong>${genAt}</strong></span>
+      <span>📥 Input: <strong>${(t.input||0).toLocaleString()} tokens</strong></span>
+      <span>📤 Output: <strong>${(t.output||0).toLocaleString()} tokens</strong></span>
+      <span>💰 Cost: <strong>${costStr}</strong></span>
+    </div>
+  `;
+
+  // Render charts after DOM is ready
+  charts.forEach((spec, i) => renderChart(i, spec));
+}
+
+function renderChart(idx, spec) {
+  const canvas = document.getElementById(`chart-canvas-${idx}`);
+  if (!canvas) return;
+
+  // Build data from the CSV via API — for now use the spec directly if it has data,
+  // otherwise generate a placeholder that shows the spec intent
+  const labels = [];
+  const values = [];
+
+  // If spec has pre-computed data array use it
+  if (Array.isArray(spec.data) && spec.data.length) {
+    spec.data.forEach(d => {
+      labels.push(d.label ?? d[spec.x_column] ?? '');
+      values.push(d.value ?? d[spec.y_column] ?? 0);
+    });
+  } else {
+    // Show placeholder — real data requires CSV fetch which we'll do via the query API
+    labels.push('x');
+    values.push(0);
+  }
+
+  const isPie = spec.type === 'pie' || spec.type === 'doughnut';
+  const colors = [
+    '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+    '#ec4899','#14b8a6','#f97316','#6366f1','#84cc16',
+  ];
+
+  if (chartInstances[idx]) chartInstances[idx].destroy();
+  chartInstances[idx] = new Chart(canvas, {
+    type: spec.type || 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: spec.y_column || 'value',
+        data: values,
+        backgroundColor: isPie ? colors.slice(0, labels.length) : colors[0],
+        borderColor: isPie ? colors.slice(0, labels.length) : colors[0],
+        borderWidth: 1,
+        tension: 0.3,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: isPie },
+      },
+      scales: isPie ? {} : {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true },
+      },
+    },
+  });
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
 </body>
 </html>
