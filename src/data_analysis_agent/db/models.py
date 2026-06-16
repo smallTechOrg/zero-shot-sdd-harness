@@ -55,6 +55,7 @@ class QueryRecordRow(Base):
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     api_request_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    iteration_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, default=_now
     )

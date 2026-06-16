@@ -5,7 +5,7 @@
 | # | Capability | File |
 |---|-----------|------|
 | 1 | CSV Upload — accept and store a CSV file | [01-csv-upload.md](01-csv-upload.md) |
-| 2 | Natural Language Query — ask a question, get a plain-text answer | [02-nl-query.md](02-nl-query.md) |
+| 2 | Natural Language Query — iterative SQL-driven ReAct loop | [02-nl-query-iterative.md](02-nl-query-iterative.md) |
 | 3 | Query History — list past questions and answers | [03-query-history.md](03-query-history.md) |
 
 ## Future Capabilities (deferred)

@@ -1,13 +1,23 @@
 from data_analysis_agent.graph.state import AgentState
 
-
-def after_load_data(state: AgentState) -> str:
-    return "handle_error" if state.get("error") else "analyze"
+_FINAL_PREFIX = "FINAL ANSWER:"
 
 
-def after_analyze(state: AgentState) -> str:
-    return "handle_error" if state.get("error") else "finalize"
+def route_after_load(state: AgentState) -> str:
+    return "handle_error" if state.get("error") else "plan_query"
 
 
-def after_finalize(state: AgentState) -> str:
+def route_after_plan(state: AgentState) -> str:
+    if state.get("error"):
+        return "handle_error"
+    if state.get("llm_response", "").upper().startswith(_FINAL_PREFIX):
+        return "finalize"
+    return "execute_query"
+
+
+def route_after_execute(state: AgentState) -> str:
+    return "handle_error" if state.get("error") else "plan_query"
+
+
+def route_after_finalize(state: AgentState) -> str:
     return "handle_error" if state.get("error") else "end"

@@ -48,7 +48,10 @@
         <strong>{{ rec.total_tokens }}</strong> tok
       </div>
       <div class="stat-pill" style="padding:0.18rem 0.6rem;font-size:0.78rem;">
-        <span>{{ rec.api_request_count | default(1) }} call{{ 's' if rec.api_request_count != 1 else '' }}</span>
+        <span>{{ rec.iteration_count | default(0) }} SQL iter{{ 's' if rec.iteration_count != 1 else '' }}</span>
+      </div>
+      <div class="stat-pill" style="padding:0.18rem 0.6rem;font-size:0.78rem;">
+        <span>{{ rec.api_request_count | default(1) }} LLM call{{ 's' if rec.api_request_count != 1 else '' }}</span>
       </div>
       {% if rec.estimated_cost_usd is not none and rec.estimated_cost_usd > 0 %}
       <div class="stat-pill" style="padding:0.18rem 0.6rem;font-size:0.78rem;">

@@ -39,7 +39,11 @@
       <strong>{{ query_record.total_tokens | default(0) }} tok</strong>
     </div>
     <div class="stat-pill">
-      <span>API calls</span>
+      <span>SQL iterations</span>
+      <strong>{{ query_record.iteration_count | default(0) }}</strong>
+    </div>
+    <div class="stat-pill">
+      <span>LLM calls</span>
       <strong>{{ query_record.api_request_count | default(1) }}</strong>
     </div>
     {% if query_record.estimated_cost_usd is not none %}

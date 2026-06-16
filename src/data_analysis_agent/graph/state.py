@@ -9,7 +9,9 @@ class AgentState(TypedDict, total=False):
     csv_path: str
     column_names: list[str]
     row_count: int
-    data_sample: str
+    query_history: list[dict]
+    iteration_count: int
+    llm_response: str
     answer: str
     input_tokens: int
     output_tokens: int

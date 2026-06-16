@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="google/gemini-2.5-flash")
     log_level: str = Field(default="INFO")
     upload_dir: str = Field(default="uploads")
+    max_agent_iterations: int = Field(default=10)
 
     @property
     def resolved_llm_provider(self) -> str:
