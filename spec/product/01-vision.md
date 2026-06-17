@@ -2,34 +2,37 @@
 
 ## What This Agent Does
 
-A web-based data analysis agent that lets users upload a CSV file and ask questions about their data in plain English. The agent uses a LangGraph ReAct loop backed by OpenRouter (Gemini 2.5 Flash by default) to generate and execute SQL queries against the full dataset iteratively until it has a confident answer. Results and query history are stored locally in SQLite and shown inline on the dataset page.
+A web-based data analysis agent that lets users connect data sources, then ask natural language questions about them in persistent sessions. Under the hood, the agent uses a **tool registry** pattern: each data source registers one or more executable tools (e.g., "run SQL query"), and the LangGraph ReAct loop uses those tools iteratively to answer the user's question from the full data.
+
+For v0.1 the only supported data source type is a CSV file. Uploading a CSV creates a `DataSource`, a `Tool` of type `csv_query`, and a `ToolCapability` called `run_query`. Future data source types (REST API, GraphQL, local shell commands) slot in by adding new tool types — no changes to the agent loop or UI shell.
 
 ## Who Uses It
 
-Data analysts, business users, and developers who have tabular data in CSV format and want quick answers without writing SQL or Python. They upload a file, type a question, and get an accurate answer immediately — derived from running real SQL against the full dataset, not a sample.
+Data analysts, business users, and developers who have tabular data and want to ask plain-English questions without writing SQL or Python. They connect a data source once, then open sessions to interrogate it repeatedly.
 
 ## Core Problem Being Solved
 
-Querying and exploring CSV data typically requires coding skills (pandas, SQL) or expensive BI tools. This agent removes that barrier: any user can ask "What is the average revenue by region?" and get an answer instantly, without touching a terminal.
+Querying and exploring data typically requires coding skills (pandas, SQL, REST clients) or expensive BI tools. This agent removes that barrier: a user connects a data source once, then asks questions in plain English across as many sessions as they like. The modular tool design means the same pattern extends to APIs and databases without rebuilding the agent.
 
 ## Success Criteria
 
-- [x] User can upload a CSV file via a web form and see it accepted
-- [x] User can type a natural language question and receive a plain-text answer grounded in real SQL results
-- [x] The agent runs multiple SQL queries iteratively and self-corrects on SQL errors before producing a final answer
-- [x] Each query is stored in SQLite with the question, answer, token usage, cost estimate, and full SQL trace
-- [x] The app runs fully in stub mode without an API key (for development)
-- [x] The app starts with a single command and the UI is accessible at http://localhost:8001
-- [x] Home page shows previous sessions; user can continue any session or delete it
-- [x] Dataset page shows all past Q&A inline (no separate answer page)
+- [x] User can upload a CSV file as a data source and see it listed on the home page
+- [x] User can start a new session on a data source and ask natural language questions
+- [x] User can return to any previous session and continue asking questions
+- [x] The agent uses a ReAct loop to run SQL queries iteratively against the full dataset and self-corrects on SQL errors
+- [x] Each query is stored in SQLite with the question, answer, SQL trace, token usage, and cost estimate
+- [x] The app runs fully in stub mode without an API key
+- [x] Tool capabilities are stored in SQLite and loaded into the agent at runtime — not hardcoded
+- [x] Home page lists all data sources; each data source shows its sessions
 
 ## What This Agent Does NOT Do (Out of Scope for v0.1)
 
+- Non-CSV data source types (REST API, GraphQL, shell) — architecture supports them; not wired up yet
 - Charts, visualizations, or dashboards (deferred to Phase 4)
 - AI-written insight summaries (deferred to Phase 5)
-- React/Vite frontend — v0.1 uses Jinja2 templates (React promoted to Phase 4)
+- React/Vite frontend — v0.1 uses Jinja2 templates
 - User authentication or multi-user support
-- Multi-file or multi-dataset sessions
+- Multi-file data sources or joining across data sources
 
 ## Key Constraints
 
@@ -37,13 +40,14 @@ Querying and exploring CSV data typically requires coding skills (pandas, SQL) o
 - SQLite only — no PostgreSQL required
 - All commands run from the repo root with `uv run` prefix
 - SQL execution is read-only (`SELECT` only); non-SELECT SQL is rejected
+- Tool capability parameter schemas stored as JSON; validated at dispatch time
 
 ## Phases of Development
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Domain models + SQLite schema (Dataset, QueryRecord, AgentRun) | ✅ Done |
-| 2 | Stubbed LangGraph pipeline + FastAPI UI end-to-end | ✅ Done |
-| 3 | OpenRouter integration + iterative SQL ReAct loop + UI polish | ✅ Done |
+| 1 | Domain models + SQLite schema | ✅ Done (being refactored) |
+| 2 | Stubbed LangGraph pipeline + FastAPI UI end-to-end | ✅ Done (being refactored) |
+| 3 | Tool registry + modular data sources + UI redesign | 🔄 In Progress |
 | 4 | Charts and visualizations | Deferred |
 | 5 | AI-written insights | Deferred |

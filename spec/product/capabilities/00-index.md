@@ -4,16 +4,24 @@
 
 | # | Capability | File |
 |---|-----------|------|
-| 1 | CSV Upload — accept and store a CSV file | [01-csv-upload.md](01-csv-upload.md) |
-| 2 | Natural Language Query — iterative SQL-driven ReAct loop | [02-nl-query-iterative.md](02-nl-query-iterative.md) |
-| 3 | Query History — list past questions and answers | [03-query-history.md](03-query-history.md) |
+| 1 | Connect a CSV file as a data source (creates Tool + ToolCapability) | [01-connect-csv.md](01-connect-csv.md) |
+| 2 | Answer natural language questions using an iterative tool-call ReAct loop | [02-nl-query-iterative.md](02-nl-query-iterative.md) |
+| 3 | Manage sessions per data source (create, list, delete) | [03-sessions.md](03-sessions.md) |
 
 ## Future Capabilities (deferred)
 
 | # | Capability | Target Phase |
 |---|------------|--------------|
-| 4 | Charts & Visualizations | Phase 4 |
-| 5 | AI-written Insights | Phase 5 |
-| 6 | React/Vite Frontend | Phase 4 |
-| 7 | Multi-dataset management | Phase 6 |
-| 8 | User authentication | Phase 7 |
+| 4 | Non-CSV data source types: REST API, GraphQL, shell | Phase 4 |
+| 5 | Charts & Visualizations | Phase 5 |
+| 6 | AI-written Insights | Phase 6 |
+| 7 | React/Vite Frontend | Phase 5 |
+| 8 | Multi-user / authentication | Phase 7 |
+
+## How to Add a New Capability
+
+Run `/spec-new-capability [description]` or ask the spec-writer directly. The spec-writer will:
+1. Create a new file in this directory
+2. Update this index
+3. Flag any dependencies on existing capabilities
+4. The spec-reviewer will validate it fits the architecture

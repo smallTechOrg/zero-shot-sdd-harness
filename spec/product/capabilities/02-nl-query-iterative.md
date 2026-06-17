@@ -1,47 +1,63 @@
-# Capability 2: Iterative SQL-Driven Natural Language Query
+# Capability 2: Natural Language Query (Iterative Tool-Call ReAct Loop)
 
 ## Overview
 
-The agent answers a user's natural language question by iteratively generating and executing SQL queries against the uploaded CSV data until it has enough information to provide a confident final answer.
+The agent answers a user's natural language question by iteratively invoking tool capabilities loaded from the database until it has enough information to provide a confident final answer.
 
-This replaces the original "sample + single LLM call" approach with a **ReAct loop**: the LLM reasons, acts (generates SQL), observes the result, and repeats until it can conclude.
+This is a **ReAct loop**: the LLM reasons, selects a tool capability to invoke, observes the result, and repeats until it emits `FINAL ANSWER:`. Tool capabilities are not hardcoded — they are loaded from SQLite at runtime, making the loop reusable across different data source types.
 
 ## User-Facing Behaviour
 
-1. User types a natural language question about an uploaded dataset.
-2. The agent runs one or more SQL queries against the full dataset (not just a sample).
-3. When the LLM determines it has enough information, it returns a plain-text final answer.
-4. The answer page shows: the answer, how many SQL iterations were run, total token usage, and estimated cost.
+1. User types a natural language question in a session.
+2. The agent loads the tool registry for the session's DataSource.
+3. The agent runs one or more tool capability invocations (e.g., SQL queries).
+4. When the LLM determines it has enough information, it returns a plain-text final answer.
+5. The session page shows the answer inline with: iteration count, token usage, cost estimate, and collapsible SQL trace.
 
 ## Agent Loop (ReAct)
 
 ```
-load_data
+load_data (load Tool registry from DB + load CSV into in-memory SQLite)
     │
     ▼
-plan_query ◄────────────────────────────┐
-    │                                   │
-    ▼                                   │
-[LLM output has SQL?] ──yes──► execute_query ──► [max iterations?]
-    │ no (FINAL ANSWER)                              │ no ──────────┘
-    ▼                                               │ yes
-finalize                                            ▼
-    │                                          handle_error (timeout)
-    ▼
-  END
+plan_action ◄─────────────────────────────────────────┐
+    │                                                  │
+    ├── (FINAL ANSWER:) → finalize → END               │
+    │                                                  │
+    └── (tool call JSON) → execute_action ─────────────┘
+                               │
+                               └── (error) → plan_action (self-correction)
+                               └── (max iterations) → handle_error
+```
+
+## LLM Protocol
+
+### Tool call format (LLM output when it wants to act)
+
+```json
+{"capability": "run_query", "parameters": {"query": "SELECT ..."}}
+```
+
+### Termination format (LLM output when it's done)
+
+```
+FINAL ANSWER: <the complete answer in plain text>
 ```
 
 ## Termination Conditions
 
 | Condition | Action |
 |-----------|--------|
-| LLM emits `FINAL ANSWER: ...` | Extract answer text, route to `finalize` |
-| Iteration count ≥ `max_agent_iterations` (default 10) | Route to `handle_error` with "max iterations exceeded" |
-| Any node raises an exception | Route to `handle_error` |
+| LLM emits `FINAL ANSWER: ...` | Extract answer, route to `finalize` |
+| SQL error | Append error to history as `is_error: True`, loop back to `plan_action` |
+| Iteration count ≥ `max_agent_iterations` (default 10) | Route to `handle_error` ("max iterations exceeded") |
+| Unknown capability name | Fatal — route to `handle_error` |
+| Non-SELECT SQL | Fatal — route to `handle_error` |
+| LLM call fails | Fatal — route to `handle_error` |
 
-## SQL Execution Rules
+## Tool Call Execution Rules (csv_query / run_query)
 
-- Only `SELECT` statements are allowed. Non-SELECT SQL is rejected as an error.
+- Only `SELECT` statements are allowed. Non-SELECT SQL is a fatal error.
 - The table is always named `data`.
 - Results are capped at 200 rows to keep LLM context bounded.
 - Numeric results are formatted to 4 significant figures.
@@ -49,40 +65,48 @@ finalize                                            ▼
 
 ## Prompt Protocol
 
-### `plan_query` prompt (each iteration)
+### `plan_action` prompt (each iteration)
 
 ```
-You are a data analyst. You have access to a SQL executor connected to the following dataset:
+You are a data analyst. You have access to the following tools:
 
+Tool: csv_query
+  Capability: run_query
+  Description: Execute a SQL SELECT query against the dataset. The table is always named 'data'.
+  Parameters: {"query": {"type": "string"}}
+
+Dataset schema:
 Table: data
 Columns: <column_names>
 
 User question: <question>
 
 <if iteration > 0:>
-Previous queries and results:
-[1] SQL: SELECT ...
-    Result: ...
+Previous tool calls and results:
+[1] capability: run_query
+    parameters: {"query": "SELECT ..."}
+    result: ...
 
-[2] SQL: SELECT ...
-    Result: ...
+[2] capability: run_query
+    parameters: {"query": "SELECT ..."}
+    result: Error: misuse of aggregate function MIN()
+    → This call failed. Please correct it.
 </end if>
 
 Based on the above, decide your next step:
-- If you need more data: respond with a single SQL SELECT query and nothing else.
-- If you have enough information to answer the user's question: respond with exactly:
+- If you need more data: respond with a JSON tool call (no markdown, no backticks).
+- If you have enough information: respond with exactly:
   FINAL ANSWER: <your complete answer here>
-
-Do not include markdown, backticks, or explanations when writing SQL.
 ```
 
-## State Fields (additions to existing AgentState)
+## State Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `query_history` | `list[dict]` | Each entry: `{"sql": str, "result": str}` |
-| `iteration_count` | `int` | Number of SQL queries executed so far |
-| `llm_response` | `str` | Raw LLM output from last `plan_query` call |
+| `tools` | `list[dict]` | Loaded from DB: `[{"name", "type", "capabilities": [{"name", "description", "parameter_schema"}]}]` |
+| `action_history` | `list[dict]` | Each entry: `{"capability": str, "parameters": dict, "result": str, "is_error": bool}` |
+| `iteration_count` | `int` | Number of tool calls executed so far |
+| `llm_response` | `str` | Raw LLM output from last `plan_action` call |
 
 ## Persistence
 
@@ -90,11 +114,11 @@ Do not include markdown, backticks, or explanations when writing SQL.
 |-------|-------------|
 | `answer` | Yes (`query_records.answer`) |
 | `iteration_count` | Yes (`query_records.iteration_count`) |
-| `query_history` | No (transient pipeline state only) |
-| Token counts, cost | Yes (existing columns) |
+| `action_history` | Yes (`query_records.query_history_json`) — displayed as agent reasoning trace in UI |
+| Token counts, cost | Yes (existing columns on `query_records`) |
 
 ## Out of Scope (this capability)
 
-- Streaming intermediate results to the browser
-- User-visible query history / step-by-step trace in the UI
-- Chart generation from SQL results (see Capability 4)
+- Streaming intermediate results to the browser (deferred)
+- Chart generation from tool results (Capability 5)
+- Non-CSV data source types (future tool executors)
