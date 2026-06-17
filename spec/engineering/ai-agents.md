@@ -26,7 +26,7 @@ These rules are never optional, never skipped, and must survive context compress
 
 8. **Stub LLM outputs must be distinct per pipeline node and article-shaped.** Pipeline nodes that share a stub provider must inject unambiguous tags (e.g. `<node:plan>`, `<node:draft>`, `<node:title>`) into their prompts, and the stub must branch on those tags — never on prose keywords from the prompt body (keyword matching cross-contaminates: the word "outline" in a draft prompt must not cause the stub to emit outline bullets instead of a draft). Stub "draft" output must contain paragraphs/headings, not just bullets, so offline demos are credible.
 
-9. **Data-access agents must use a ReAct loop — never a "sample and guess" pipeline.** If the agent's job is to answer questions about external data (CSV files, databases, APIs, file systems), it must generate executable actions (SQL, API calls, file reads), run them against the **full** data, and feed results back to the LLM iteratively until the LLM signals a final answer. A pipeline that passes a sample of data to the LLM and expects a single-shot answer will produce wrong results at scale and must be redesigned before Phase 2 is marked complete. The correct pattern — load → plan action → execute action → observe result → loop until done — must be specced in `07-agent-graph.md` before any code is written. See Section 10 of this file for the full pattern.
+9. **Agents that act on the outside world must use a ReAct loop — never a "sample and guess" pipeline.** If the agent answers questions using tools, data (CSV, databases, APIs, files), or search, it must generate executable actions, run them against the **full** data, and feed results back to the LLM iteratively (reason/plan → act → observe, looping) until the LLM signals a final answer. A single-shot pipeline that passes a sample to the LLM produces wrong results at scale and must be redesigned before Phase 2 is marked complete. Spec the loop in `07-agent-graph.md` before writing any code; see Section 10 for the full pattern.
 
 10. **Every commit must be pushed immediately.** `git commit` and `git push` are a single atomic action — never one without the other. Use `git commit -m "..." && git push origin <branch>` as a single command. A commit that is not pushed does not exist as far as the project is concerned. This is not optional and is not context-compression-safe — if you remember only this sentence: **commit then push, every time, no exceptions.**
 
@@ -159,130 +159,50 @@ Build what the spec says, nothing more.
 
 ## 10. Agent Loop Design Patterns
 
-### When to use a ReAct loop
+### The ReAct loop
 
-Use a ReAct (Reason + Act) loop whenever the agent needs to act on the outside world to answer a question, rather than answering from a single prompt. Each iteration runs the same three-step cycle — **reason/plan → act → observe** — and loops until the agent decides it is done:
+Any agent that acts on the outside world to answer a question — tool use, data queries, web search, file/API access — must run a **ReAct** ("Reason + Act") loop, not a single-shot pipeline. Each iteration runs the same cycle and repeats until the agent signals it is done:
 
-- **reason/plan** — the LLM decides the next action (or signals it is finished)
-- **act** — execute that action against the real environment
-- **observe** — feed the result back into the next reason step
+**reason/plan** (LLM picks the next action, or signals done) → **act** (execute it) → **observe** (feed the result back into the next reason step).
 
-(The pattern's name, *ReAct*, is just "Reason + Act"; "plan, act, observe" is the cycle that runs inside it. What makes it ReAct rather than plan-everything-up-front is that reasoning and acting are interleaved on every iteration.)
-
-This covers any tool-using agent — for example:
-
-- Data analysis over CSV / database tables
-- Web search agents that need to look up facts
-- File system agents that browse or read files
-- API agents that call external services
-
-**Never** design a single-shot pipeline for these cases ("gather some context, pass it to the LLM, return whatever it says"). Single-shot answers cannot verify their inputs and cannot self-correct, so they break down as soon as the real environment differs from the sampled context.
-
-### The canonical ReAct loop shape
+Reasoning and acting interleave every iteration — that is what makes it ReAct rather than planning everything up front. A single-shot pipeline ("gather context, pass to the LLM, return its answer") cannot verify its inputs or self-correct, and breaks down once the real environment differs from the sampled context.
 
 ```
-START
-  │
-  ▼
-setup              ← prepare what the agent will act on (load data, open a connection, build an index)
-  │
-  ▼
-plan_action ◄───────────────────────────────────┐   ← reason/plan
-  │                                             │
-  ├──(error / LLM failure) → handle_error       │
-  │                                             │
-  ├──(FINAL ANSWER signal) → finalize → END     │
-  │                                             │
-  └──(action returned) → execute_action ────────┘   ← act, then observe (result loops back)
-                              │
-                              ├──(non-recoverable error) → handle_error
-                              │
-                              └──(recoverable error: feed back to LLM for self-correction)
+START → setup → plan_action ──(action)──► execute_action ──┐
+                  ▲   │                                     │
+                  │   ├─(FINAL ANSWER)─► finalize → END     │
+                  │   └─(error)─► handle_error              │
+                  └──────────(observe: result loops back)───┘
 ```
 
-### Termination protocol (mandatory)
+- **setup** — prepare what the agent acts on (load data, open a connection, build an index)
+- **plan_action** = reason/plan · **execute_action** = act · result appended to state and looped back = observe
 
-The LLM must have an unambiguous way to signal it is done. Define this in the spec before writing code:
+### Mandatory mechanics
 
-```
-FINAL ANSWER: <the complete answer text here>
-```
+- **Termination signal.** The LLM ends the loop with a fixed prefix, e.g. `FINAL ANSWER: <text>`. `plan_action` checks for it (case-insensitive): if present, strip it and route to `finalize`; otherwise treat the response as the next action. Without this the loop never terminates on its own.
+- **Max-iterations guard.** Every loop has a configurable ceiling (`max_agent_iterations`, default 10). When `iteration_count` reaches it, route to `handle_error` — never loop unboundedly.
+- **Self-correction.** On a recoverable action error (malformed query, API 4xx, missing file), don't fail the run: append the failed action + error to history, increment `iteration_count`, and route back to `plan_action` so the LLM sees the error inline and retries. Hard-fail only on structurally invalid actions (e.g. a write when only reads are allowed), max iterations, or an LLM-call failure (network/5xx).
 
-The `plan_action` node checks if the LLM response starts with `FINAL ANSWER:` (case-insensitive). If yes, strip the prefix and route to `finalize`. If no, treat the response as the next action to execute and loop.
+### State
 
-This is not optional — without a termination signal, the loop runs until max iterations.
-
-### Max iterations guard (mandatory)
-
-Every ReAct loop must have a configurable ceiling:
+`AgentState` carries the context the LLM needs on every `plan_action` call:
 
 ```python
-max_agent_iterations: int = Field(default=10)
+action_history: list[dict]  # [{"action": str, "result": str, "is_error": bool}]
+iteration_count: int
+llm_response: str           # raw last LLM output — router inspects it for FINAL ANSWER
 ```
 
-After `execute_action` increments `iteration_count`, check:
-```python
-if iteration_count >= max_iterations:
-    return {**state, "error": f"Max iterations ({max_iterations}) reached"}
-```
+Persist `action_history` so the reasoning trace can be displayed or audited. Resources that can't be serialized into state (DB connection, vector index, file handle) live in a module-level store keyed by `run_id`, released in **both** `finalize` and `handle_error`.
 
-Route to `handle_error`. Never let a loop run unboundedly.
+### Spec it before coding
 
-### Self-correction on action errors
-
-When an action fails (e.g. a malformed query, an API 4xx, a missing file), **do not immediately fail the run**. Instead:
-
-1. Append the failed action and its error message to the action history in state, flagged as an error
-2. Increment `iteration_count`
-3. Route back to `plan_action`
-
-The prompt for the next `plan_action` call shows the error inline so the LLM can correct itself:
-
-```
-[2] Action: <the action that failed>
-    Error: <the error message>
-    → This action failed. Please correct it and try again.
-```
-
-Only fail the run if:
-- The action is structurally invalid (e.g. a write when only reads are allowed)
-- Max iterations is reached
-- The LLM call itself fails (network error, 5xx)
-
-### Action history in state
-
-The running log of actions and their results must live in agent state so the full context is available to the LLM on every `plan_action` call:
-
-```python
-class AgentState(TypedDict, total=False):
-    ...
-    action_history: list[dict]  # [{"action": str, "result": str, "is_error": bool}]
-    iteration_count: int
-    llm_response: str           # raw last LLM output — router inspects this for FINAL ANSWER
-```
-
-Persist the action history so the reasoning trace can be displayed or audited later.
-
-### Non-serializable resources
-
-If `setup` creates a resource that cannot be serialized into agent state (a DB connection, a vector index, an open file handle), keep it in a module-level store keyed by `run_id`, and release it in **both** the `finalize` and `handle_error` paths so it is cleaned up whether the run succeeds or fails.
-
-### What to spec in 07-agent-graph.md before writing code
-
-Before writing any node code, `07-agent-graph.md` must answer:
-
-1. What kind of action does the LLM generate? (query, HTTP request, file path, tool call, etc.)
-2. What is the exact FINAL ANSWER signal string?
-3. What constitutes a recoverable action error vs a fatal error?
-4. What is the max iterations default?
-5. What does `setup` prepare, and how is it cleaned up?
-6. What fields does `AgentState` carry for history and iteration count?
-
-If any of these are missing from the spec, raise a blocker before Phase 2 starts.
+`07-agent-graph.md` must answer, before any node code is written: (1) what action the LLM generates (query, HTTP request, file path, tool call…); (2) the exact FINAL ANSWER string; (3) the recoverable-vs-fatal error boundary; (4) the max-iterations default; (5) what `setup` prepares and how it's cleaned up; (6) what fields `AgentState` carries for history and iteration count. If any are missing, raise a blocker before Phase 2.
 
 ---
 
-## 12. When Stuck
+## 11. When Stuck
 
 If requirements are unclear:
 1. Stop
@@ -294,7 +214,7 @@ If the spec is ambiguous:
 2. Propose an interpretation
 3. Wait for confirmation before implementing
 
-## 13. Closing a Session
+## 12. Closing a Session
 
 Before ending a session:
 - [ ] Working tree is clean (all changes committed and pushed)

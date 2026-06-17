@@ -5,6 +5,8 @@
 > If your project has no agent framework (e.g., it's a simple script or API), delete this file.
 >
 > The spec-reviewer treats this file as a **CRITICAL BLOCKER** — the tech design will not be approved if this file is absent or incomplete when an agent framework is in use.
+>
+> **If the agent acts on the outside world** (tools, data, search — see Rule #9), it must use a **ReAct loop**. This file must then answer the six pre-coding questions in `spec/engineering/ai-agents.md` Section 10, the State below must carry the loop-control fields, and Edge Topology must show the `plan_action → execute_action` loop, not a one-shot pipeline.
 
 ---
 
@@ -23,6 +25,11 @@ class AgentState(TypedDict):
 
     # Control
     error: str | None   # set by any node on fatal failure
+
+    # ReAct loop only (omit for one-shot pipelines)
+    action_history: list[dict]  # [{"action": str, "result": str, "is_error": bool}]
+    iteration_count: int        # guarded against max_iterations
+    llm_response: str           # raw last LLM output — router checks it for FINAL ANSWER
 ```
 
 ---
