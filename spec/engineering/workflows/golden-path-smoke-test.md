@@ -31,6 +31,23 @@ Pick the single most important user flow (the one from `spec/product/01-vision.m
    - The page length passes a sanity threshold (e.g. `len(page) > 600`)
 4. **GET** list/index pages to confirm the new artifact appears there.
 
+### For agents with multi-turn sessions (chat, iterative Q&A)
+
+The smoke test **must** exercise at least two follow-up questions on the same session:
+
+5. **POST** a second question to the same session. Assert 200 and a non-empty answer. A single-question golden-path test misses the most common failure mode: session-scoped resources (DataFrames, parsed files, vector indexes) that are released after Q1 and unavailable for Q2.
+
+If the second question returns any error — `SESSION_DATA_LOST`, 410, 500 — the Phase 2 gate has not passed, regardless of whether Q1 succeeds.
+
+### Reasoning trace requirements (agent outputs)
+
+For any agent that returns a `reasoning_trace` or `action_history`, the smoke test must assert:
+
+- Each trace entry has a `description` field containing a **plain-English sentence** (not raw code, SQL, or a Python expression).
+- The `description` is not empty and is not identical to the raw `action` expression.
+
+Raw-code reasoning traces are a UX bug. Non-technical users cannot interpret `df.groupby("region")["sales"].sum()` — the agent must narrate what it is doing in plain English alongside any code it generates.
+
 ## Python / FastAPI reference
 
 ```python

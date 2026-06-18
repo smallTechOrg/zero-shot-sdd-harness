@@ -68,6 +68,58 @@ def render(request: Request, name: str, **ctx):
     return templates.TemplateResponse(request, name, ctx)
 ```
 
+### Safe code-executing tool pattern (pandas, SQL, shell)
+
+When the agent generates executable code as its action (a pandas expression, SQL query, shell command), the executor **must** use AST validation, not a regex parser:
+
+```python
+import ast
+
+_BLOCKED_ATTRS = frozenset({"__class__", "__dict__", "__builtins__", "to_csv", "pipe", ...})
+_ALLOWED_NAMES = frozenset({"df", "pd", "True", "False", "None"})
+
+def execute(df, action: str) -> tuple[str, bool]:
+    try:
+        tree = ast.parse(action, mode="eval")
+    except SyntaxError as e:
+        return f"SyntaxError: {e}", True
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return "Safety error: import not allowed", True
+        if isinstance(node, ast.Attribute) and (node.attr.startswith("_") or node.attr in _BLOCKED_ATTRS):
+            return f"Safety error: attribute '{node.attr}' not allowed", True
+        if isinstance(node, ast.Name) and node.id not in _ALLOWED_NAMES:
+            return f"Safety error: name '{node.id}' not in scope", True
+
+    result = eval(compile(tree, "<expr>", "eval"), {"__builtins__": {}, "df": df, "pd": pd})
+    return str(result), False
+```
+
+**Why not regex?** LLMs generate chained expressions naturally — `df.groupby("region")["sales"].sum()`, `df.sort_values("date").head(10)`, `df["col"].value_counts().nlargest(5)`. A regex that tries to parse call structure will fail on almost every real query and fill the action history with parse errors. The AST approach handles all valid Python without a bespoke parser.
+
+---
+
+### User-friendly agent reasoning trace
+
+The `reasoning_trace` / `action_history` shown to users must be in plain English, not raw code. Structure every plan_action LLM response as:
+
+```
+DESCRIPTION: <one sentence a non-technical user can understand>
+ACTION: <the executable expression>
+```
+
+Store both in each `action_history` entry:
+```python
+{"description": "Grouping sales by region to find the total for each.", "action": "df.groupby('region')['sales'].sum()", "result": "...", "is_error": False}
+```
+
+The golden-path smoke test must assert that `description` is present and non-empty on each trace entry. Showing `df.groupby("region")["sales"].sum()` to a non-technical user is a UX bug — they asked a plain-English question and expect a plain-English explanation of what the agent is doing.
+
+The `force_finalize` summary must also use `description` fields from successful steps, not raw action expressions.
+
+---
+
 ### LLM provider selection and stubs
 
 Any project with an LLM dependency must follow these patterns:
@@ -85,6 +137,24 @@ Any project with an LLM dependency must follow these patterns:
 ---
 
 ## Integration Test Patterns
+
+### Stub-mode detection in tests — use `setenv("KEY", "")` not `delenv`
+
+When a test needs to simulate "no API key set" (stub mode), use `monkeypatch.setenv("MYAPP_API_KEY", "")` instead of `monkeypatch.delenv(...)`.
+
+**Why:** `pydantic-settings` reads from both the process environment and the `.env` file. `delenv` removes the key from the process environment, but pydantic-settings then falls back to the `.env` file, which typically has a placeholder value (`your-api-key-here`). That placeholder is a non-empty string, so `resolved_llm_provider` returns `"gemini"` instead of `"stub"`, and the test fails unexpectedly.
+
+Setting the env var to an empty string overrides the `.env` file value with the empty string, which the `resolved_llm_provider` property correctly treats as stub mode.
+
+```python
+# CORRECT — empty string overrides .env placeholder
+monkeypatch.setenv("MYAPP_GEMINI_API_KEY", "")
+
+# WRONG — pydantic-settings falls back to .env file value ("your-key-here" → truthy → "gemini")
+monkeypatch.delenv("MYAPP_GEMINI_API_KEY", raising=False)
+```
+
+---
 
 ### Replacing an async init function in tests
 

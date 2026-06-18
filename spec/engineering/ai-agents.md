@@ -196,7 +196,7 @@ START → setup → plan_action ──(action)──► execute_action ──┐
 - **Max-iterations guard.** Configurable ceiling (`max_agent_iterations`, default 10). On reaching it — or after repeated consecutive errors — route to **`force_finalize`**, never loop unboundedly.
 - **Best-effort finalization (`force_finalize`).** Running out of iterations is not a crash: synthesise the best answer from `action_history` and note what's missing — never a bare "I couldn't do it." Reserve `handle_error` for fatal failures (data missing, LLM/network down).
 - **Self-correction.** On a recoverable action error (bad query, API 4xx, missing file), append the action + error to history and route back to `plan_action` so the LLM sees it inline and retries. Hard-fail (→ `handle_error`) only on a structurally invalid action or an LLM-call failure.
-- **Action-safety boundary.** Treat model-generated actions as untrusted: permit only an explicit operation set (read-only `SELECT`, a named tool allowlist), validate each action before running it, and never `exec`/`eval` raw output unsandboxed.
+- **Action-safety boundary.** Treat model-generated actions as untrusted: validate each action before running it, and never `exec`/`eval` raw output unsandboxed. For code-generating actions (pandas, SQL, shell) the safe executor pattern is **AST-parse → walk + reject dangerous nodes → compile + eval in a restricted namespace** (no `__builtins__`, only explicitly listed names). Do not use a regex-dispatch pattern: LLMs naturally generate chained expressions (`df.groupby(x)[y].sum()`, `df.sort_values(by=x).head(n)`) that regex will fail to parse, producing spurious errors. A frozenset allowlist of attribute names inspected during the AST walk is the correct safety mechanism — not a regex that tries to parse call structure.
 - **Operator observability.** Every LLM call returns structured usage (input/output tokens, estimated cost) accumulated in state and persisted on the run; every node emits a structured (JSON) log bound to `run_id`. Token/cost per run must never be invisible.
 - **User transparency.** Observability is not only logs. The agent must show the user *what it is doing as it happens* — each step's action, its result, then the final answer — streamed or rendered from `action_history`. The run is a glass box, never a spinner hiding a black box.
 
@@ -205,7 +205,7 @@ START → setup → plan_action ──(action)──► execute_action ──┐
 `AgentState` carries the context the LLM needs on every `plan_action` call:
 
 ```python
-action_history: list[dict]  # [{"action": str, "result": str, "is_error": bool}]
+action_history: list[dict]  # [{"description": str, "action": str, "result": str, "is_error": bool}]
 iteration_count: int
 llm_response: str           # raw last LLM output — router inspects it for FINAL ANSWER
 tokens_input: int           # accumulated usage — persisted on the run record
@@ -213,7 +213,16 @@ tokens_output: int
 estimated_cost_usd: float | None
 ```
 
-Persist `action_history` — it is both the live user-facing trace and the audit log — along with the usage fields. Resources that can't be serialized into state (DB connection, vector index, file handle) live in a module-level store keyed by `run_id`, released in **every** terminal node (`finalize`, `force_finalize`, `handle_error`) — prefer a `finally` block so no path can leak the resource.
+`action_history` entries **must** include a `description` field — a plain-English sentence the user can read. Raw code or query strings alone are never acceptable in the user-facing trace. The LLM prompt must ask for a description alongside every action (e.g. `DESCRIPTION: <plain English>\nACTION: <expression>`); the executor parses both and stores both.
+
+Persist `action_history` — it is both the live user-facing trace and the audit log — along with the usage fields.
+
+**Resource lifecycle — run-scoped vs. session-scoped:**
+
+- **Run-scoped resources** (a single LLM call's context, a short-lived network connection) live in the state or local scope and are released at the end of the node function. No module-level store needed.
+- **Session-scoped resources** (DataFrames, parsed files, vector indexes, database connections that span multiple user questions on the same session) live in a module-level store keyed by `session_id` — **not** `run_id`. They must **not** be released in terminal nodes (`finalize`, `force_finalize`, `handle_error`) because the user will ask follow-up questions on the same session. Release them only when the session is explicitly deleted (a DELETE endpoint or an LRU eviction policy). Releasing them per-question causes `SESSION_DATA_LOST` on the second question — this is a correctness bug, not a memory leak fix.
+
+If the resource was session-scoped but the server restarted (process memory lost), the API must return a clear, user-actionable error ("Session data is no longer available — please re-upload your file") rather than a generic 500.
 
 ### Spec it before coding
 
