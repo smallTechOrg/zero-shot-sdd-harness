@@ -1,7 +1,8 @@
 // API client for the DataChat backend (HTTP + SSE). Base URL is configurable.
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8001";
+// Default to same-origin (empty base → relative URLs) since FastAPI serves this UI at :8001.
+// Override with NEXT_PUBLIC_API_BASE to point at a separately-hosted API (e.g. dev on :3000).
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export type ColumnSchema = { name: string; type: string };
 export type FileRead = {

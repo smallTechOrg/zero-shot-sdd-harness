@@ -38,30 +38,35 @@ uv run alembic current
 
 ## Run the server
 
-Run from the repo root:
+### Build the web UI (one-time)
+
+The chat UI lives in [`frontend/`](frontend/) — a dataset picker + CSV upload, a multi-turn chat with a
+live agent trace, rendered result tables, and **charts** (Recharts). It is built as a static export and
+served by the same FastAPI server — **one process, one port, no separate Node server at runtime.**
+
+Run from the repo root (once, and again whenever the UI changes):
+
+```bash
+cd frontend
+npm install
+npm run build      # produces frontend/out, served by FastAPI at /
+cd ..
+```
+
+### Run the server (UI + API together)
 
 ```bash
 uv run python -m datachat
 ```
 
-The API serves on **http://localhost:8001** (set `PORT` to override).
+Open **http://localhost:8001** — the web UI **and** the API are both served there (set `PORT` to
+override). If you start the server without building the UI first, the API still runs and `/` returns a
+short JSON note telling you to build it.
 
-## Run the chat UI (Next.js)
-
-The web UI lives in [`frontend/`](frontend/) — a dataset picker + CSV upload, a multi-turn chat with a
-live agent trace, rendered result tables, and **charts** (Recharts). It talks to the API above.
-
-Run from the repo root (with the API server running):
-
-```bash
-cd frontend
-npm install
-npm run dev        # serves the UI on http://localhost:3000
-```
-
-Open **http://localhost:3000**. The UI calls the API at `http://localhost:8001` by default; override with
-`NEXT_PUBLIC_API_BASE` (set it in `frontend/.env.local`). The API must allow the UI's origin — set
-`DATA_ANALYST_CORS_ORIGINS` (defaults to `http://localhost:3000`).
+> Developing the UI? You can run the Next.js dev server separately with
+> `cd frontend && npm run dev` (http://localhost:3000) and point it at the API with
+> `NEXT_PUBLIC_API_BASE=http://localhost:8001` in `frontend/.env.local`; allow that origin with
+> `DATA_ANALYST_CORS_ORIGINS`. For normal use the single-port build above is simpler.
 
 ## Try it (golden path)
 
@@ -132,9 +137,9 @@ DATA_ANALYST_GEMINI_API_KEY=<your key> uv run python -m evals.harness
 
 ### Frontend / end-to-end (Playwright)
 
-The browser E2E drives the real stack (browser → Next.js → API → agent → DuckDB) and asserts the
-post-JavaScript DOM (answer, result table, chart). It starts both servers itself; the backend needs the
-Gemini key.
+The browser E2E drives the real stack (browser → UI on :8001 → API → agent → DuckDB) and asserts the
+post-JavaScript DOM (answer, result table, chart). `test:e2e` builds the UI export and starts the single
+server itself; the backend needs the Gemini key.
 
 ```bash
 cd frontend

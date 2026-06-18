@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from datachat.api import conversations, datasets
+from datachat.api.ui import mount_ui
 from datachat.config.settings import get_settings
 from datachat.db.session import init_db
 from datachat.observability.events import configure_logging, get_logger
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
 
     app.include_router(datasets.router)
     app.include_router(conversations.router)
+    mount_ui(app)  # serve the exported UI at / — registered last so API routes take precedence
     return app
 
 
