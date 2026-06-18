@@ -11,59 +11,107 @@
 
 ## Language
 
-<!-- FILL IN: e.g., Python 3.12 / TypeScript 5 / Go 1.22 -->
-<!-- Recommended: Python 3.12 for backend agent logic; Node.js 20 for any frontend/tooling layer -->
+**Backend:** Python 3.12+
+**Frontend:** TypeScript 5 / Node.js 20+
 
-**Why:** <!-- reason for this choice -->
+**Why:** Python 3.12 is the best fit for the agent and data-processing layer — pandas, LangGraph, and the Google Generative AI SDK all have first-class Python support. TypeScript/Node.js is the standard choice for the browser UI (Vite + React) and ensures type safety end-to-end across the frontend.
 
 ## Agent Framework
 
-<!-- FILL IN: e.g., LangGraph / CrewAI / AutoGen / custom / none -->
+**LangGraph** (Python)
 
-**Why:** <!-- reason for this choice -->
+**Why:** LangGraph models the ReAct loop as an explicit state machine with typed state, conditional edges, and a configurable max-iterations guard — exactly what Rule #9 requires. It runs synchronously inside a FastAPI background task and streams step results via SSE without needing a separate worker process.
 
 ## LLM Provider
 
-<!-- FILL IN: e.g., Anthropic Claude / OpenAI GPT / Google Gemini -->
+**Google Gemini** (`google-generativeai` SDK)
 
-**Model:** <!-- specific model, e.g., claude-sonnet-4-6 -->
+**Model:** `gemini-2.5-flash`
 
-**Why:** <!-- reason -->
+**Why:** The user has a Gemini API key and selected Gemini at intake. `gemini-2.5-flash` is the current recommended default for Gemini (see LLM Model Name Rule below — `gemini-2.0-flash` and `gemini-1.5-flash` are unavailable for new users as of 2026). The model name is configurable via `DATA_ANALYST_LLM_MODEL` so it can be changed without a code deployment.
 
-## Backend Framework (if applicable)
+## Backend Framework
 
-<!-- FILL IN: e.g., FastAPI / Express / Django / none -->
-<!-- Recommended: FastAPI (Python) for agent APIs -->
+**FastAPI** with **uvicorn** (ASGI)
 
-## Database (if applicable)
+- Port: **8001** (hard-coded in `__main__.py`; overridable via `DATA_ANALYST_PORT`)
+- File uploads handled via `python-multipart`
+- Streaming responses via Server-Sent Events (SSE) — `starlette.responses.StreamingResponse`
+- Lifespan context manager initialises DB and loads settings at startup
 
-<!-- FILL IN: e.g., SQLite / PostgreSQL / Redis / none -->
-<!-- Recommended: SQLite — file-based, zero configuration, built into Python's stdlib. Sufficient for single-user and low-concurrency workloads. Upgrade to PostgreSQL only when multi-user writes or full-text search require it. -->
+## Database
 
-**ORM/ODM:** <!-- e.g., SQLAlchemy 2.0 / Prisma / none -->
-<!-- Recommended: SQLAlchemy 2.0 (Python) — works with both SQLite and PostgreSQL, so upgrades are migration-only -->
+**SQLite** — file-based, zero configuration, ships with Python's stdlib.
 
-## Frontend (if applicable)
+Used for: run metadata (status, file path, timestamps, token usage) and chat history (user messages + agent answers per session).
 
-<!-- FILL IN: e.g., Next.js 15 / React / Vue / none -->
-<!-- Recommended: Node.js 20 + a lightweight framework (e.g. Vite + React) for any browser UI -->
+**ORM:** SQLAlchemy 2.0 with `Mapped` / `mapped_column` declarative syntax (synchronous engine — SQLite does not benefit from async I/O).
+
+Upgrade path: swap `sqlite:///` URL for `postgresql+psycopg2://` and re-run `alembic upgrade head` — no other code changes required.
+
+## Frontend
+
+**Vite 5 + React 18 + TypeScript 5**
+
+- Package manager: **pnpm**
+- Build output served as static files by FastAPI in production (`StaticFiles` mount)
+- In development: Vite dev server on port 5173 proxies `/api/*` to FastAPI on 8001
+- UI components: plain React — no UI library dependency in v0.1 to keep the bundle lean
 
 ## Key Libraries
 
-<!-- FILL IN: List the important libraries and what each does. -->
+### Python (backend)
 
 | Library | Version | Purpose |
 |---------|---------|---------|
-| <!-- name --> | <!-- version --> | <!-- purpose --> |
+| fastapi | ≥0.115 | HTTP API server, routing, dependency injection |
+| uvicorn | ≥0.30 | ASGI server (production and dev) |
+| langgraph | ≥0.2 | ReAct loop state-machine graph |
+| google-generativeai | ≥0.8 | Gemini LLM client |
+| pandas | ≥2.2 | In-memory DataFrame — data loading and analysis |
+| sqlalchemy | ≥2.0 | ORM for SQLite (Mapped types) |
+| alembic | ≥1.13 | Database migrations |
+| pydantic-settings | ≥2.0 | Config from env vars / .env file |
+| python-multipart | ≥0.0.9 | File upload parsing (required by FastAPI) |
+| structlog | ≥24.0 | Structured (JSON) logging bound to run_id |
+| pytest | ≥8.0 | Test runner |
+| httpx | ≥0.27 | AsyncClient for FastAPI TestClient in tests |
+
+### Node.js (frontend)
+
+| Library | Version | Purpose |
+|---------|---------|---------|
+| react | 18 | UI component framework |
+| react-dom | 18 | DOM rendering |
+| typescript | 5 | Static types |
+| vite | 5 | Build tool and dev server |
+| @vitejs/plugin-react | ≥4 | Vite React transform |
 
 ## What to Avoid
 
-<!-- FILL IN: Libraries, patterns, or approaches that are explicitly off-limits and why. -->
+| Pattern | Reason |
+|---------|--------|
+| `eval()` or `exec()` on raw LLM output | Security — untrusted code execution. Use the pandas allowlist validator instead. |
+| Direct pandas writes in agent actions (`df.to_sql`, `df.to_csv`, `df.to_parquet`) | Agent actions must be read-only; writes mutate state outside the sandbox. |
+| `asyncpg` or `aiosqlite` | SQLite with a synchronous engine is sufficient; async DB adds complexity without benefit here. |
+| Global mutable DataFrame state without a keyed store | Each session/run must have its own DataFrame keyed by `session_id` to prevent cross-session data leaks. |
+| Importing pandas in the frontend bundle | pandas is Python-only; any data shaping for the UI must happen in the API layer. |
+| Hardcoded model names | Always read from `DATA_ANALYST_LLM_MODEL` env var — model names change. |
+| `pip install` instead of `uv` | All Python dependency operations must use `uv` for reproducibility. |
+| `npm` or `yarn` for frontend | Use `pnpm` exclusively. |
+| Bare `alembic` / `pytest` / `python` commands in docs | Always prefix with `uv run` — bare commands fail when the venv is not activated. |
 
 ## Dependency Management
 
-<!-- FILL IN: e.g., uv + pyproject.toml / npm / pnpm / go modules -->
-<!-- Recommended: uv + pyproject.toml (Python); npm or pnpm (Node.js) -->
+**Python:** `uv` + `pyproject.toml`
+- All runtime deps in `[project.dependencies]`
+- Dev/test deps in `[dependency-groups.dev]`
+- Lock file: `uv.lock` (committed to version control)
+- SQLite driver ships with Python stdlib — no extra driver package needed
+
+**Node.js:** `pnpm` + `package.json`
+- Lock file: `pnpm-lock.yaml` (committed to version control)
+- Frontend source lives in `src/frontend/` (see project-layout.md)
 
 ---
 
@@ -95,9 +143,9 @@ Reason: Port 8000 is commonly occupied by other local services (other FastAPI ap
 
 **Always use a current, verified model name — never a deprecated or guessed one.**
 
-- For Google Gemini: use **`gemini-2.0-flash`** as the default (not `gemini-1.5-flash` — deprecated and removed from the API).
+- For Google Gemini: use **`gemini-2.5-flash`** as the default (not `gemini-2.0-flash` or `gemini-1.5-flash` — both unavailable for new users).
 - Model names change. Before hardcoding any model identifier, verify it exists by calling the provider's `ListModels` API or checking current documentation.
-- The model name must be configurable via an env var (e.g. `APPNAME_LLM_MODEL`) so it can be changed without a code deployment.
+- The model name must be configurable via an env var (e.g. `DATA_ANALYST_LLM_MODEL`) so it can be changed without a code deployment.
 - A 404 NOT_FOUND error from the LLM API almost always means the model name is wrong — check the name first before debugging anything else.
 
 Current safe defaults (as of 2026):
@@ -116,29 +164,17 @@ Reason: Alembic migrations run at deploy/setup time, not just in tests. If the d
 
 ### Test Environment Rule
 
-**Tests must use the same database driver as production.** If the production DB is PostgreSQL, tests run against PostgreSQL — not SQLite.
+**Tests must use the same database driver as production.** This project uses SQLite in both production and tests — no substitution needed.
 
-- Tests that pass on SQLite but were never run against PostgreSQL are **not a passing gate**.
-- The test database must be set up automatically. Use `conftest.py` to create and tear down the test database. No manual steps.
-- The test database URL is provided via environment variable (e.g. `TEST_DATABASE_URL` or reuse the app's `DATABASE_URL` pointing at a `_test` database). The `conftest.py` session fixture creates all tables before tests run and drops them after.
-- A `.env.test` file (gitignored) or CI environment variable provides the test DB URL. The README must document this.
+- Tests use a temporary SQLite file via `tmp_path` (not `:memory:`) to avoid shared-state issues.
+- `conftest.py` creates and tears down the test database automatically.
+- The test database URL is provided by `monkeypatch` in `conftest.py` — no manual step.
 
-Example `conftest.py` pattern for PostgreSQL + SQLAlchemy (sync):
+### Phase Gate Commands
 
-```python
-import pytest
-from sqlalchemy import create_engine, text
-from yourapp.db.models import Base
-from yourapp.config.settings import get_settings
+| Phase | Gate command | What it checks |
+|-------|-------------|----------------|
+| 1 | `uv run pytest tests/unit/ -v` | Domain models, settings, graph compiles, DB models |
+| 2 | `uv run pytest tests/ -v` | Full suite — unit + integration (stub LLM, real SQLite) |
 
-@pytest.fixture(scope="session", autouse=True)
-def _setup_test_db():
-    settings = get_settings()
-    engine = create_engine(settings.database_url)
-    Base.metadata.create_all(engine)
-    yield
-    Base.metadata.drop_all(engine)
-    engine.dispose()
-```
-
-The `DATABASE_URL` in `.env` (or `.env.test`) must point at a real PostgreSQL test database before running tests.
+All commands run from the **repo root**.

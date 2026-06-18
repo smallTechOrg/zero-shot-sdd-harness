@@ -1,23 +1,22 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
-
----
-
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
-
-## Capabilities in This Project
-
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file. -->
+## Capabilities in This Project (v0.1)
 
 | # | Capability | File |
 |---|-----------|------|
-| 1 | <!-- name --> | [01-name.md](01-name.md) |
+| 1 | File Upload — upload a CSV or JSON file, validate, parse into a queryable DataFrame, persist session metadata | [01-file-upload.md](01-file-upload.md) |
+| 2 | Data Chat — ask plain-English questions; a ReAct agent queries the DataFrame and returns a grounded answer with reasoning trace | [02-data-chat.md](02-data-chat.md) |
+| 3 | Session Management — create and persist sessions, store and retrieve chat history per session | [03-session-management.md](03-session-management.md) |
+
+## Scope Rule
+
+Exactly 3 capabilities in v0.1. The following are explicitly deferred to future phases:
+- Dashboards and visualizations
+- Automated / proactive insights
+- Multi-user authentication
+- Multi-file uploads per session
+- Export or download of results
+- File formats beyond CSV and JSON
 
 ## How to Add a New Capability
 
@@ -26,13 +25,3 @@ Run `/spec-new-capability [description]` or ask the spec-writer directly. The sp
 2. Update this index
 3. Flag any dependencies on existing capabilities
 4. The spec-reviewer will validate it fits the architecture
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
