@@ -1,13 +1,15 @@
 """ReAct agent nodes."""
 import json
 import pathlib
+import re
 from typing import Any
 
 import pandas as pd
 
 from datachat.graph.state import AgentState
 
-# In-process DataFrame store keyed by session_id — released in every terminal node
+# DataFrame store keyed by session_id. Persists across questions in the same session.
+# Released only when the session is explicitly deleted (release_session) or server restarts.
 _dataframe_store: dict[str, pd.DataFrame] = {}
 
 _PROMPT_TEMPLATE = pathlib.Path(__file__).parent.parent / "prompts" / "plan_action.md"
@@ -15,6 +17,22 @@ _PROMPT_TEMPLATE = pathlib.Path(__file__).parent.parent / "prompts" / "plan_acti
 
 def _load_prompt() -> str:
     return _PROMPT_TEMPLATE.read_text()
+
+
+def _parse_llm_response(raw: str) -> tuple[str | None, str | None]:
+    """
+    Parse DESCRIPTION/ACTION block from LLM output.
+    Returns (description, action_expr) — either may be None if not found.
+    FINAL ANSWER responses are handled by the edge, so not parsed here.
+    """
+    desc_match = re.search(r"DESCRIPTION:\s*(.+)", raw, re.IGNORECASE)
+    action_match = re.search(r"ACTION:\s*(.+)", raw, re.IGNORECASE)
+    description = desc_match.group(1).strip() if desc_match else None
+    action = action_match.group(1).strip() if action_match else None
+    # Strip markdown fences Gemini sometimes wraps around the action
+    if action and action.startswith("`"):
+        action = action.strip("`").strip()
+    return description, action
 
 
 def setup(state: AgentState) -> AgentState:
@@ -36,13 +54,12 @@ def setup(state: AgentState) -> AgentState:
 
 def plan_action(state: AgentState) -> AgentState:
     from datachat.llm.client import generate
-    from datachat.config.settings import get_settings
 
     history = state.get("action_history", [])
     history_text = (
         "\n".join(
-            f"Action: {h['action']}\nResult: {h['result']}\n"
-            for h in history
+            f"Step {i+1}: {h['description']}\nResult: {h['result']}\n"
+            for i, h in enumerate(history)
         )
         if history
         else "(none yet)"
@@ -66,16 +83,28 @@ def plan_action(state: AgentState) -> AgentState:
 def execute_action(state: AgentState) -> AgentState:
     from datachat.tools.pandas_executor import execute
 
-    action = state.get("llm_response", "").strip()
+    raw = state.get("llm_response", "").strip()
+    description, action_expr = _parse_llm_response(raw)
+
+    if not action_expr:
+        # Treat the whole raw response as the expression (fallback)
+        action_expr = raw
+        description = "Computing a result"
+
     session_id = state["session_id"]
     df = _dataframe_store.get(session_id)
 
     if df is None:
-        return {**state, "error": f"DataFrame for session {session_id} disappeared during execution"}
+        return {**state, "error": f"Session data not found — please re-upload the file"}
 
-    result, is_error = execute(df, action)
+    result, is_error = execute(df, action_expr)
     history = list(state.get("action_history", []))
-    history.append({"action": action, "result": result, "is_error": is_error})
+    history.append({
+        "description": description or "Computing a result",
+        "action": action_expr,
+        "result": result,
+        "is_error": is_error,
+    })
 
     return {
         **state,
@@ -87,7 +116,6 @@ def execute_action(state: AgentState) -> AgentState:
 def finalize(state: AgentState) -> AgentState:
     raw = state.get("llm_response", "")
     answer = raw[len("FINAL ANSWER:"):].strip() if raw.upper().startswith("FINAL ANSWER:") else raw
-    _release(state["session_id"])
     _persist(state, answer, "completed")
     return {**state, "final_answer": answer}
 
@@ -96,31 +124,29 @@ def force_finalize(state: AgentState) -> AgentState:
     history = state.get("action_history", [])
     successful = [h for h in history if not h["is_error"]]
     if successful:
-        summary = "\n".join(f"- {h['action']} → {h['result'][:200]}" for h in successful)
-        answer = f"Based on the computations completed (iteration limit reached):\n{summary}"
+        lines = [f"- {h['description']}: {h['result'][:300]}" for h in successful]
+        answer = "Based on the analysis completed so far:\n" + "\n".join(lines)
     else:
-        answer = "The iteration limit was reached without producing useful results. Try a more specific question."
-    _release(state["session_id"])
+        answer = "I was unable to compute a result within the allowed steps. Try rephrasing your question."
     _persist(state, answer, "force_completed")
     return {**state, "final_answer": answer}
 
 
 def handle_error(state: AgentState) -> AgentState:
     error = state.get("error", "Unknown error")
-    _release(state["session_id"])
-    _persist(state, f"Agent error: {error}", "failed")
-    return {**state, "final_answer": f"Agent error: {error}"}
+    _persist(state, f"Something went wrong: {error}", "failed")
+    return {**state, "final_answer": f"Something went wrong: {error}"}
 
 
-def _release(session_id: str) -> None:
+def release_session(session_id: str) -> None:
+    """Free the in-memory DataFrame when a session is deleted."""
     _dataframe_store.pop(session_id, None)
 
 
 def _persist(state: AgentState, answer: str, status: str) -> None:
     try:
         from datachat.db.session import create_db_session
-        from datachat.db.models import RunRow, MessageRow, SessionRow
-        import json
+        from datachat.db.models import RunRow, MessageRow
 
         with create_db_session() as db:
             run = db.get(RunRow, state["run_id"])

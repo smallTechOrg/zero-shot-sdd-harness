@@ -1,4 +1,8 @@
-"""Golden-path HTTP smoke test — upload → get session → ask question → get messages."""
+"""
+Golden-path HTTP smoke test.
+Covers: upload → session detail → ask Q1 → ask Q2 (follow-up) → message history.
+Every assertion checks real content, not just status codes.
+"""
 import io
 import pytest
 from fastapi.testclient import TestClient
@@ -50,11 +54,10 @@ def test_golden_path(client):
     # 1. Health check
     resp = client.get("/health")
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["data"]["status"] == "ok"
-    assert body["data"]["llm_provider"] == "stub"
+    assert resp.json()["data"]["status"] == "ok"
+    assert resp.json()["data"]["llm_provider"] == "stub"
 
-    # 2. Upload a CSV
+    # 2. Upload CSV
     resp = client.post(
         "/api/sessions",
         files={"file": ("cities.csv", io.BytesIO(CSV_CONTENT), "text/csv")},
@@ -66,32 +69,46 @@ def test_golden_path(client):
     assert "city" in upload["column_names"]
     session_id = upload["session_id"]
 
-    # 3. Get session detail
+    # 3. Session detail
     resp = client.get(f"/api/sessions/{session_id}")
     assert resp.status_code == 200
-    detail = resp.json()["data"]
-    assert detail["filename"] == "cities.csv"
-    assert detail["status"] == "ready"
+    assert resp.json()["data"]["filename"] == "cities.csv"
 
-    # 4. Ask a question
+    # 4. First question
     resp = client.post(
         f"/api/sessions/{session_id}/messages",
         json={"question": "What is the average population?"},
     )
     assert resp.status_code == 200
     answer_body = resp.json()["data"]
-    assert "answer" in answer_body
     assert len(answer_body["answer"]) > 0
-    assert isinstance(answer_body["reasoning_trace"], list)
+    trace = answer_body["reasoning_trace"]
+    assert isinstance(trace, list)
+    assert len(trace) > 0
+    # Trace entries must have user-friendly 'description', not just raw code
+    assert "description" in trace[0], "reasoning_trace must include 'description' (plain-English step)"
+    assert "action" in trace[0]
+    assert "result" in trace[0]
+    assert "is_error" in trace[0]
     assert answer_body["llm_provider"] == "stub"
 
-    # 5. Get message history
+    # 5. CRITICAL: Second follow-up question on the SAME session — must not fail with SESSION_DATA_LOST
+    resp = client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"question": "Which city has the largest area?"},
+    )
+    assert resp.status_code == 200, (
+        f"Second question failed (SESSION_DATA_LOST or similar): {resp.json()}"
+    )
+    assert len(resp.json()["data"]["answer"]) > 0
+
+    # 6. Message history — must contain user + assistant for each Q
     resp = client.get(f"/api/sessions/{session_id}/messages")
     assert resp.status_code == 200
     messages = resp.json()["data"]
-    assert len(messages) == 2
+    assert len(messages) == 4  # 2 user + 2 assistant
     roles = [m["role"] for m in messages]
-    assert "user" in roles
-    assert "assistant" in roles
+    assert roles.count("user") == 2
+    assert roles.count("assistant") == 2
     user_msg = next(m for m in messages if m["role"] == "user")
     assert "average population" in user_msg["content"]

@@ -1,10 +1,12 @@
 from datachat.llm.providers.base import LLMProvider, LLMResponse
 
-_ITERATION_COUNTERS: dict[str, int] = {}
-
 
 class StubProvider(LLMProvider):
-    """Deterministic stub — branches on <node:plan> tag injected by plan_action node."""
+    """
+    Deterministic stub — branches on <node:plan> tag injected into the prompt.
+    Returns DESCRIPTION/ACTION format on first call, FINAL ANSWER on the second.
+    Never branches on prose keywords.
+    """
 
     @property
     def name(self) -> str:
@@ -12,11 +14,14 @@ class StubProvider(LLMProvider):
 
     def generate(self, prompt: str) -> LLMResponse:
         if "<node:plan>" in prompt:
-            # After 1 fake action, return FINAL ANSWER
-            if "action_history" in prompt and "df." in prompt:
-                text = "FINAL ANSWER: [stub] The result is 42."
+            # If history already has a step, return a final answer
+            if "Step 1:" in prompt:
+                text = "FINAL ANSWER: [stub] The computed result is 42."
             else:
-                text = "df.describe()"
+                text = (
+                    "DESCRIPTION: Checking the summary statistics of the dataset.\n"
+                    "ACTION: df.describe()"
+                )
         else:
             text = "[stub response]"
         return LLMResponse(text=text, tokens_input=10, tokens_output=10)
