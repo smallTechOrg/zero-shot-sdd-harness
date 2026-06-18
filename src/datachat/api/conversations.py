@@ -13,7 +13,7 @@ from datachat.api._common import api_error, ok
 from datachat.db.models import Conversation, Dataset, Message, Run
 from datachat.db.session import get_session, get_sessionmaker
 from datachat.domain import ConversationCreate, QueryRequest
-from datachat.graph.runner import DatasetNotLoadedError, run_agent
+from datachat.graph.runner import stream_agent
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -95,30 +95,18 @@ async def query(
 
     async def event_stream():
         # Use a fresh session for the run so it isn't tied to the request's dependency scope.
-        maker = get_sessionmaker()
-        async with maker() as run_session:
+        async with get_sessionmaker()() as run_session:
             conversation = await run_session.get(Conversation, conversation_id)
-            try:
-                run, assistant = await run_agent(run_session, conversation, question)
-            except DatasetNotLoadedError as exc:
-                yield {"event": "error",
-                       "data": json.dumps({"code": "DATASET_NOT_LOADED", "message": str(exc)})}
-                return
-
-            for step in (assistant.trace_json or []):
-                yield {"event": "step", "data": json.dumps(step)}
-
-            if run.status == "failed":
-                yield {"event": "error",
-                       "data": json.dumps({"code": "RUN_FAILED", "message": run.error_message})}
-                return
-
-            yield {"event": "answer", "data": json.dumps(_message_dict(assistant))}
-            yield {"event": "done",
-                   "data": json.dumps({"run_id": run.id, "status": run.status,
-                                       "tokens_input": run.tokens_input,
-                                       "tokens_output": run.tokens_output,
-                                       "estimated_cost_usd": run.estimated_cost_usd,
-                                       "early_exit_reason": run.early_exit_reason})}
+            async for ev in stream_agent(run_session, conversation, question):
+                kind = ev["type"]
+                if kind == "step":
+                    yield {"event": "step", "data": json.dumps(ev["step"])}
+                elif kind == "answer":
+                    yield {"event": "answer", "data": json.dumps(ev["message"])}
+                elif kind == "done":
+                    yield {"event": "done", "data": json.dumps(ev["run"])}
+                elif kind == "error":
+                    yield {"event": "error",
+                           "data": json.dumps({"code": ev["code"], "message": ev["message"]})}
 
     return EventSourceResponse(event_stream())

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     sample_rows: int = Field(default=20)
 
     log_level: str = Field(default="INFO")
+    cors_origins: str = Field(default="http://localhost:3000")
+
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in _strip_inline_comment(self.cors_origins).split(",") if o.strip()]
 
     @field_validator("llm_provider", "llm_model", "log_level", mode="before")
     @classmethod

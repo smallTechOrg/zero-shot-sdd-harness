@@ -26,3 +26,8 @@ build/
 # Session reports & build artifacts are local handoff docs, not tracked.
 # The session-report TEMPLATE stays tracked at spec/engineering/workflows/session-report.md.
 reports/
+
+# E2E artifacts
+frontend/test-results/
+frontend/playwright-report/
+.duckdb_e2e/

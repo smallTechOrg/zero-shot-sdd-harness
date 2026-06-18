@@ -46,6 +46,23 @@ uv run python -m datachat
 
 The API serves on **http://localhost:8001** (set `PORT` to override).
 
+## Run the chat UI (Next.js)
+
+The web UI lives in [`frontend/`](frontend/) — a dataset picker + CSV upload, a multi-turn chat with a
+live agent trace, rendered result tables, and **charts** (Recharts). It talks to the API above.
+
+Run from the repo root (with the API server running):
+
+```bash
+cd frontend
+npm install
+npm run dev        # serves the UI on http://localhost:3000
+```
+
+Open **http://localhost:3000**. The UI calls the API at `http://localhost:8001` by default; override with
+`NEXT_PUBLIC_API_BASE` (set it in `frontend/.env.local`). The API must allow the UI's origin — set
+`DATA_ANALYST_CORS_ORIGINS` (defaults to `http://localhost:3000`).
+
 ## Try it (golden path)
 
 Run from the repo root, with the server running:
@@ -113,15 +130,30 @@ Run the eval suite directly:
 DATA_ANALYST_GEMINI_API_KEY=<your key> uv run python -m evals.harness
 ```
 
+### Frontend / end-to-end (Playwright)
+
+The browser E2E drives the real stack (browser → Next.js → API → agent → DuckDB) and asserts the
+post-JavaScript DOM (answer, result table, chart). It starts both servers itself; the backend needs the
+Gemini key.
+
+```bash
+cd frontend
+npm install
+npx playwright install chromium      # once
+DATA_ANALYST_GEMINI_API_KEY=<your key> CI=1 npm run test:e2e
+```
+
 ## How it works
 
 - **Agent loop** — a LangGraph `StateGraph` (`src/datachat/graph/`): `assemble_context` →
   `plan_action` (Gemini picks a tool) → `execute_action` → loop, ending when the model calls the
   `finish` tool. Bounded by `max_iterations` (default 6); on exhaustion it `force_finalize`s a
-  best-effort answer rather than failing.
-- **Tools (MCP)** — `inspect_schema` and `run_sql` are exposed as a real MCP server
-  (`src/datachat/mcp/servers/sql_server.py`) and bound to Gemini in the graph; both delegate to the
-  same read-only-safe implementation.
+  best-effort answer rather than failing. Step events stream to the UI live as the agent works.
+- **Tools (MCP)** — `inspect_schema`, `run_sql`, and `suggest_chart` are exposed as a real MCP server
+  (`src/datachat/mcp/servers/sql_server.py`) and bound to Gemini in the graph; all delegate to the
+  same read-only-safe implementations.
+- **Charts** — when a chart helps, the agent calls `suggest_chart` (bar/line/pie) built from its last
+  query result; the spec rides on the assistant message and the UI renders it with Recharts.
 - **Action-safety** — model-generated SQL is parsed (sqlglot) and rejected unless it is a single
   read-only `SELECT`; the DuckDB query never mutates data.
 - **Privacy** — only the schema + a small row sample (≤20 rows) is ever sent to the model; the full
@@ -138,16 +170,19 @@ DATA_ANALYST_GEMINI_API_KEY=<your key> uv run python -m evals.harness
 | `DATA_ANALYST_MAX_ITERATIONS` | `6` | ReAct loop ceiling |
 | `DATA_ANALYST_MAX_UPLOAD_BYTES` | `52428800` | Per-file upload limit |
 | `DATA_ANALYST_SAMPLE_ROWS` | `20` | Rows sampled for LLM grounding |
+| `DATA_ANALYST_CORS_ORIGINS` | `http://localhost:3000` | Comma-separated origins allowed to call the API (the UI) |
 | `PORT` | `8001` | Server port |
+
+Frontend: `NEXT_PUBLIC_API_BASE` (in `frontend/.env.local`, default `http://localhost:8001`).
 
 ## Scope
 
-**This release (MVP):** CSV upload into a dataset, natural-language query (read-only SQL), multi-turn
-conversations with text answers + result tables.
+**Built:** CSV upload into a dataset, natural-language query (read-only SQL), multi-turn conversations
+with text answers + result tables, a Next.js chat UI with a live agent trace, and **charts**
+(bar/line/pie visualizations of a result).
 
-**Deferred (Future Phases):** charts/visualizations, narrative insights, JSON & other file formats,
-cross-dataset joins, long-term memory, retrieval/RAG, a Next.js chat UI, and Playwright E2E tests.
-See `spec/product/01-vision.md` § Future Phases.
+**Deferred (Future Phases):** narrative insights, JSON & other file formats, cross-dataset joins,
+long-term memory, retrieval/RAG. See `spec/product/01-vision.md` § Future Phases.
 
 ---
 

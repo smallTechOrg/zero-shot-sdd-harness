@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,6 +73,123 @@ async def _load_context(session: AsyncSession, conversation: Conversation) -> di
 async def _run_graph(initial: dict[str, Any]) -> dict[str, Any]:
     graph = get_compiled_graph()
     return await asyncio.to_thread(graph.invoke, initial)
+
+
+_STREAM_DONE = object()
+
+
+async def stream_agent(
+    session: AsyncSession, conversation: Conversation, question: str
+) -> AsyncIterator[dict[str, Any]]:
+    """Run the agent and yield events as nodes execute, then persist + yield the final answer.
+
+    Yields dicts: {"type": "step", "step": {...}} per new action_history entry, then
+    {"type": "answer", "message": {...}} / {"type": "error", ...}, then {"type": "done", ...}.
+    Streaming as work happens keeps bytes flowing so the client doesn't abort on a long run.
+    """
+    log = get_logger(conversation_id=conversation.id)
+
+    run = Run(conversation_id=conversation.id, status="running")
+    session.add(run)
+    session.add(Message(conversation_id=conversation.id, role="user", content=question))
+    await session.commit()
+    await session.refresh(run)
+
+    try:
+        ctx = await _load_context(session, conversation)
+    except DatasetNotLoadedError as exc:
+        run.status = "failed"
+        run.error_message = str(exc)
+        run.completed_at = datetime.utcnow()
+        await session.commit()
+        yield {"type": "error", "code": "DATASET_NOT_LOADED", "message": str(exc)}
+        return
+
+    initial: dict[str, Any] = {
+        "run_id": run.id, "conversation_id": conversation.id,
+        "dataset_id": conversation.dataset_id, "question": question,
+        "action_history": [], "iteration_count": 0, "tokens_input": 0, "tokens_output": 0,
+        **ctx,
+    }
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def run_in_thread() -> None:
+        graph = get_compiled_graph()
+        emitted = 0
+        final_state: dict[str, Any] = {}
+        try:
+            for state in graph.stream(initial, stream_mode="values"):
+                final_state = state
+                history = state.get("action_history", [])
+                while emitted < len(history):
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "step", "step": history[emitted]})
+                    emitted += 1
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "_final", "state": final_state})
+
+    task = loop.run_in_executor(None, run_in_thread)
+
+    final: dict[str, Any] = {}
+    while True:
+        item = await queue.get()
+        if item.get("type") == "_final":
+            final = item["state"]
+            break
+        yield item
+    await task
+
+    run.iteration_count = final.get("iteration_count", 0)
+    run.tokens_input = final.get("tokens_input", 0)
+    run.tokens_output = final.get("tokens_output", 0)
+    run.estimated_cost_usd = final.get("estimated_cost_usd")
+    run.early_exit_reason = final.get("early_exit_reason")
+    run.completed_at = datetime.utcnow()
+
+    if final.get("error"):
+        run.status = "failed"
+        run.error_message = final["error"]
+        assistant = Message(
+            conversation_id=conversation.id, run_id=run.id, role="assistant",
+            content=f"Sorry — I couldn't answer this: {final['error']}",
+        )
+        session.add(assistant)
+        await session.commit()
+        log.error("run.failed", run_id=run.id, error=final["error"])
+        yield {"type": "error", "code": "RUN_FAILED", "message": final["error"]}
+        return
+
+    run.status = "completed"
+    assistant = Message(
+        conversation_id=conversation.id, run_id=run.id, role="assistant",
+        content=final.get("final_answer") or "Done.",
+        result_table_json=final.get("result_table"),
+        chart_json=final.get("chart"),
+        trace_json=final.get("action_history"),
+    )
+    session.add(assistant)
+    await session.commit()
+    await session.refresh(assistant)
+    log.info("run.persisted", run_id=run.id, status=run.status)
+
+    yield {
+        "type": "answer",
+        "message": {
+            "id": assistant.id, "conversation_id": assistant.conversation_id,
+            "run_id": assistant.run_id, "role": "assistant", "content": assistant.content,
+            "result_table": assistant.result_table_json, "chart": assistant.chart_json,
+            "trace": assistant.trace_json, "created_at": assistant.created_at.isoformat(),
+        },
+    }
+    yield {
+        "type": "done",
+        "run": {
+            "run_id": run.id, "status": run.status, "tokens_input": run.tokens_input,
+            "tokens_output": run.tokens_output, "estimated_cost_usd": run.estimated_cost_usd,
+            "early_exit_reason": run.early_exit_reason,
+        },
+    }
 
 
 async def run_agent(
