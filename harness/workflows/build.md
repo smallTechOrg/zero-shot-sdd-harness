@@ -10,12 +10,12 @@ Turn a one-line idea into a working, demo-gated agent. This is the procedure; th
 does not restate them. Sub-agents share no memory: pass every intake answer to each explicitly.
 
 ```
-/build "<idea>"  →  intake (1 round)  →  spec-writer + tech-designer + planner  →  ONE approval
+/build "<idea>"  →  intake (all questions upfront)  →  spec-writer + tech-designer + planner
                  →  generate from harness/patterns on feature/<slug>-<date>  →  demo gate  →  running
 ```
 
-After the one approval, run to the demo gate without pausing (`agent-builder.md` § Autonomy). Pause only
-on a true blocker — then ask via the dynamic question UI, never guess.
+After intake, run to the demo gate without pausing (`agent-builder.md` § Autonomy). Pause only on a
+true blocker — then ask via the dynamic question UI, never guess.
 
 ---
 
@@ -36,8 +36,11 @@ chosen provider (`claude-haiku-4-5-20251001` / `gpt-5-nano` class / `gemini-2.5-
 against the provider before pinning, per `harness.md`). The tool answer maps straight onto the 3-layer
 model in `patterns/tools-and-mcp.md`: in-process `@tool` for own logic/data, MCP for external SaaS only.
 
-**Collect the API key here (Q4) — the build runs unattended from approval to green gate.**
+**Collect the API key here (Q4) — the build runs unattended to the green gate.**
 If the user skips it, ask once before generating code. Never pause mid-build for it.
+
+If the spec or plan needs clarification after drafting, ask a second round upfront before touching any
+file. All questions in, then build — no gates in between.
 
 ## 2. Draft the spec + plan (no code yet)
 
@@ -56,32 +59,7 @@ With the four answers, fan out (`agent-builder.md` § Draft):
 
 Every layer marked ON must trace to a capability; no speculative layers (`agent.md` is the on/off ledger).
 
-## 3. One approval
-
-Present scope + stack + plan via `AskUserQuestion` — **always use the dynamic question UI, never plain
-text** — and get one confirm before any code is written:
-
-```python
-AskUserQuestion(questions=[{
-    "question": "Ready to build? Review scope, stack, and plan below then confirm.",
-    "header": "Proceed?",
-    "options": [
-        {"label": "Proceed", "description": "<summary: Building <product> · <capabilities> · <stack> · Phase 1 …>"},
-        {"label": "Cancel / adjust", "description": "Stop here — I'll revise the spec or plan first."},
-    ]
-}])
-```
-
-Embed the full scope summary in the `Proceed` option description (one-liner per item):
-- Building: `<product, one line>`
-- Capabilities: `<list>`
-- Layers ON: `<from spec/agent.md>`
-- Stack: `<provider>/<runtime model>` · `<DB>` · `interface=<…>` · `tools=<in-process|MCP …>`
-- Plan: `Phase 1 <skeleton+all capabilities> … Phase N productionise`
-
-No application code exists before this confirm. After the user selects **Proceed**, autonomy is on.
-
-## 4. Generate code fresh — on `feature/<slug>-<date>`
+## 3. Generate code fresh — on `feature/<slug>-<date>`
 
 Branch first; hooks block app code on `main` (`harness.md`). `<slug>` = the product slug, `<date>` =
 `YYYY-MM-DD`.
@@ -165,7 +143,7 @@ async def run_agent(goal: str, model=None, run_id: str | None = None) -> dict:
 
 Build only what the spec needs — no gold-plating (`agent-builder.md`).
 
-## 5. Demo-tier gate — run → diagnose → fix → repeat until green
+## 4. Demo-tier gate — run → diagnose → fix → repeat until green
 
 **Done = the gate exits 0**, never prose. Run it (`workflows/gates.md`); when it fails, read the
 output, fix the cause, and re-run. The gate is a loop exit condition, not a one-shot checkpoint.
