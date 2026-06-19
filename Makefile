@@ -1,7 +1,7 @@
 PORT ?= 8001
 GOAL ?= Which product category has the highest total sales, and what is that total?
 
-.PHONY: gate demo-gate test serve seed ui
+.PHONY: gate demo-gate test serve seed ui dev
 
 demo-gate: gate          # alias
 gate:
@@ -16,6 +16,9 @@ serve:
 
 seed:
 	python -m agent.seed
+
+dev:                                                        # start backend + frontend together (Ctrl-C kills both)
+	@trap 'kill 0' INT; python -m agent & cd ui && npm run dev
 
 ui:
 	cd ui && npm run dev
