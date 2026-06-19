@@ -12,17 +12,6 @@ build/
 .DS_Store
 *.log
 
-# Local data stores & uploads (SQLite metadata, DuckDB, uploaded CSVs)
-*.db
-*.db-journal
-*.duckdb
-.uploads/
-.duckdb_store/
-
-# Python tooling
-.pytest_cache/
-.ruff_cache/
-
 # Session reports & build artifacts are local handoff docs, not tracked.
 # The session-report TEMPLATE stays tracked at spec/engineering/workflows/session-report.md.
 reports/

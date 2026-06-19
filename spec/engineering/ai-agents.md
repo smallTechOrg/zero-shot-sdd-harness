@@ -21,6 +21,9 @@ If your context is compressed and you can remember only a few rules, these are t
    `main` only via a reviewed PR, and a PR must exist before the first feature-branch commit. → § 6.
 5. **Agents that act on the outside world use a ReAct loop**, never a sample-and-guess pipeline. Spec
    it before coding. → [`patterns/react-agent.md`](patterns/react-agent.md).
+6. **Phase 1 ships the full product, including its UI — local-first.** Phase 1 is the Build Phase, not
+   a narrow slice; the UI is designed + built + reviewed in Phase 1, never deferred. Default to a local
+   DB (SQLite/DuckDB); PostgreSQL is a later step. → § 13, [`ui-and-design.md`](ui-and-design.md).
 
 ---
 
@@ -49,21 +52,25 @@ under `workflows/` stays tracked); a missing session report is a build failure.
 
 ## 3. The One-Approval Gate Law
 
-Goal: **one prompt → working agent fast.** Decisions are captured upfront and approved once. Phase 1
-delivers the raised agentic baseline running with **real** integrations (real LLM + MCP tools + memory +
-evals), not a bare loop — see § 10.
+Goal: **one prompt → the whole product, working, fast.** Decisions are captured upfront and approved
+once. **Phase 1 is the Build Phase: it ships the full product the user described — including its UI —
+running end-to-end** on the raised agentic baseline (real LLM + MCP tools + memory + evals), not a bare
+loop and not a narrow slice. Build the best version you can in this first build; **later phases add new
+capabilities incrementally, they do not finish a half-built Phase 1.** See § 10 and § 13.
 
 ```
-INTAKE (scope · stack · provider · trigger · constraints)  →  DRAFT (spec + tech design + plan together)
-   →  ONE APPROVAL (user sees everything, one response)  →  BUILD (Phase 1 = real baseline, then gated phases)
+INTAKE (scope=full build · stack=local · trigger · provider+key)  →  DRAFT (spec + tech design + plan)
+   →  ONE APPROVAL (user sees everything, one response)  →  BUILD (Phase 1 = full product + UI, then
+   later phases add capabilities)
 ```
 
-- Stack decisions (database, language, hosting, **LLM provider**) belong to the user — captured at
-  intake, never chosen autonomously.
+- Stack decisions (database, language, hosting, **LLM provider + its API key**) belong to the user —
+  captured at intake (stack in Q2; provider+key in Q4), never chosen autonomously. Default DB is
+  **local** (SQLite/DuckDB); PostgreSQL is a later productionising step, not the Phase-1 default.
 - No code before the single approval gate clears.
 - Each build phase passes its gate test before the next starts.
-- Reviewers (spec-reviewer, plan-reviewer) run as background validation and surface blockers; they do
-  not add approval rounds for the first release.
+- Reviewers (spec-reviewer — which also reviews the built UI — and plan-reviewer) run as validation and
+  surface blockers; they do not add approval rounds for the first release.
 
 After Phase 1 is running, every later phase follows: implemented → gate test passes → committed → next.
 
@@ -153,3 +160,20 @@ report, propose an interpretation, and ask the user — do not guess.
 - [ ] Tests pass.
 - [ ] README updated if layout, setup, or commands changed.
 - [ ] Current phase and next steps noted in the session report.
+
+## 13. Phase 1 Is the Full Product (incl. UI)
+
+Phase 1 is the **Build Phase**, not a narrow MVP. It ships the **complete product the user described**,
+running end-to-end — every capability the product needs to be the thing they asked for, **including its
+UI**. Put your best shot into this first build.
+
+- **The UI is not deferred.** If the product has any user-facing surface, the UI is a Phase-1
+  deliverable: **designed, built, and reviewed** before the gate. A good, user-friendly UI is a
+  requirement, not a nice-to-have — design and review it as part of the workflow.
+  → [`ui-and-design.md`](ui-and-design.md) (UI design lives in spec-writer; UI review in spec-reviewer).
+- **Local-first.** Phase 1 runs on one machine with no external service to stand up — local DB
+  (SQLite/DuckDB), provider key in `.env`. PostgreSQL and other productionising steps are **later
+  phases**, not Phase 1.
+- **Later phases add capabilities**, they do not complete a deferred Phase 1. If you're tempted to push
+  a core part of the described product (especially the UI) to "a later phase," that's a smell — it
+  belongs in Phase 1. Only genuinely new or out-of-scope ideas go to later phases / `## Future Phases`.

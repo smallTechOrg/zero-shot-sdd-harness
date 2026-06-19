@@ -15,7 +15,13 @@ Fill in every `<!-- FILL IN -->` placeholder in these files:
 - `spec/product/capabilities/` — one file per discrete capability (use the template below)
 - `spec/product/04-data-model.md` — entities, fields, relationships, data lifecycle
 - `spec/product/05-api.md` — endpoints or CLI commands (delete if not applicable)
-- `spec/product/06-ui.md` — screens and interactions (delete if not applicable)
+- `spec/product/06-ui.md` — **the UI design** (only delete if the product is genuinely headless —
+  pure CLI/webhook/schedule, confirmed at intake Q3). You own UI design: spec every screen, its
+  purpose and key elements, the **primary user journey**, **all states** (empty / loading-as-live-trace
+  / error-with-recovery / success), the SSE streaming behaviour, and a short **design direction**
+  (layout, information hierarchy, component vocabulary). Design to the usability bar in
+  [`spec/engineering/ui-and-design.md`](../../spec/engineering/ui-and-design.md) — the UI is a Phase-1
+  deliverable and spec-reviewer will check the built UI against it.
 
 ---
 
@@ -61,36 +67,36 @@ For each capability, create `spec/product/capabilities/NN-capability-name.md`:
 
 ---
 
-## MVP Scoping — Read This First
+## Phase-1 Scoping — Read This First
 
-**Your primary job is ruthless scope reduction.** The goal is a working agent in one iteration cycle (~10 minutes of build time). Everything that is not strictly required for the core loop to run belongs in a `## Future Phases` section of `01-vision.md`, not in a capability file.
+**Phase 1 is the Build Phase: spec the full product the user described, end-to-end — including its UI.**
+This is **not** a ruthless-MVP exercise. Scope = every capability the product needs to be the thing they
+asked for. The "best shot" goes into this first build; later phases add *new* capabilities and
+productionise (`spec/engineering/phases.md`).
 
 Before writing each capability, ask:
-> *If I removed this entirely, would the agent still do its one core thing?*
+> *Did the user ask for this as part of the product they described?*
 
-If yes — defer it. One sentence in `## Future Phases` is enough.
+If yes — it's **in Phase 1** (including the UI). Only put something in `## Future Phases` if it's
+genuinely beyond what they asked for, or a "someday" extra they didn't request.
 
-**Scope cuts that are almost always right for v1:**
+**In Phase 1 (don't defer these):**
 
-| Usually v1 | Almost always future |
+| In Phase 1 | Future phases (only if not asked for) |
 |-----------|---------------------|
-| One output format | Multiple output formats |
-| One trigger (manual OR scheduled — not both) | Both manual + scheduled triggers |
-| One external data source | Multiple parallel sources |
-| Config file or env vars | Config CRUD API |
-| CLI or REST — not both | Full web dashboard |
-| Core happy path + retries | Rate limiting, multi-tenancy |
-| Working/short-term memory, observability, evals (baseline — in Phase 1) | Retrieval/RAG, long-term memory, multi-agent, HITL, durability |
+| **The UI** — every product with a user-facing surface ships its UI in Phase 1 (`06-ui.md`) | A second client (mobile, separate dashboard) the user didn't ask for |
+| Every capability the described product needs | Capabilities the user explicitly called "later" |
+| Working/short-term memory, MCP tools, observability (OTel), eval skeleton — the raised baseline | Retrieval/RAG, long-term memory, multi-agent, HITL, durability — *unless the product needs them* |
+| Local-first storage (SQLite / DuckDB) | PostgreSQL & other productionising (later) |
 
 **Not deferrable — the raised baseline.** Working/short-term memory, MCP tools, observability (OTel
 traces), and an eval skeleton are part of every agent's baseline (`spec/engineering/agentic-architecture.md`),
-real in Phase 1 — not "future." Don't scope them out. The earns-its-place layers (retrieval/RAG,
-long-term memory, multi-agent, HITL, durable execution) **are** deferrable — defer them unless the core
-loop needs them, and record the decision in `02-architecture.md` § Agentic stack layers used.
+real in Phase 1. The earns-its-place layers (retrieval/RAG, long-term memory, multi-agent, HITL, durable
+execution) are added only when the product needs them — record each yes/no with a reason in
+`02-architecture.md` § Agentic stack layers used.
 
-**Target:** 2–4 capabilities max for v1. If you have more than 5, go back and defer — you have not scoped ruthlessly enough.
-
-**The ten-minute test:** Could a single developer implement this spec and have it running in ~10 minutes? If not, cut more.
+**Don't artificially shrink the product.** If you find yourself moving a core part of what the user
+described — especially the UI — to `## Future Phases`, that's a smell: it belongs in Phase 1.
 
 ---
 

@@ -13,11 +13,14 @@ The one exception is `alembic/script.py.mako`, which nothing generates — it's 
 There is **no `<agent-slug>/` wrapper**. Boilerplate files (`spec/`, `reports/`, `.github/`,
 `AGENTS.md`, `CLAUDE.md`) coexist with project files at the repo root.
 
-**All application source code lives inside `src/`.** Never place HTML, CSS, JavaScript, Python
-packages, templates, or data files at the repo root. The root is for project-level config only
-(`pyproject.toml`, `alembic.ini`, `README.md`, `.env.example`) plus the preserved boilerplate. This
-applies to every stack — Python packages, static web apps, TypeScript projects, anything. If you're
-about to create an application file at the root, stop and put it in `src/` instead.
+**Backend/agent source lives inside `src/`; the UI lives in `frontend/`.** Never place loose HTML, CSS,
+JavaScript, Python packages, templates, or data files directly at the repo root. The root is for
+project-level config only (`pyproject.toml`, `alembic.ini`, `README.md`, `.env.example`) plus the
+preserved boilerplate. The one self-contained sub-project at the root is **`frontend/`** — the Node.js
+UI (Next.js + React + Tailwind), a Phase-1 deliverable when the product has a user-facing surface
+([`ui-and-design.md`](ui-and-design.md)); it is built as a static export and **served by the app so the
+whole product runs on one port/command**. If you're about to create a stray application file at the
+root, stop and put it in `src/` (backend) or `frontend/` (UI) instead.
 
 ---
 
@@ -75,6 +78,10 @@ whether the code works. Every generated README must:
 │       ├── prompts/                  ← LLM prompt templates (.md files)
 │       └── observability/
 │           └── events.py             ← structlog configuration
+├── frontend/                         ← the UI — Node.js (Next.js 15 + React + Tailwind), Phase-1
+│   ├── app/ · components/ · lib/      ← built as a static export, served by the app (one port)
+│   └── e2e/                           ← Playwright browser tests (assert post-JS DOM)
+│                                        omit only for a genuinely headless product (no UI)
 ├── evals/                            ← eval datasets + harness (real model, loose asserts), runs in CI
 ├── tests/                            ← tests at repo root, NOT inside src/
 │   ├── conftest.py                   ← settings singleton reset fixture

@@ -13,14 +13,11 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## Capabilities in This Project
 
-DataChat's first release is the narrow core loop — three capabilities. Everything beyond these is
-deferred to `## Future Phases` in [`../01-vision.md`](../01-vision.md).
+<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file. -->
 
 | # | Capability | File |
 |---|-----------|------|
-| 1 | Upload CSV(s) into a dataset | [01-upload-csv-into-dataset.md](01-upload-csv-into-dataset.md) |
-| 2 | Natural-language query over a dataset | [02-natural-language-query.md](02-natural-language-query.md) |
-| 3 | Multi-turn conversation | [03-multi-turn-conversation.md](03-multi-turn-conversation.md) |
+| 1 | <!-- name --> | [01-name.md](01-name.md) |
 
 ## How to Add a New Capability
 

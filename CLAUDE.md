@@ -16,7 +16,7 @@ A spec-driven boilerplate for building AI agents. The spec in `spec/` is the sin
 spec/product/01-vision.md · 02-architecture.md · capabilities/ · 04-data-model.md · 05-api.md · 06-ui.md
 spec/product/07-agent-graph.md       ← REQUIRED for any agent-framework project (LangGraph, CrewAI, …)
 spec/engineering/agentic-architecture.md  ← the agentic AI stack (10 layers) — read after the product spec
-spec/engineering/ai-agents.md · spec-driven.md · phases.md · project-layout.md · tech-stack.md · code-style.md
+spec/engineering/ai-agents.md · spec-driven.md · phases.md · project-layout.md · tech-stack.md · code-style.md · ui-and-design.md
 spec/engineering/patterns/           ← one canonical home per layer:
     react-agent.md · llm-providers.md · memory-and-context.md · tools-and-mcp.md · retrieval.md
     multi-agent.md · guardrails-and-hitl.md · durability.md · observability-and-evals.md
@@ -27,6 +27,11 @@ Phase 1, stop and raise it as a blocker. The **default agent ships memory + MCP 
 tracing, all real in Phase 1** — the raised baseline in `agentic-architecture.md`. Retrieval, long-term
 memory, multi-agent, HITL, and durability earn their place in later phases.
 
+**Phase 1 is the Build Phase — it ships the full product the user described, including its UI, local
+-first** (SQLite/DuckDB; PostgreSQL is later). The UI is designed (spec-writer) + built + reviewed
+(spec-reviewer) in Phase 1, never deferred. Later phases add capabilities. → `ai-agents.md` § 13,
+`ui-and-design.md`, `phases.md`.
+
 ## Non-negotiables (full text in `ai-agents.md`)
 
 1. The README must always be accurate — test every command before claiming done.
@@ -34,6 +39,7 @@ memory, multi-agent, HITL, and durability earn their place in later phases.
 3. Commit then push, every time — one indivisible action.
 4. `main` is boilerplate-only — app code on a feature branch, into `main` via PR only.
 5. Agents that act on the outside world use a ReAct loop — see `patterns/react-agent.md`.
+6. Phase 1 ships the full product, including its UI — local-first; the UI is never deferred. See `ui-and-design.md`.
 
 ## If the spec isn't ready
 
@@ -45,7 +51,7 @@ run `/build [your idea]`.
 | Agent | Purpose |
 |-------|---------|
 | `agent-builder` | Master orchestrator — start here for a new build |
-| `spec-writer` / `spec-reviewer` | Write / review the product spec |
+| `spec-writer` / `spec-reviewer` | Write / review the product spec — **incl. UI design (writer) & built-UI review (reviewer)** |
 | `tech-designer` | Propose tech stack and architecture |
 | `planner` / `plan-reviewer` | Create / validate the phased plan |
 | `qa-auditor` | Test and gate completed phases |
