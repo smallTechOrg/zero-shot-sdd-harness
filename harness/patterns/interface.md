@@ -402,7 +402,7 @@ The journey test drives a real browser against the running app and asserts what 
 *after* React hydrates and the answer arrives — never the raw HTML, never a 200 alone. → `workflows/gates.md`.
 ```python
 # tests/e2e/test_primary_journey.py  (pytest + playwright; agent server + next dev both up)
-import pytest
+import pathlib, pytest
 # Skip cleanly if pytest-playwright isn't installed, rather than aborting COLLECTION of the whole suite.
 # Gate check 2 is `uv run pytest` over EVERYTHING, including tests/e2e/; a bare `from playwright…` import on
 # a project where the package isn't present raises at collection time and `pytest` exits non-zero before any
@@ -414,12 +414,30 @@ from playwright.sync_api import expect
 
 def test_user_gets_an_answer(page):
     page.goto("http://localhost:3001")
-    page.get_by_role("textbox", name="goal").fill("What does the onboarding doc say about refunds?")
+    # DATA-INGEST branch (REQUIRED when spec/agent.md marks session-scoped resources ON — C-SESSION-SCOPE):
+    # an "analyze an uploaded X" agent's first question must CARRY the resource, exactly like demo_gate.sh's
+    # Q1 `data` field (workflows/gates.md check 5). Skip it and Q1 hits an empty session: the agent answers
+    # "No <resource> is loaded for this session" — a NON-EMPTY string, so not_to_be_empty() PASSES and the UI
+    # gate goes GREEN on a wrong-answer journey (the 200-with-wrong-answer class this gate exists to catch,
+    # leaking through the browser tier where the outcome judge never reaches — HARDENING-LOG iter 7). So the
+    # journey MUST first paste/upload the fixture, then assert the answer contains a REAL fixture value, not
+    # merely non-empty. For a key-free/own-data agent (no C-SESSION-SCOPE) delete this branch.
+    fixture = pathlib.Path("scripts/fixtures/contract.txt").read_text()   # build.md §3 fixture
+    page.get_by_role("textbox", name="contract").fill(fixture)           # the upload affordance the UI must ship
+    page.get_by_role("textbox", name="goal").fill("How long is the termination notice period?")
     page.get_by_role("button", name="Run").click()
     answer = page.get_by_test_id("answer")
     expect(answer).not_to_be_empty(timeout=30_000)        # post-JS DOM, after the real run completes
+    expect(answer).to_contain_text("30 days")             # a REAL fixture value — not merely non-empty
     expect(page.get_by_role("link", name="trace")).to_be_visible()   # deep-link to /traces present
 ```
+The recipe above shows the **data-ingest** journey (a session-scoped agent). For a non-ingest agent the goal
+field alone carries the question and the `to_contain_text` assert checks a known answer substring (not just
+`not_to_be_empty`, which a "no data loaded" error would also satisfy). The non-negotiable in **both** shapes:
+assert the answer contains a REAL expected value, never merely that it is non-empty — a non-empty string is
+also what a wrong-answer error returns, so `not_to_be_empty()` alone lets a wrong-answer journey pass the UI
+gate (HARDENING-LOG iter 7).
+
 A headless product replaces this with the API + outcome-eval gate only (no browser). The mechanical
 two-tier success (demo / productionise) is defined in `harness/harness.md` and `workflows/gates.md` — this
 recipe just wires the serving edge into it.

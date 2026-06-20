@@ -36,7 +36,7 @@ Each line below is one command whose exit code is the verdict; the gate is their
 | 4 | **`/health` 200** | `curl -fsS localhost:$PORT/health` returns `{"ok":true}` (`agent/server.py`). |
 | 5 | **Two-turn run completes** | `POST /runs {goal}` (Q1) → `.ok == true and .data.status == "completed"` (the `ok()` envelope — read `.data.*`, not the top level), then `POST /runs {goal:<follow-up>, session_id:<same>}` (Q2) on the **same session** → also completed. **Any Q2 error fails the gate**, even if Q1 was perfect (`SPEC-RECONCILIATION.md` C3, decision #12). A 500 or `.data.status != completed` on either turn fails. |
 | 6 | **Outcome (judge-stable) eval passes; trajectory advisory** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip). A **200 with a wrong answer fails here.** The persisted-span `trajectory_eval` runs too but is **ADVISORY for a 1-capability v1 slice** — logged, not gate-blocking (a benign fail-soft tool span would else false-RED a correct answer); it is promoted to a hard blocker when a 2nd capability adds a tool-ordering contract (`patterns/observability-and-evals.md` L95-98/197). |
-| 7 | **UI journey (Playwright)** | the post-JS DOM shows the real answer after the run completes, with **no console error**, invariant asserts, **bounded retries** so it never flakes (`patterns/interface.md` Gate, decisions #5/#10). Headless products skip this; every build with a UI ships it. |
+| 7 | **UI journey (Playwright)** | the post-JS DOM shows the real answer after the run completes, with **no console error**, invariant asserts, **bounded retries** so it never flakes (`patterns/interface.md` Gate, decisions #5/#10). The answer assert checks the DOM **contains a real expected value**, not merely `not_to_be_empty()` — a "no data loaded" error is also a non-empty string, so non-empty alone false-greens a wrong-answer journey (HARDENING-LOG iter 7). For a **session-scoped** agent (`C-SESSION-SCOPE`) the journey first fills the upload/paste affordance with the fixture (browser-tier mirror of check 5's `data` field) before asking, else Q1 hits an empty session. Headless products skip this; every build with a UI ships it. |
 | 8 | **Traces present** | `/traces` renders ≥1 run with spans for that run (`agent/observability.py`, the `spans` table). No spans = not observable = fail. |
 
 Checks 5–8 share the same real run: submit Q1+Q2, read `status`, judge the answer, render the UI, confirm
@@ -217,9 +217,17 @@ _PLACEHOLDERS = ("WHEN asked about refund timing the system SHALL state 5 busine
                  "How long do refunds take?")
 
 def _ears_lines() -> list[str]:
+    """The criterion PROSE of every EARS line — with the trailing `[@eval: path::case]` token STRIPPED.
+    gate_eval.CRITERION is the human/judge rubric and is token-FREE by design (the recipe placeholder
+    `WHEN asked about refund timing the system SHALL state 5 business days.` carries no token); the spec
+    line that authored it ends with `… [@eval: tests/…::case]`. Comparing a token-free CRITERION against a
+    token-BEARING line never matches, false-REDing check 1 on every correct build (HARDENING-LOG iter 7).
+    Strip the token so the match is prose-vs-prose, never metadata-vs-prose."""
     out = []
     for f in pathlib.Path("spec/capabilities").glob("*.md"):
-        out += [ln.strip(" -") for ln in f.read_text().splitlines() if EARS.search(ln)]
+        for ln in f.read_text().splitlines():
+            if EARS.search(ln):
+                out.append(re.sub(r"\s*\[@eval:[^\]]*\]", "", ln).strip(" -"))
     return out
 
 def _gate_eval_sync(ears: list[str]) -> list[str]:
