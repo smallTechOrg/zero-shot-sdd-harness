@@ -5,12 +5,12 @@ from sqlalchemy import select
 from .db import get_sessionmaker, Run
 from .evals import stable_outcome_eval, trajectory_eval
 
-CRITERION = "WHEN the user provides a document and asks a question answerable from it the system SHALL answer with the correct fact, grounded in the document's content."
+CRITERION = "WHEN the user uploads a CSV dataset and asks an aggregate question the system SHALL execute a pandas expression and return the correct numeric result grounded in the data."
 EVALUATION_STEPS = [
-    "PRIMARY: the question asks how many paid vacation days full-time employees get per year; the document says 20. Does the answer clearly state 20? Score 5 if it states 20, 0 if a different number or no number.",
-    "Is the answer on-topic and free of invented policies or numbers? Score 5 if clean, 0 if it fabricates facts.",
+    "PRIMARY: the question asks for the total revenue. The dataset has 12 months of revenue summing to 767,000. Does the answer state 767,000 (or equivalent, e.g. $767,000 or 767000)? Score 5 if correct, 0 if wrong or missing.",
+    "Is the answer grounded in the data (uses execute_pandas result) rather than invented? Score 5 if clearly computed, 0 if the number is guessed.",
 ]
-EXPECT_TOOLS = ["search_document"]
+EXPECT_TOOLS = ["inspect_data", "execute_pandas"]
 FORBID_TOOLS = []
 
 SAMPLES, THRESHOLD, MARGIN = 5, 3, 0.5

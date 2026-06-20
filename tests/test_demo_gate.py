@@ -1,4 +1,4 @@
-import os
+"""Mechanical + guardrail tests (no API key). Old grounded-answer LLM tests are skipped."""
 import pytest
 import pandas as pd
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -28,19 +28,20 @@ class FakeModel:
 # -----------------------------------------------------------
 
 async def test_fake_model_loop():
-    """Graph loop runs, search_document executes, produces a grounded answer."""
+    """Graph loop runs with data analyst tools: inspect_data → execute_pandas → finish."""
     sid = "test-loop-sess"
-    load_resource(sid, "Vacation: employees get 20 paid days per year.\n\nSick leave: 10 days per year.")
+    load_resource(sid, "month,revenue\nJan,45000\nFeb,38000\nMar,52000\n")
 
     scripted = [
-        AIMessage(content="", tool_calls=[{"name": "search_document", "args": {"query": "vacation days"}, "id": "a"}]),
-        AIMessage(content="", tool_calls=[{"name": "finish", "args": {"answer": "Employees get 20 vacation days."}, "id": "b"}]),
+        AIMessage(content="", tool_calls=[{"name": "inspect_data", "args": {}, "id": "a"}]),
+        AIMessage(content="", tool_calls=[{"name": "execute_pandas", "args": {"code": "df['revenue'].sum()"}, "id": "b"}]),
+        AIMessage(content="", tool_calls=[{"name": "finish", "args": {"answer": "Total revenue is 135,000."}, "id": "c"}]),
     ]
 
     graph = build_graph(FakeModel(scripted))
     state = {
-        "messages": [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content="How many vacation days?")],
-        "iterations": 0, "answer": None, "run_id": "test-loop-1",
+        "messages": [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content="What is the total revenue?")],
+        "iterations": 0, "answer": None, "chart": None, "run_id": "test-loop-1",
     }
     token = current_session_id.set(sid)
     try:
@@ -49,7 +50,7 @@ async def test_fake_model_loop():
         current_session_id.reset(token)
         release_session(sid)
 
-    assert result["iterations"] >= 2
+    assert result["iterations"] >= 3
     assert result["answer"] is not None
     assert result["answer"] != "(no answer produced)"
 
@@ -65,14 +66,14 @@ async def test_force_finalize():
     graph = build_graph(LoopingModel())
     state = {
         "messages": [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content="test")],
-        "iterations": 0, "answer": None, "run_id": "test-runaway",
+        "iterations": 0, "answer": None, "chart": None, "run_id": "test-runaway",
     }
     result = await graph.ainvoke(state, config={"recursion_limit": 50})
     assert result["answer"] is not None, "force_finalize must produce an answer, never None"
 
 
 # -----------------------------------------------------------
-# Guardrail unit tests (no API key) — the AST-safe-eval utility (guardrails.py)
+# Guardrail unit tests (no API key) — AST-safe-eval utility
 # -----------------------------------------------------------
 
 def test_refuses_filesystem_escape():
@@ -95,48 +96,14 @@ def test_safe_eval_allows_pandas():
 
 
 # -----------------------------------------------------------
-# Real LLM tests (require funded key)
+# Old grounded-answer LLM tests — skipped (capability replaced by data-analysis)
 # -----------------------------------------------------------
 
-@pytest.mark.skipif(not os.getenv("APP_LLM_API_KEY"), reason="real run + LLM judge needs a funded key")
+@pytest.mark.skip(reason="grounded-answer capability replaced by data-analysis (P1 switch)")
 async def test_demo_gate():
-    """Full round-trip: load the handbook → ask a grounded question → judge-stable outcome passes."""
-    from agent.runner import run_agent
-    from agent.evals import stable_outcome_eval
-
-    sid = "gate-sess-demo"
-    load_resource(sid, open("scripts/fixtures/handbook.txt").read())
-
-    GOAL = "How many paid vacation days do full-time employees get per year?"
-    state = await run_agent(GOAL, run_id="gate-test-1", session_id=sid)
-    assert state["status"] == "completed"
-    assert state["answer"] and state["answer"] != "(no answer produced)"
-
-    from agent.gate_eval import CRITERION, EVALUATION_STEPS
-    ok_o, mean, detail = await stable_outcome_eval(
-        goal=GOAL, answer=state["answer"],
-        criterion=CRITERION, evaluation_steps=EVALUATION_STEPS,
-    )
-    release_session(sid)
-    assert ok_o, f"OUTCOME failed: judge mean {mean} {detail}"
+    pass
 
 
-@pytest.mark.skipif(not os.getenv("APP_LLM_API_KEY"), reason="real run needs a funded key")
+@pytest.mark.skip(reason="grounded-answer capability replaced by data-analysis (P1 switch)")
 async def test_followup_retains_document():
-    """A follow-up on the same session is answered from the retained document — no re-upload."""
-    from agent.runner import run_agent
-
-    sid = "gate-sess-followup"
-    load_resource(sid, open("scripts/fixtures/handbook.txt").read())
-
-    s1 = await run_agent("How many paid vacation days do full-time employees get per year?",
-                         run_id="ret-1", session_id=sid)
-    assert s1["status"] == "completed"
-
-    s2 = await run_agent("How far in advance must I request time off?",
-                         run_id="ret-2", session_id=sid)
-    release_session(sid)
-    assert s2["status"] == "completed"
-    ans = (s2["answer"] or "").lower()
-    assert ans and "no document" not in ans, f"follow-up lost the retained document: {s2['answer']}"
-    assert "week" in ans, f"expected the retained-doc answer to mention weeks, got: {s2['answer']}"
+    pass

@@ -1,3 +1,4 @@
+import io
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -23,16 +24,34 @@ def release_session(session_id: str) -> None:
     _SESSIONS.pop(session_id, None)
 
 
-def _chunk(text: str) -> list[str]:
-    """Split a document into passages on blank lines (fallback: the whole text)."""
-    chunks = [c.strip() for c in re.split(r"\n\s*\n", text) if c.strip()]
-    return chunks or [text.strip()]
-
-
 def load_resource(session_id: str, data: str, resource_id: str = "main") -> str:
-    """Stash a provided document (plain text) + its passages in the session bag for retrieval.
-    Persists across follow-up turns; released only on explicit session delete (C-SESSION-SCOPE)."""
+    """Load a dataset (CSV/JSON) or plain text into the session bag.
+    CSV/JSON → stored as a pandas DataFrame under sess.by_id['df'].
+    Plain text → stored as text chunks under sess.by_id['chunks'] (legacy fallback).
+    Persists across follow-up turns; released only on explicit session delete."""
+    import pandas as pd
     sess = get_session(session_id)
-    sess.by_id["document"] = data
-    sess.by_id["chunks"] = _chunk(data)
+    raw = data if isinstance(data, str) else data.decode("utf-8", errors="replace")
+
+    # Try CSV first (most common for data analysis)
+    try:
+        df = pd.read_csv(io.StringIO(raw))
+        if df.shape[1] > 1:          # at least 2 columns → treat as structured data
+            sess.by_id["df"] = df
+            return resource_id
+    except Exception:
+        pass
+
+    # Try JSON (records or columns orientation)
+    try:
+        df = pd.read_json(io.StringIO(raw))
+        if df.shape[1] > 1:
+            sess.by_id["df"] = df
+            return resource_id
+    except Exception:
+        pass
+
+    # Fall back to plain-text document (legacy: chunk on blank lines)
+    chunks = [c.strip() for c in re.split(r"\n\s*\n", raw) if c.strip()]
+    sess.by_id["chunks"] = chunks or [raw.strip()]
     return resource_id

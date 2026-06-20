@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Grounded Assistant", lifespan=lifespan)
+app = FastAPI(title="Data Analyst", lifespan=lifespan)
 
 
 def ok(data):
@@ -111,91 +111,149 @@ def _ui_html() -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Grounded Assistant</title>
+  <title>Data Analyst</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #111; }
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #111; }
     h1 { margin-bottom: 0.25rem; }
-    p.sub { color: #6b7280; margin-top: 0; }
-    label { display: block; font-weight: 600; margin: 1rem 0 0.25rem; }
-    textarea, input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
-    textarea { resize: vertical; }
-    button { margin-top: 12px; padding: 9px 24px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 15px; cursor: pointer; }
-    button:disabled { background: #93c5fd; cursor: default; }
-    #result { margin-top: 1.5rem; display: none; }
-    #answer { white-space: pre-wrap; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem; min-height: 60px; font-size: 14px; }
-    .meta { font-size: 12px; color: #9ca3af; margin-top: 6px; }
-    .meta a { color: #6b7280; }
-    .error { color: #dc2626; }
+    p.sub { color: #6b7280; margin-top: 0; margin-bottom: 1.5rem; }
+    .upload-zone { border: 2px dashed #d1d5db; border-radius: 8px; padding: 1.5rem; text-align: center; cursor: pointer; transition: border-color .2s; margin-bottom: 1rem; }
+    .upload-zone:hover, .upload-zone.drag { border-color: #2563eb; background: #eff6ff; }
+    .upload-zone input { display: none; }
+    .upload-zone.loaded { border-color: #16a34a; background: #f0fdf4; }
+    label.field { display: block; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+    input[type=text] { width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    button { padding: 9px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-family: inherit; }
+    #run-btn { background: #2563eb; color: #fff; flex: 1; }
+    #run-btn:disabled { background: #93c5fd; cursor: default; }
+    #clear-btn { background: #f3f4f6; color: #374151; }
+    #chat { margin-top: 1.5rem; }
+    .turn { margin-bottom: 1.5rem; }
+    .turn .q { font-weight: 600; color: #374151; margin-bottom: 6px; }
+    .turn .a { white-space: pre-wrap; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem; font-size: 14px; font-family: monospace; }
+    .turn .chart-wrap { margin-top: 12px; max-height: 360px; }
+    .turn .meta { font-size: 12px; color: #9ca3af; margin-top: 6px; }
+    .turn .meta a { color: #6b7280; }
+    .error { color: #dc2626; background: #fef2f2 !important; border-color: #fecaca !important; }
   </style>
 </head>
 <body>
-  <h1>Grounded Assistant</h1>
-  <p class="sub">Paste a document and ask questions — answered using only that document.</p>
+  <h1>Data Analyst</h1>
+  <p class="sub">Upload a CSV or JSON dataset, then ask questions in plain English.</p>
 
-  <label for="data-input">Document (paste text here):</label>
-  <textarea id="data-input" aria-label="data" rows="7"
-    placeholder="Paste a document here (a policy, FAQ, notes…), then ask a question about it."></textarea>
-
-  <label for="goal-input">Question:</label>
-  <input id="goal-input" aria-label="goal" type="text"
-    placeholder="e.g. How many vacation days do employees get?">
-
-  <button id="run-btn" onclick="run()">Run</button>
-
-  <div id="result">
-    <label>Answer:</label>
-    <div data-testid="answer" id="answer"></div>
-    <div class="meta" id="meta">
-      <span id="stats"></span> &nbsp;·&nbsp;
-      <a id="trace-link" href="/traces">trace</a> &nbsp;·&nbsp;
-      <a href="/traces">all runs</a>
-    </div>
+  <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+       ondragover="event.preventDefault();this.classList.add('drag')"
+       ondragleave="this.classList.remove('drag')"
+       ondrop="handleDrop(event)">
+    <input type="file" id="file-input" accept=".csv,.json,.tsv" onchange="handleFile(this.files[0])">
+    <span id="upload-label">&#128193; Drop a CSV / JSON file here, or click to browse</span>
   </div>
 
+  <label class="field" for="goal-input">Ask a question:</label>
+  <input id="goal-input" type="text" placeholder="e.g. What is the total revenue? Which month had the highest sales?">
+
+  <div class="row">
+    <button id="run-btn" onclick="run()">Analyse</button>
+    <button id="clear-btn" onclick="newSession()">New session</button>
+  </div>
+
+  <div id="chat"></div>
+
   <script>
-    const SID_KEY = 'da_session_id';
+    const SID_KEY = 'analyst_session_id';
     let sid = localStorage.getItem(SID_KEY) || crypto.randomUUID();
     localStorage.setItem(SID_KEY, sid);
+    let pendingData = null;
+    let chartCount = 0;
+
+    function handleFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        pendingData = e.target.result;
+        const zone = document.getElementById('drop-zone');
+        zone.classList.add('loaded');
+        document.getElementById('upload-label').textContent = '✓ ' + file.name + ' ready';
+      };
+      reader.readAsText(file);
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('drop-zone').classList.remove('drag');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    }
+
+    function newSession() {
+      sid = crypto.randomUUID();
+      localStorage.setItem(SID_KEY, sid);
+      pendingData = null;
+      document.getElementById('chat').innerHTML = '';
+      document.getElementById('upload-label').textContent = '📁 Drop a CSV / JSON file here, or click to browse';
+      document.getElementById('drop-zone').classList.remove('loaded');
+    }
 
     async function run() {
-      const data = document.getElementById('data-input').value.trim();
       const goal = document.getElementById('goal-input').value.trim();
-      if (!goal) { alert('Please enter a question.'); return; }
-
+      if (!goal) { document.getElementById('goal-input').focus(); return; }
       const btn = document.getElementById('run-btn');
-      btn.textContent = 'Running…'; btn.disabled = true;
+      btn.textContent = 'Analysing…'; btn.disabled = true;
 
       const body = { goal, session_id: sid };
-      if (data) body.data = data;
+      if (pendingData) { body.data = pendingData; pendingData = null; }
+
+      const turn = document.createElement('div');
+      turn.className = 'turn';
+      turn.innerHTML = '<div class="q">Q: ' + escHtml(goal) + '</div><div class="a">…</div>';
+      document.getElementById('chat').prepend(turn);
+      document.getElementById('goal-input').value = '';
 
       try {
         const res = await fetch('/runs', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
         });
         const json = await res.json();
-        document.getElementById('result').style.display = 'block';
-        const answerEl = document.getElementById('answer');
+        const aEl = turn.querySelector('.a');
         if (json.ok && json.data) {
-          answerEl.textContent = json.data.answer || '(no answer)';
-          answerEl.className = '';
           const d = json.data;
+          aEl.textContent = d.answer || '(no answer)';
+          aEl.className = 'a';
+          if (d.chart) {
+            try {
+              const cfg = typeof d.chart === 'string' ? JSON.parse(d.chart) : d.chart;
+              const wrap = document.createElement('div');
+              wrap.className = 'chart-wrap';
+              const canvas = document.createElement('canvas');
+              canvas.id = 'chart-' + (++chartCount);
+              wrap.appendChild(canvas);
+              turn.appendChild(wrap);
+              new Chart(canvas, cfg);
+            } catch (e) { /* malformed chart JSON — skip silently */ }
+          }
           const toks = (d.input_tokens || 0) + (d.output_tokens || 0);
-          document.getElementById('stats').textContent =
-            toks.toLocaleString() + ' tokens · $' + (d.cost_usd || 0).toFixed(4) + ' · ' + (d.iterations || 0) + ' steps';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML = toks.toLocaleString() + ' tokens · $' + (d.cost_usd || 0).toFixed(4)
+            + ' · ' + (d.iterations || 0) + ' steps &nbsp;·&nbsp; <a href="/traces">trace</a>';
+          turn.appendChild(meta);
         } else {
-          answerEl.textContent = 'Error: ' + (json.error?.message || JSON.stringify(json));
-          answerEl.className = 'error';
+          turn.querySelector('.a').textContent = 'Error: ' + (json.error?.message || JSON.stringify(json));
+          turn.querySelector('.a').className = 'a error';
         }
       } catch (e) {
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('answer').textContent = 'Network error: ' + e.message;
-        document.getElementById('answer').className = 'error';
+        turn.querySelector('.a').textContent = 'Network error: ' + e.message;
+        turn.querySelector('.a').className = 'a error';
       } finally {
-        btn.textContent = 'Run'; btn.disabled = false;
+        btn.textContent = 'Analyse'; btn.disabled = false;
       }
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     document.getElementById('goal-input').addEventListener('keydown', e => {

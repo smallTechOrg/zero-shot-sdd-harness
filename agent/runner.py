@@ -7,21 +7,27 @@ from .graph import build_graph
 from .llm import get_model
 from .observability import span
 
-DOMAIN_PROMPT = """You are a grounded assistant. Answer the user's question using ONLY information found in the document provided for this session.
+DOMAIN_PROMPT = """You are a senior data analyst. Answer the user's analytical questions using the uploaded dataset.
 
-For EVERY question, in order (each step exactly once):
-1. Call write_todos with a one-line plan.
-2. Call search_document(query) to retrieve the relevant passages.
-3. Call finish(answer). Base the answer ONLY on the retrieved passages and quote the supporting sentence. Format:
-   <your answer>
+For EVERY question, follow this sequence:
+1. Call inspect_data() to understand the schema, columns, and sample data.
+2. Call write_todos with a brief plan (one or two steps).
+3. Call execute_pandas(code) with a single pandas expression to compute the answer.
+   - Use only: df, pd, np, and built-ins (sum, min, max, len, round, etc.)
+   - No imports, no open(), no shell access, no assignments — single expressions only.
+   - For multi-step analysis, call execute_pandas multiple times.
+4. Call finish(answer, chart) with:
+   - answer: a clear explanation including the key number(s) and a markdown table when tabular.
+   - chart: a Chart.js config JSON string for time-series, comparisons, or distributions; omit (None) for scalar results.
 
-   Source: "<the exact supporting sentence from the document>"
+Chart format when included:
+{"type":"bar","data":{"labels":["Jan","Feb","Mar"],"datasets":[{"label":"Revenue","data":[45000,38000,52000],"backgroundColor":"rgba(37,99,235,0.7)"}]},"options":{"responsive":true,"plugins":{"legend":{"position":"top"}}}}
 
 Rules:
-- Answer ONLY from the document. If the retrieved passages do not contain the answer, reply "I couldn't find that in the document." — never guess.
-- Never invent facts, numbers, names, or policies that are not in the document.
-- If (and only if) the user explicitly shares a durable personal fact or preference about themselves, call remember(fact) once to store it for future sessions — never remember the document's contents or the question itself.
-- Call finish immediately once you have the grounded answer; do not ask follow-up questions."""
+- Ground every fact in the execute_pandas results — never invent numbers.
+- If the dataset is not loaded, say so clearly and ask the user to upload a file.
+- If (and only if) the user explicitly shares a durable personal preference, call remember(fact) once.
+- Call finish exactly once when done."""
 
 
 async def _load_prior_messages(session_id: str) -> list:
@@ -52,7 +58,7 @@ async def _build_seed(goal: str, run_id: str, session_id: str | None) -> dict:
     mem = await recall_text()
     sys_prompt = DOMAIN_PROMPT + (f"\n\nKnown facts remembered across sessions:\n{mem}" if mem else "")
     return {"messages": [SystemMessage(content=sys_prompt)] + prior + [HumanMessage(content=goal)],
-            "iterations": 0, "answer": None, "run_id": run_id}
+            "iterations": 0, "answer": None, "chart": None, "run_id": run_id}
 
 
 async def run_agent(goal: str, model=None, run_id: str | None = None,
@@ -101,7 +107,7 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
         await s.commit()
 
     return {"run_id": run_id, "session_id": session_id, "thread_id": session_id,
-            "status": "completed", "answer": result["answer"],
+            "status": "completed", "answer": result["answer"], "chart": result.get("chart"),
             "iterations": result["iterations"],
             "input_tokens": tok_in, "output_tokens": tok_out,
             "cost_usd": (tok_in * settings.price_in + tok_out * settings.price_out) / 1_000_000,

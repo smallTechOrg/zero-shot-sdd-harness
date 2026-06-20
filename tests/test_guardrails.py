@@ -29,7 +29,7 @@ def _delete_then_finish():
 
 def _state(rid):
     return {"messages": [SystemMessage(content="x"), HumanMessage(content="delete everything")],
-            "iterations": 0, "answer": None, "run_id": rid}
+            "iterations": 0, "answer": None, "chart": None, "run_id": rid}
 
 
 def test_pii_guardrail_masks_email():

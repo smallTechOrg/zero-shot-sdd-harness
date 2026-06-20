@@ -100,7 +100,8 @@ with sync_playwright() as p:
         info "8: installing Playwright browsers …"
         uv run playwright install chromium 2>&1 | grep -v "^$" || true
     fi
-    uv run pytest tests/e2e/ -q \
+    # -o addopts="" clears the default `--ignore=tests/e2e` so e2e actually runs here.
+    uv run pytest tests/e2e/ -o addopts="" -q \
         && pass "8: Playwright UI journey green" \
         || fail "8: Playwright UI journey failed"
 else

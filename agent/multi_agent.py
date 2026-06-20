@@ -30,7 +30,7 @@ async def run_subagent(task: str, *, model=None, run_id: str = "subagent") -> st
     graph = build_graph(model)
     state = {
         "messages": [SystemMessage(content=SUBAGENT_PROMPT), HumanMessage(content=task)],
-        "iterations": 0, "answer": None, "run_id": run_id,
+        "iterations": 0, "answer": None, "chart": None, "run_id": run_id,
     }
     result = await graph.ainvoke(state, config={"recursion_limit": 50})
     return result["answer"]

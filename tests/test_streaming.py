@@ -21,12 +21,12 @@ class _Fake:
 
 async def test_stream_emits_steps_and_done():
     sid = "stream-sess"
-    load_resource(sid, "Vacation: employees get 20 days.\n\nSick leave: 10 days.")
+    load_resource(sid, "month,revenue\nJan,45000\nFeb,38000\n")
     scripted = [
-        AIMessage(content="", tool_calls=[{"name": "search_document", "args": {"query": "vacation"}, "id": "a"}]),
-        AIMessage(content="", tool_calls=[{"name": "finish", "args": {"answer": "20 days."}, "id": "b"}]),
+        AIMessage(content="", tool_calls=[{"name": "inspect_data", "args": {}, "id": "a"}]),
+        AIMessage(content="", tool_calls=[{"name": "finish", "args": {"answer": "Revenue data loaded."}, "id": "b"}]),
     ]
-    events = [ev async for ev in stream_agent("vacation days?", model=_Fake(scripted), session_id=sid)]
+    events = [ev async for ev in stream_agent("What is in the dataset?", model=_Fake(scripted), session_id=sid)]
     release_session(sid)
     assert any(e["event"] == "step" for e in events), f"expected step events, got {events}"
     done = [e for e in events if e["event"] == "done"]

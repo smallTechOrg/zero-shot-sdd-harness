@@ -1,0 +1,13 @@
+month,revenue,units_sold,category
+January,45000,450,Electronics
+February,38000,380,Electronics
+March,52000,520,Software
+April,61000,610,Software
+May,48000,480,Electronics
+June,73000,730,Software
+July,65000,650,Electronics
+August,55000,550,Software
+September,69000,690,Software
+October,82000,820,Electronics
+November,91000,910,Electronics
+December,88000,880,Electronics

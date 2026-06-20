@@ -52,10 +52,12 @@ def build_graph(model, checkpointer=None):
     async def finalize_node(state):
         msgs = state["messages"]
         answer = None
+        chart = None
         for m in reversed(msgs):
             for tc in getattr(m, "tool_calls", None) or []:
                 if tc["name"] == FINISH and tc["args"].get("answer"):
                     answer = tc["args"]["answer"]
+                    chart = tc["args"].get("chart")
                     break
             if answer:
                 break
@@ -67,16 +69,8 @@ def build_graph(model, checkpointer=None):
         if not answer:
             last_tool = next((m for m in reversed(msgs) if isinstance(m, ToolMessage) and m.content), None)
             if last_tool:
-                code_snippet = ""
-                for m in reversed(msgs):
-                    for tc in getattr(m, "tool_calls", None) or []:
-                        if tc["name"] == "python_exec" and tc["args"].get("code"):
-                            code_snippet = f"\n\n```python\n{tc['args']['code']}\n```"
-                            break
-                    if code_snippet:
-                        break
-                answer = "Ran out of steps — here is what I gathered:\n\n" + str(last_tool.content) + code_snippet
-        return {"answer": answer or "(no answer produced)"}
+                answer = "Ran out of steps — here is what I gathered:\n\n" + str(last_tool.content)
+        return {"answer": answer or "(no answer produced)", "chart": chart}
 
     def route(state):
         if state["iterations"] >= settings.max_iterations:

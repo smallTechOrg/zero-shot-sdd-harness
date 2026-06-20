@@ -1,7 +1,7 @@
 PORT     := 8001
-GOAL     := "How many paid vacation days do full-time employees get per year?"
-FOLLOWUP := "How far in advance must I request time off?"
-DATA_FILE := scripts/fixtures/handbook.txt
+GOAL     := "What is the total revenue across all months?"
+FOLLOWUP := "Which month had the highest revenue?"
+DATA_FILE := scripts/fixtures/sample_data.csv
 
 .PHONY: setup dev gate demo-gate analyze
 

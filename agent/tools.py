@@ -1,23 +1,53 @@
-import re
+import io
 from langchain_core.tools import tool
 
 
 @tool
-def search_document(query: str) -> str:
-    """Search the document provided for this session and return the passages most relevant to the query. Call this to find supporting information before answering."""
+def inspect_data() -> str:
+    """Inspect the loaded dataset: columns, dtypes, shape, and first 3 rows. Always call this first."""
     from .sessions import current_session_id, get_session
     sid = current_session_id.get()
     sess = get_session(sid) if sid else None
-    chunks = sess.by_id.get("chunks") if sess else None
-    if not chunks:
-        return "No document is loaded for this session. Ask the user to provide a document first."
-    q = set(re.findall(r"\w+", query.lower()))
-    scored = sorted(
-        ((len(q & set(re.findall(r"\w+", c.lower()))), c) for c in chunks),
-        key=lambda x: x[0], reverse=True,
+    df = sess.by_id.get("df") if sess else None
+    if df is None:
+        return "No dataset loaded. Ask the user to upload a CSV or JSON file first."
+    buf = io.StringIO()
+    df.info(buf=buf)
+    return (
+        f"Shape: {df.shape[0]} rows × {df.shape[1]} columns\n\n"
+        f"Columns & dtypes:\n{df.dtypes.to_string()}\n\n"
+        f"First 3 rows:\n{df.head(3).to_string(index=False)}\n\n"
+        f"Null counts:\n{df.isnull().sum().to_string()}"
     )
-    top = [c for score, c in scored[:3] if score > 0] or [chunks[0]]
-    return "\n\n---\n\n".join(top)
+
+
+@tool
+def execute_pandas(code: str) -> str:
+    """Execute a single safe pandas expression against the loaded dataset (df).
+    Available names: df, pd, np. Returns the result as a formatted string.
+    Examples: df['revenue'].sum()  |  df.groupby('month')['revenue'].mean()  |  df.describe()"""
+    import numpy as np
+    import pandas as pd
+    from .sessions import current_session_id, get_session
+    from .guardrails import safe_eval
+    sid = current_session_id.get()
+    sess = get_session(sid) if sid else None
+    df = sess.by_id.get("df") if sess else None
+    if df is None:
+        return "No dataset loaded. Ask the user to upload a CSV or JSON file first."
+    try:
+        result = safe_eval(code, {"df": df, "pd": pd, "np": np})
+    except ValueError as e:
+        return f"Code rejected (unsafe): {e}"
+    except Exception as e:
+        return f"Execution error: {type(e).__name__}: {e}"
+    if hasattr(result, "to_string"):
+        return result.to_string()
+    if isinstance(result, float):
+        return f"{result:,.4f}".rstrip("0").rstrip(".")
+    if isinstance(result, int):
+        return f"{result:,}"
+    return str(result)
 
 
 @tool
@@ -41,11 +71,15 @@ def write_todos(todos: list[str]) -> str:
 
 
 @tool
-def finish(answer: str) -> str:
-    """Return the final answer to the user and end the run. Call exactly once when done."""
+def finish(answer: str, chart: str | None = None) -> str:
+    """Return the final answer to the user and end the run.
+    answer: the text explanation (include a markdown table if tabular).
+    chart: optional Chart.js config JSON, e.g.:
+      {"type":"bar","data":{"labels":["Jan","Feb"],"datasets":[{"label":"Revenue","data":[45000,38000]}]},"options":{"responsive":true}}
+    Only include chart for time-series, comparisons, or distributions — not for scalar answers."""
     return answer
 
 
-TOOLS = [search_document, remember, delete_memories, write_todos, finish]
+TOOLS = [inspect_data, execute_pandas, remember, delete_memories, write_todos, finish]
 TOOL_MAP = {t.name: t for t in TOOLS}
 FINISH = "finish"
