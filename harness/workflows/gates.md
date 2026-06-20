@@ -111,9 +111,11 @@ if [ "${UI_E2E:-1}" = "1" ]; then
     || { echo "FAIL: Playwright UI journey (post-JS DOM / console error)"; exit 1; }
 fi
 
-# 8 — traces present for the Q1 run
-curl -fsS "${BASE}/traces" | grep -q "$(echo "$GOAL" | head -c 12)" \
-  || { echo "FAIL: run not visible at /traces"; exit 1; }
+# 8 — traces present for the Q1 run. Grep the RUN_ID (rendered VERBATIM, captured in check 5), NOT the goal
+# text: server.py renders the goal through _esc() (& < > escaped), so a goal whose first chars contain <, &,
+# or > — common for real ticket text like '<urgent> refund …' — would false-fail a raw-substring needle.
+curl -fsS "${BASE}/traces" | grep -q "$RUN_ID" \
+  || { echo "FAIL: run $RUN_ID not visible at /traces"; exit 1; }
 
 echo "DEMO GATE PASS"          # the only success signal is exit 0
 ```
@@ -121,9 +123,13 @@ echo "DEMO GATE PASS"          # the only success signal is exit 0
 ### `agent.eval_lint` (check 1 — the `[@eval]` binding lint, callable standalone)
 
 The cheapest check and the actual differentiator: parse every EARS line in `spec/capabilities/*.md`,
-require an `[@eval: path::case]` token, and confirm the referenced test exists and names that case. A
-criterion with no resolvable check is a **build failure**, not a TODO — this is what makes "every
-acceptance criterion is bound to an executable check" a fact the gate enforces, not a slogan
+require an `[@eval: path::case]` token, and confirm the referenced test exists and **defines a case pytest
+would actually collect**. Resolution is by **AST** (`ast.parse` → FunctionDef/AsyncFunctionDef names +
+parametrize ids), an **exact** match — never a substring scan: a substring scan false-greens a case that
+appears only in a `# TODO` comment and a misnamed superset (`test_stub_route_and_more` passing for
+`test_stub_route`), so the differentiator could certify a criterion with **zero** executable check behind
+it. A criterion with no resolvable, collectable case is a **build failure**, not a TODO — this is what makes
+"every acceptance criterion is bound to an executable check" a fact the gate enforces, not a slogan
 (`COMPETITIVE-RESEARCH.md` §5.2, `workflows/build.md` §2a/§2).
 
 **Two modes — preflight vs full — by where in the build it runs.** Before code exists (the analyze
@@ -134,11 +140,34 @@ existence + case-in-file resolution. Same parser, one flag: `--preflight` skips 
 
 ```python
 # agent/eval_lint.py — exit 0 iff every EARS line is bound to a well-formed [@eval].
-#   default (full, DEMO check 1): token present AND its path::case resolves to a real test/case.
+#   default (full, DEMO check 1): token present AND its path::case resolves to a real, COLLECTABLE test case.
 #   --preflight (analyze pre-flight, before code exists): token present + shape + uniqueness only (no path.exists).
-import argparse, pathlib, re, sys
+import argparse, ast, pathlib, re, sys
 EARS = re.compile(r"\bSHALL\b")
 TOKEN = re.compile(r"\[@eval:\s*([^\]:]+)::([^\]]+)\]")
+
+def _defined_cases(path: pathlib.Path) -> set[str]:
+    """Names pytest would actually COLLECT from the file — parsed via AST, never a substring scan.
+    A substring match false-greens two real bugs: a case that exists only inside a `# TODO` comment
+    (no function), and a misnamed superset (`test_stub_route_and_more` satisfying `test_stub_route`).
+    We collect FunctionDef/AsyncFunctionDef names AND any `@pytest.mark.parametrize` ids, then require
+    an EXACT match below — so an unbound/misnamed/not-yet-written criterion CANNOT pass the gate."""
+    cases: set[str] = set()
+    try:
+        tree = ast.parse(path.read_text())
+    except (OSError, SyntaxError):
+        return cases
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            cases.add(node.name)                                   # base test function name
+            for dec in node.decorator_list:                       # + explicit parametrize ids: foo[id]
+                if (isinstance(dec, ast.Call) and getattr(dec.func, "attr", "") == "parametrize"):
+                    for kw in dec.keywords:
+                        if kw.arg == "ids" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                            for elt in kw.value.elts:
+                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                    cases.add(f"{node.name}[{elt.value}]")
+    return cases
 
 def main(preflight: bool = False) -> int:
     problems, seen = [], {}
@@ -158,8 +187,10 @@ def main(preflight: bool = False) -> int:
             seen[ref] = f"{f}:{i+1}"
             if preflight:                            # shape already validated by TOKEN; stop before file I/O
                 continue
-            if not path.exists() or case not in path.read_text():
-                problems.append(f"{f}:{i+1}  [@eval] unresolved: {ref}")
+            if not path.exists():
+                problems.append(f"{f}:{i+1}  [@eval] unresolved (no file): {ref}"); continue
+            if case not in _defined_cases(path):     # EXACT match — never substring (superset/comment false-green)
+                problems.append(f"{f}:{i+1}  [@eval] unresolved (no collectable case `{case}`): {ref}")
     for p in problems:
         print(f"EVAL-LINT FAIL{' (preflight)' if preflight else ''}: {p}", file=sys.stderr)
     return 1 if problems else 0

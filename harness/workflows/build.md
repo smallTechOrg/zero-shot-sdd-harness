@@ -157,6 +157,27 @@ proven, copyable code — generate from them. The Phase-1 spine (the walking ske
 | `agent/state.py` · `graph.py` | `patterns/react-agent.md` | `AgentState`; `build_graph()` (agent↔tools, finalize) |
 | `agent/runner.py` | `patterns/react-agent.md` | `run_agent()` — span `invoke_agent`, persist run+messages |
 | `agent/server.py` | `patterns/interface.md` | FastAPI: `/health`, `POST /runs`, `/traces` viewer |
+| `agent/__init__.py` · `agent/__main__.py` | `patterns/interface.md` | package marker; `python -m agent` → uvicorn on `settings.port` (gate check 3 boots this) |
+| `agent/evals.py` | `patterns/observability-and-evals.md` | `outcome_eval` / `stable_outcome_eval` / `trajectory_eval` (imported by the suite + `gate_eval`) |
+| `agent/eval_lint.py` | `workflows/gates.md` | the `[@eval]` binding lint — gate check 1, run as `python -m agent.eval_lint` |
+| `agent/gate_eval.py` | `workflows/gates.md` | judge-stable outcome+trajectory CLI — gate check 6, run as `python -m agent.gate_eval` |
+
+These five gate-support modules are NOT optional — `make gate` runs every one of them (`workflows/gates.md`
+checks 1/2/3/6). A clean `agent/` tree without them dies at gate step 1 with `ModuleNotFoundError`. Alongside
+the package, generate the **top-level project files the gate and deploy both require**:
+
+| File | Recipe | Carries |
+|------|--------|---------|
+| `pyproject.toml` | `workflows/gates.md`, `patterns/*` | project metadata + **pinned** deps + `[tool.pytest.ini_options] asyncio_mode = "auto"`. **"Pin current versions" means pin them HERE.** `uv run pytest`, `make gate`, and deploy's `langgraph.json "dependencies":["."]` all need this file to exist. |
+| `Makefile` | `workflows/gates.md` | the `gate` / `demo-gate` targets (checks 1–8) — the entry point `/build` invokes |
+| `scripts/demo_gate.sh` | `workflows/gates.md` | gate checks 3–8 (boot, health, two-turn, judge, UI, traces) |
+| `tests/conftest.py` | `patterns/persistence.md` | the autouse create_all/drop_all-per-test async DB fixture |
+| `tests/test_eval_lint.py` | `workflows/gates.md` | one-line `assert agent.eval_lint.main() == 0` so the binding is enforced under a bare `pytest` too |
+
+Without `asyncio_mode = "auto"` in `pyproject.toml`, pytest-asyncio's default strict mode **silently skips
+every unmarked `async def test_*`** — including `test_demo_gate` (the in-process 200-with-wrong-answer guard)
+and the autouse async DB fixture — while the suite still reports green. That is a false-green in the very
+check the harness leans on, so this line is mandatory, not optional (`patterns/observability-and-evals.md`).
 
 **`config.py` and `runner.py` are load-bearing — there is ONE canonical copy of each, and it lives in the
 recipe, not here.** Do not paste a second copy into this file (a divergent paste is how

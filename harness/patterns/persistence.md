@@ -219,6 +219,11 @@ async def _fresh_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 ```
+This autouse fixture is `async` — it only runs if the generated `pyproject.toml` sets
+`[tool.pytest.ini_options] asyncio_mode = "auto"` (`workflows/build.md` §3). Under pytest-asyncio's default
+strict mode it is silently skipped, so every test runs against an un-migrated DB. The `asyncio_mode = "auto"`
+line is mandatory.
+
 The local demo gate runs these on SQLite. The **deploy gate runs the identical suite with
 `APP_DATABASE_URL` pointed at a real Postgres+`asyncpg`** — same models, same code path, proving the URL
 swap before any deploy. A green SQLite suite is necessary, not sufficient. → `workflows/gates.md`.

@@ -87,9 +87,11 @@ Observability shows what happened; **evals decide pass/fail**, fed by the EARS a
   reporting variance so a flaky borderline verdict is *visible*, never a silent coin-flip. That is what makes
   "exit 0 = right answer" deterministic instead of probabilistic (the competitive soft spot, closed).
 - **TRAJECTORY** — did it get there *correctly*? Read back the persisted spans for the run and assert the
-  path: the expected tool(s) were called with sane args, **no duplicate calls**, **no unsafe/mutating tool
-  fired without its gate** (`patterns/guardrails-and-hitl.md`), `finish` called exactly once, iterations
-  under the cap. The trajectory check needs **no LLM** — it's a deterministic read of the `spans` table.
+  path: the expected tool(s) were called with sane args, **no *redundant* duplicate calls** (the SAME tool
+  with IDENTICAL args — a true retry; legitimately repeated tool use, e.g. query-refine or one call per
+  resource, is allowed and expected, since `react-agent.md` sizes `max_iterations` for it), **no
+  unsafe/mutating tool fired without its gate** (`patterns/guardrails-and-hitl.md`), `finish` called exactly
+  once, iterations under the cap. The trajectory check needs **no LLM** — it's a deterministic read of the `spans` table.
   **For a one-capability v1 slice the trajectory check is ADVISORY** (logged, not gate-blocking) — the
   outcome eval is the hard verdict; trajectory becomes a blocking gate once a **second** capability exists and
   there's a real tool-ordering contract to protect against (per the reconciliation decisions). Run it from
@@ -144,7 +146,8 @@ async def trajectory_eval(run_id, *, expect_tools, forbid_tools=()):
     async with get_sessionmaker()() as s:
         spans = (await s.execute(
             select(Span).where(Span.run_id == run_id).order_by(Span.start_ms))).scalars().all()
-    tool_calls = [sp.name.removeprefix("execute_tool.") for sp in spans if sp.kind == "TOOL"]
+    tool_spans = [sp for sp in spans if sp.kind == "TOOL"]
+    tool_calls = [sp.name.removeprefix("execute_tool.") for sp in tool_spans]
     reasons = []
     for t in expect_tools:
         if t not in tool_calls:
@@ -152,8 +155,15 @@ async def trajectory_eval(run_id, *, expect_tools, forbid_tools=()):
     for t in forbid_tools:
         if t in tool_calls:
             reasons.append(f"forbidden/ungated tool fired: {t}")
-    if len(tool_calls) != len(set(tool_calls)):
-        reasons.append(f"duplicate tool calls: {tool_calls}")
+    # A REPEATED tool name is legitimate ReAct (query-refine, one call per resource, batch per item) —
+    # react-agent.md sizes max_iterations for exactly that. Only flag a TRUE redundant retry: the SAME
+    # tool called with IDENTICAL args (same name + same `attributes["args"]`). Never blanket set-equality.
+    seen_calls = set()
+    for sp in tool_spans:
+        key = (sp.name, repr((sp.attributes or {}).get("args")))
+        if key in seen_calls:
+            reasons.append(f"redundant duplicate call (same tool, identical args): {sp.name}")
+        seen_calls.add(key)
     if any("error" in (sp.attributes or {}) for sp in spans):
         reasons.append("a span recorded an error")
     return not reasons, reasons
@@ -165,6 +175,11 @@ EARS criterion → `criterion`; the capability's acceptance bullets → `evaluat
 The demo gate runs a **real** agent run, then the **stable outcome** eval (hard) + the trajectory eval
 (advisory for a 1-capability slice, blocking once a 2nd capability exists). A passing HTTP status with a
 sub-threshold judge mean **fails the gate**. → `workflows/gates.md`.
+> **REQUIRES `asyncio_mode = "auto"`** under `[tool.pytest.ini_options]` in the generated `pyproject.toml`
+> (`workflows/build.md` §3). Without it, pytest-asyncio's default STRICT mode never awaits this unmarked
+> `async def test_*` — it is skipped with a "coroutine never awaited" warning while the suite stays green,
+> silently disabling this 200-with-a-wrong-answer guard (the exact false-green the gate exists to stop). The
+> same applies to the autouse async DB fixture in `patterns/persistence.md`.
 ```python
 async def test_demo_gate():
     run_id = "gate-1"
