@@ -133,13 +133,15 @@ a core rule means fix the recipe/core; a domain rule means fix the spec.
 - **C-BRANCH-PR** · MUST · A PR is open before the first feature-branch commit; `main` is boilerplate-only;
   the branch is `feature/<slug>-<date>`.
   → enforced by: the branch-guard git hook blocks app code on `main` (`.githooks/`).
-- **C-UNATTENDED** · MUST · After one intake round (API key + runtime model collected at **Q4**), the build
-  runs unattended to the green gate — no mid-build "Proceed?", no asking for the key later. Self-diagnose
-  from logs + `/traces` before asking the user; pause only on a true blocker.
-  → enforced by: `workflows/build.md` § Autonomy + agent-builder; deviations are visible in the run log.
+- **C-UNATTENDED** · MUST · After one intake round (API key + runtime model collected at **Q4**) **and the
+  single scope+stack+plan approval** (after the spec/plan draft + pre-flight, before generation —
+  `workflows/build.md` §2b), the build runs unattended to the green gate — no further pauses, no mid-build
+  "Proceed?", no asking for the key later. Self-diagnose from logs + `/traces` before asking the user; pause
+  only on a true blocker.
+  → enforced by: `workflows/build.md` § Autonomy/§2b + agent-builder; deviations are visible in the run log.
 - **C-ASKUSER** · MUST · `AskUserQuestion` is loaded via ToolSearch **before** intake; intake and the single
-  approval use it (not plain text).
-  → enforced by: `workflows/build.md` intake step; reviewer check.
+  scope+stack+plan approval (`workflows/build.md` §2b) use it (never plain text).
+  → enforced by: `workflows/build.md` intake/§2b step; reviewer check.
 
 ## F. Stack defaults (ratified)
 

@@ -1,10 +1,35 @@
 #!/usr/bin/env bash
-# Mechanical guardrails (decisions Q180 secret-scan, Q190 git-as-hooks). Enable once with:
+# Mechanical guardrails — the local owners of C-SECRET-TYPE, C-BRANCH-PR, C-NO-ADD-ALL (spec/constitution.md).
+# Enable once (the build does this as its first action; or run it by hand):
 #   git config core.hooksPath .githooks
 set -euo pipefail
 
 staged=$(git diff --cached --name-only --diff-filter=ACM || true)
 [ -z "$staged" ] && exit 0
+
+# 0) C-BRANCH-PR — `main` is boilerplate-only: block app code (agent/**, ui/**, tests/**) on the default
+#    branch. App code belongs on a feature/<slug>-<date> branch with a PR open. Allow harness/spec/docs edits.
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  if echo "$staged" | grep -qE '^(agent/|ui/|tests/)'; then
+    echo "BLOCKED (C-BRANCH-PR): app code (agent/, ui/, tests/) staged on '$branch'."
+    echo "  -> branch first:  git switch -c feature/<slug>-$(date +%Y-%m-%d)   (main is boilerplate-only)"
+    exit 1
+  fi
+fi
+
+# 0b) C-NO-ADD-ALL — refuse a commit that looks like a `git add -A`/`git add .` sweep: many unrelated paths
+#     staged at once (a leftover/secret-sweeping smell). Stage specific files. Override a genuine wide commit
+#     with ALLOW_WIDE_COMMIT=1.
+if [ "${ALLOW_WIDE_COMMIT:-0}" != "1" ]; then
+  count=$(printf '%s\n' "$staged" | grep -c . || true)
+  topdirs=$(printf '%s\n' "$staged" | sed 's#/.*##' | sort -u | grep -c . || true)
+  if [ "$count" -gt 30 ] && [ "$topdirs" -gt 3 ]; then
+    echo "BLOCKED (C-NO-ADD-ALL): $count files across $topdirs top-level dirs staged — looks like 'git add -A/.'."
+    echo "  -> stage specific files; re-run with ALLOW_WIDE_COMMIT=1 only if this wide commit is intentional."
+    exit 1
+  fi
+fi
 
 # 1) never commit a .env (or any *.env)
 if echo "$staged" | grep -qE '(^|/)\.env$|\.env\.local$'; then

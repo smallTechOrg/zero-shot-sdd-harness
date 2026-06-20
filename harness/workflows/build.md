@@ -11,9 +11,15 @@ does not restate them. Sub-agents share no memory: pass every intake answer to e
 
 ```
 /build "<idea>"  →  intake (one round, ≤4 Qs upfront)  →  spec-writer + tech-designer + planner
-                 →  /analyze pre-flight (mechanical)  →  generate from harness/patterns
-                 →  demo gate (run→read→fix→re-run loop)  →  running
+                 →  analyze pre-flight (mechanical, inline)  →  SINGLE approval (scope+stack+plan, AskUserQuestion)
+                 →  generate from harness/patterns  →  demo gate (run→read→fix→re-run loop)  →  running
 ```
+
+There is **exactly one** human checkpoint: the single approval of scope + stack + plan, after the spec/plan
+draft + pre-flight and **before** any code is generated, presented via `AskUserQuestion` (C-ASKUSER,
+`agents/agent-builder.md` § Lifecycle 2). Intake's Q4 already collected the API key, so after this one
+approval the build runs **unattended** to the green gate — no key prompt later, no mid-build "Proceed?"
+(C-UNATTENDED, user memory). "Unattended" means *after the approval*; it is not a contradiction.
 
 **What "done" means here, and what we promise the user.** `/build` does not hand back a document — it
 hands back an agent that **booted and gave the right answer, proven by a gate that exits 0**. Lead with
@@ -44,21 +50,25 @@ already answer Q1 — still confirm it. The answers seed the spec, so capture th
 | # | Question | Options (pick or free-type) | Feeds |
 |---|----------|-----------------------------|-------|
 | 1 | **What should the agent do?** (idea + domain) | free text | `spec/product.md` |
-| 2 | **What tools + data does it need?** | key-free / local (no creds; e.g. compute, a bundled corpus) · a data source (DB, files, API you own) · an external integration via MCP (3rd-party SaaS) | `spec/tech-stack.md` tools, `spec/agent.md` |
+| 2 | **What tools + data does it need?** | key-free / local (no creds; e.g. compute, a bundled corpus) · a data source (DB, files, API you own) · a **key-bearing 3rd-party HTTP API** (web search, a vendor REST API with a static API key → an in-process `@tool` reading an `APP_`-prefixed `SecretStr`) · an external integration via MCP (OAuth SaaS only) | `spec/tech-stack.md` tools, `spec/agent.md` |
 | 3 | **How is it used?** | **UI** (built-in `/traces` + a minimal run page, default) · API only · CLI · scheduled/cron | `spec/tech-stack.md`, `interface` layer |
 | 4 | **Provider + API key + runtime model?** | provider (anthropic / openai / google) · **API key (required)** · runtime model (cheap tier default) | `spec/tech-stack.md`, `agent/config.py` |
 
 Defaults when the user has no preference: interface = built-in UI; runtime model = the cheap tier for the
 chosen provider (`claude-haiku-4-5-20251001` / `gpt-5-nano` class / `gemini-2.5-flash` — verify the id
 against the provider before pinning, per `harness.md`). The tool answer maps straight onto the 3-layer
-model in `patterns/tools-and-mcp.md`: in-process `@tool` for own logic/data, MCP for external SaaS only.
+model in `patterns/tools-and-mcp.md`: in-process `@tool` for own logic/data **and for a static-key
+third-party HTTP API** (the key is an `APP_`-prefixed `SecretStr` in `config.py`, never sent to the model);
+MCP is reserved for **OAuth 2.1 SaaS integrations only** (it forbids static secrets), so a web-search /
+vendor-REST API with an API key is an in-process async `@tool`, not MCP.
 
 **Collect the API key here (Q4) — the build runs unattended to the green gate.**
 If the user skips it, ask once before generating code. Never pause mid-build for it.
 
-The only sanctioned second question round is the `/analyze` pre-flight (§2a) surfacing an unresolved
-`[NEEDS CLARIFICATION]` — ask it upfront via `AskUserQuestion`, resolve it, then build with no further
-pauses. All questions in, then build — no gates in between, no mid-build "Proceed?" (user memory).
+The only sanctioned second question round is the analyze pre-flight (§2a) surfacing an unresolved
+`[NEEDS CLARIFICATION]` — ask it upfront via `AskUserQuestion`, resolve it, then proceed to the single
+approval (§2). After that approval there are **no further pauses** — no mid-build "Proceed?", no key prompt
+(user memory). The lone approval is the spec/plan sign-off below; the build is unattended thereafter.
 
 ## 2. Draft the spec + plan (no code yet)
 
@@ -89,35 +99,47 @@ With the four answers, fan out (`agent-builder.md` § Draft):
 
 Every layer marked ON must trace to a capability; no speculative layers (`agent.md` is the on/off ledger).
 
-## 2a. `/analyze` pre-flight — mechanical, BEFORE any code
+## 2a. The analyze pre-flight — mechanical, BEFORE any code
 
-Catch drift *before* generation, when it is cheap (`COMPETITIVE-RESEARCH.md` §2.4). This is a checklist
-the agent runs against the drafted spec; **every line is a hard pass/fail**, and any failure stops the
-build until the spec is fixed — no code is written against a spec that fails pre-flight.
+Catch drift *before* generation, when it is cheap (`COMPETITIVE-RESEARCH.md` §2.4). This is an **inline
+checklist the agent runs inside `/build`** (not a separate slash command), against the drafted spec; **every
+line is a hard pass/fail**, and any failure stops the build until the spec is fixed — no code is written
+against a spec that fails pre-flight.
 
 | # | Pre-flight check | Fails when |
 |---|------------------|-----------|
 | 1 | **Every success criterion → ≥1 capability** | a `spec/product.md` success criterion maps to no `spec/capabilities/*.md` |
 | 2 | **Every capability's layer is ON** | a capability needs a layer (retrieval, memory, MCP…) that `spec/agent.md` leaves OFF |
 | 3 | **Every tool has a tech-stack home** | a tool a capability calls is absent from `spec/tech-stack.md` |
-| 4 | **Every EARS line has a resolvable `[@eval]`** | a `WHEN … SHALL …` line has no `[@eval:]` token, or the token points at a path the build won't create |
+| 4 | **Every EARS line has a well-formed, unique `[@eval]`** | a `WHEN … SHALL …` line has no `[@eval:]` token, the token isn't `path::case`-shaped, or two lines share one case — run `python -m agent.eval_lint --preflight` (presence + shape + uniqueness only; the **existence** check is deferred to the post-generation gate, DEMO 1, since no test file exists yet) |
 | 5 | **No unresolved `[NEEDS CLARIFICATION]`** | any such marker remains in the spec — this **blocks generation** |
 | 6 | **Exactly one P1; P2/P3 are stubs** | zero or many P1 capabilities, or a non-P1 marked as a real build target |
 
 On a check-1/2/3/6 failure the agent self-corrects the spec and re-runs the pre-flight (it is a loop, like
-the gate). On check-4 it adds the missing token. On check-5 — an unresolved `[NEEDS CLARIFICATION]` — it
+the gate). On check-4 it adds the missing/ill-formed token (preflight validates presence + shape +
+uniqueness; the gate later proves the token's `path::case` actually resolves — `workflows/gates.md`). On check-5 — an unresolved `[NEEDS CLARIFICATION]` — it
 asks the user one focused question via `AskUserQuestion` (this is the legitimate second intake round, all
 questions upfront), resolves it, then proceeds. The build never generates code against a spec that still
 fails pre-flight. This is the honest version of "spec-driven": the spec must be internally consistent and
 fully bound to checks before a single line is written.
 
+## 2b. The single approval — scope + stack + plan (the one human checkpoint)
+
+Pre-flight green, present scope + stack + plan for the **single approval** via `AskUserQuestion` (never a
+text-only "Proceed?" — C-ASKUSER, user memory). This is the lone checkpoint and it sits **here**: after the
+spec/plan draft + pre-flight, before §3 generation. It is the one moment a human can catch a wrong spec
+before a green gate certifies it (`COMPETITIVE-RESEARCH.md` §4). On approval the build runs unattended to the
+green gate (C-UNATTENDED); on a change request, fold it into the spec, re-run pre-flight, re-present.
+
 ## 3. Generate code fresh — on `feature/<slug>-<date>`
 
-Branch first; hooks block app code on `main` (`harness.md`). `<slug>` = the product slug, `<date>` =
-`YYYY-MM-DD`.
+**Activate the git hooks first, then branch** — the hooks are the local owners of `C-SECRET-TYPE`,
+`C-BRANCH-PR`, and `C-NO-ADD-ALL`, and `core.hooksPath` is unset on a fresh clone, so without this step
+nothing enforces them (`.githooks/pre-commit`). `<slug>` = the product slug, `<date>` = `YYYY-MM-DD`.
 
 ```bash
-git switch -c "feature/<slug>-$(date +%Y-%m-%d)"
+git config core.hooksPath .githooks               # enable the branch-guard + add-all + secret-scan hook
+git switch -c "feature/<slug>-$(date +%Y-%m-%d)"  # main is boilerplate-only; the hook blocks app code on it
 ```
 
 Generate from the recipes in `harness/patterns/` for **only the layers `spec/agent.md` marks ON** — copy
@@ -136,62 +158,21 @@ proven, copyable code — generate from them. The Phase-1 spine (the walking ske
 | `agent/runner.py` | `patterns/react-agent.md` | `run_agent()` — span `invoke_agent`, persist run+messages |
 | `agent/server.py` | `patterns/interface.md` | FastAPI: `/health`, `POST /runs`, `/traces` viewer |
 
-The fixed contract every build satisfies — `config.py` and `runner.py` are load-bearing, copy verbatim:
+**`config.py` and `runner.py` are load-bearing — there is ONE canonical copy of each, and it lives in the
+recipe, not here.** Do not paste a second copy into this file (a divergent paste is how
+`C-SECRET-TYPE`/`C-ENV-STRIP`/the `price_*` + `validate_required_config` contracts silently drift):
 
-```python
-# agent/config.py
-from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
+- **`agent/config.py`** → copy verbatim from `patterns/model-and-providers.md` § *Code — `agent/config.py`*.
+  It carries the non-negotiables a stripped-down copy would drop: `llm_api_key: SecretStr` (`C-SECRET-TYPE`),
+  the inline-`#`-comment strip validators (`C-ENV-STRIP`), `extra="ignore"` (`C-ENV-IGNORE`),
+  `price_in`/`price_out` (read by `runner.py` for the `cost_usd` column), and `validate_required_config()`
+  (called by `server.py`'s lifespan — `patterns/interface.md`). Omitting any of these yields an
+  `AttributeError`/`ImportError` at runtime or a key that 401s on the real run while the build is green.
+- **`agent/runner.py`** → copy verbatim from `patterns/interface.md` § *Code — `agent/runner.py`*. It carries
+  `session_id`/`thread_id` + the checkpointer (short-term memory, the two-turn gate), the per-run token→cost
+  rollup into `runs.cost_usd`, and the `status:"completed"` field the gate reads off the `ok()` envelope.
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="APP_", env_file=".env", extra="ignore")
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-haiku-4-5-20251001"   # cheap runtime tier — verify id before pinning
-    llm_api_key: str = ""                            # APP_LLM_API_KEY — required for a real run
-    database_url: str = "sqlite+aiosqlite:///./agent.db"   # local-first; Postgres at /deploy
-    port: int = 8001
-    max_iterations: int = 6
-
-@lru_cache
-def get_settings() -> Settings:                      # cached singleton — every recipe imports this
-    return Settings()
-```
-
-```python
-# agent/runner.py — create Run, run the graph under a top span, persist messages + outcome
-import uuid
-from langchain_core.messages import SystemMessage, HumanMessage
-from .config import get_settings
-from .db import get_sessionmaker, Run, Message
-from .graph import build_graph
-from .llm import get_model
-from .observability import span
-
-DOMAIN_PROMPT = "..."  # spec/product.md § Domain instructions
-
-async def run_agent(goal: str, model=None, run_id: str | None = None) -> dict:
-    run_id = run_id or str(uuid.uuid4())
-    model = model or get_model()
-    graph = build_graph(model)
-    async with get_sessionmaker()() as s:
-        run = Run(id=run_id, goal=goal, status="running")
-        s.add(run); await s.commit()
-    state = {
-        "messages": [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content=goal)],
-        "iterations": 0, "answer": None, "run_id": run_id,
-    }
-    async with span(run_id, "invoke_agent", kind="INTERNAL", goal=goal):
-        final = await graph.ainvoke(state, config={"recursion_limit": 50})
-    async with get_sessionmaker()() as s:
-        for m in final["messages"]:
-            s.add(Message(id=str(uuid.uuid4()), run_id=run_id,
-                          role=m.type, content=str(m.content)))
-        run = await s.get(Run, run_id)
-        run.status, run.answer, run.iterations = "completed", final.get("answer"), final["iterations"]
-        await s.commit()
-    return {"run_id": run_id, "answer": final.get("answer"),
-            "iterations": final["iterations"], "messages": final["messages"]}
-```
+These two files are the single source of truth; this workflow references them so the two never diverge.
 
 Build only what the spec needs — no gold-plating (`agent-builder.md`).
 

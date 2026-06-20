@@ -175,7 +175,9 @@ async def test_demo_gate():
         evaluation_steps=["Does the answer mention refunds?",
                           "Does it state 5 business days?",
                           "Is it free of contradicting timelines?"])
-    ok_t, reasons = await trajectory_eval(run_id, expect_tools=["search_docs"], forbid_tools=["finish"])
+    # forbid_tools is checked against recorded execute_tool.* spans; `finish` never emits one (the loop skips
+    # it — patterns/react-agent.md), so only list a REAL mutating tool here (e.g. delete_record). [] = none.
+    ok_t, reasons = await trajectory_eval(run_id, expect_tools=["search_docs"], forbid_tools=[])
     assert ok_o, f"OUTCOME failed: judge mean {mean} {detail}"   # a 200 with a wrong answer FAILS here
     # 1-capability slice: trajectory is advisory — log it, don't block. Promote to `assert ok_t` at capability #2.
     if not ok_t:

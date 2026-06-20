@@ -21,8 +21,8 @@ For a P2/P3 stub, also state in one line what the stub returns until it is promo
 
 ## Acceptance criteria (EARS — these ARE the eval inputs)
 <!-- FILL IN: formal EARS — each line is testable and observable, and ENDS with an [@eval] traceability token
-binding it to an executable check. The agent authors the token; a non-coder never writes it. The /analyze
-preflight + gate lint FAIL the build if any criterion lacks an [@eval]. Keywords: WHEN = trigger,
+binding it to an executable check. The agent authors the token; a non-coder never writes it. The analyze
+pre-flight + gate lint FAIL the build if any criterion lacks an [@eval]. Keywords: WHEN = trigger,
 WHILE = state, IF...THEN = unwanted condition, the system SHALL = response. For a P2/P3 stub, the [@eval]
 asserts the stub contract (the fixed shape/sentinel), not real behaviour. -->
 - WHEN <trigger> the system SHALL <observable response>. [@eval: tests/test_<slug>_gate.py::<case>]
@@ -42,7 +42,11 @@ runs against the real model; for a P2/P3 stub it asserts the stub contract inste
   - <bullet 1>
   - <bullet 2>
 - expect_tools: [<tool that MUST fire>]
-- forbid_tools: [<mutating/irreversible tool that must NOT fire ungated>]
+- forbid_tools: [<a real MUTATING/irreversible tool that must NOT fire ungated>]
+  # NOTE: forbid_tools is checked against the recorded execute_tool.* spans (observability-and-evals.md).
+  # `finish` never emits a tool span (the loop skips it — patterns/react-agent.md tools_node), so listing
+  # `finish` here is a NO-OP that asserts nothing. Only list tools that actually execute (e.g. send_email,
+  # delete_record). Leave [] if this capability has no mutating tool to guard.
 
 ---
 
@@ -69,4 +73,6 @@ runtime LLM and is proven live by the outcome eval.)
   - The answer is supported by the retrieved passages and invents no facts.
   - When nothing matches, the answer admits it doesn't know.
 - expect_tools: [search_docs]
-- forbid_tools: [finish]   # finish must not fire before search_docs runs
+- forbid_tools: []   # this read-only capability has no mutating tool to guard. (Do NOT use `finish` here —
+                     # it never emits a span, so it asserts nothing. A real example: a write capability with
+                     # forbid_tools: [delete_record] proves the destructive path stayed gated.)

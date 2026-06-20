@@ -49,7 +49,7 @@ verbs ("handle", "support", "be robust") — name the visible outcome.
 naming the executable check that proves it. This is the "proves it ran" contract: "*every acceptance
 criterion is bound to an executable check, and done means the agent booted and gave the right answer.*" A
 line with no `[@eval]` token, or a token pointing at a `path::case` the gate can't run, **fails the
-eval-lint** (`/analyze` preflight + the gate lint, `workflows/gates.md`, qa-auditor) — a gate failure, not a
+eval-lint** (the analyze pre-flight + the gate lint, `workflows/gates.md`, qa-auditor) — a gate failure, not a
 style note. **You** fill the token; the non-coder never types it and never sees it surfaced. For a **P2/P3
 stub** the `[@eval]` asserts the **stub contract** (the fixed shape/sentinel the stub returns), so the
 journey stays green even though the capability is registered, not yet verified against real behaviour.

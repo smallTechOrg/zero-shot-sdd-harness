@@ -37,7 +37,7 @@ DOMAIN_PROMPT = (  # the spec-writer overwrites this from spec/product.md (domai
 )
 
 async def run_agent(goal: str, model=None, run_id: str | None = None,
-                    session_id: str | None = None) -> dict:
+                    session_id: str | None = None, checkpointer=None) -> dict:
     settings = get_settings()
     run_id = run_id or uuid.uuid4().hex
     model = model or get_model()
@@ -48,13 +48,24 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
         s.add(Run(id=run_id, goal=goal, status="running", iterations=0, thread_id=session_id))
         await s.commit()
 
-    graph = build_graph(model)
+    graph = build_graph(model, checkpointer=checkpointer)   # ONE compile; saver = short-term memory
+    config = {"recursion_limit": 50}
+    # SHORT-TERM MEMORY: with a checkpointer + a session_id, reload this thread's transcript and compose the
+    # seed as prior(stale SystemMessage stripped) + fresh SystemMessage + new goal. There is no add_messages
+    # reducer, so the runner — not the channel — owns the merge (patterns/react-agent.md WARNING).
+    prior: list = []
+    if checkpointer is not None and session_id:
+        config["configurable"] = {"thread_id": session_id}
+        cp = await checkpointer.aget(config)                 # raw checkpoint dict, or None on turn 1
+        if cp:
+            saved = cp["channel_values"].get("messages", [])
+            prior = [m for m in saved if not isinstance(m, SystemMessage)]   # drop the stale system prompt
     state = {
-        "messages": [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content=goal)],
+        "messages": prior + [SystemMessage(content=DOMAIN_PROMPT), HumanMessage(content=goal)],
         "iterations": 0, "answer": None, "run_id": run_id,
     }
     async with span(run_id, "invoke_agent", "INTERNAL", goal=goal):
-        result = await graph.ainvoke(state, config={"recursion_limit": 50})
+        result = await graph.ainvoke(state, config=config)
 
     async with get_sessionmaker()() as s:
         for m in result["messages"]:
@@ -71,8 +82,11 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
         run.cost_usd = (tok_in * settings.price_in + tok_out * settings.price_out) / 1_000_000  # per-1M rates (config.py)
         await s.commit()
 
-    return {"run_id": run_id, "thread_id": session_id, "answer": result["answer"],
-            "iterations": result["iterations"], "messages": result["messages"]}
+    # `status` rides in the response dict (not just the DB row) so the two-turn gate can assert
+    # `.data.status == "completed"` straight off the ok() envelope — workflows/gates.md check 5.
+    return {"run_id": run_id, "thread_id": session_id, "status": "completed",
+            "answer": result["answer"], "iterations": result["iterations"],
+            "messages": result["messages"]}
 ```
 
 ## Code — `agent/server.py` (proven, verbatim — self-contained, the `/traces` dashboard lives here)
@@ -88,7 +102,7 @@ the refund policy — 0.3s") with the technical span name available but secondar
 who can't read code can still see *what the agent did, whether it worked, and what it cost*.
 ```python
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -100,7 +114,17 @@ from .runner import run_agent
 async def lifespan(app: FastAPI):
     validate_required_config()               # fail LOUD at boot if required config is missing (config.py)
     await init_db()                          # create_all — sqlite local-first
-    yield
+    # SHORT-TERM (multi-turn) MEMORY: open ONE AsyncSqliteSaver for the process and keep it on app state, so
+    # follow-up turns on the same session_id resume the thread (patterns/memory.md, react-agent.md). This is
+    # what makes the two-turn gate's Q2 see Q1's context (workflows/gates.md check 5). A headless single-shot
+    # product can leave app.state.checkpointer = None.
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver   # pip: langgraph-checkpoint-sqlite
+    cm = AsyncSqliteSaver.from_conn_string("checkpoints.db")
+    app.state.checkpointer = await cm.__aenter__()
+    try:
+        yield
+    finally:
+        await cm.__aexit__(None, None, None)
 
 app = FastAPI(title="agent", lifespan=lifespan)
 
@@ -130,10 +154,12 @@ async def health():
     return ok({"status": "alive"})
 
 @app.post("/runs")
-async def create_run(body: RunIn):
+async def create_run(request: Request, body: RunIn):
     try:
-        # session_id threads through to the Run's thread_id + the session resource store (persistence.md)
-        return ok(await run_agent(body.goal, session_id=body.session_id))   # returns a dict → straight into ok()
+        # session_id threads through to the Run's thread_id + the session resource store (persistence.md);
+        # the shared checkpointer (app state) gives Q2 on the same session Q1's context (memory.md).
+        return ok(await run_agent(body.goal, session_id=body.session_id,
+                                  checkpointer=request.app.state.checkpointer))   # dict → straight into ok()
     except ApiError:
         raise                                    # already coded — the handler renders the JSON envelope
     except Exception as e:                        # surface key/model failures as a CODED JSON error, not a 500 stacktrace

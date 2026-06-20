@@ -34,7 +34,7 @@ Each line below is one command whose exit code is the verdict; the gate is their
 | 2 | **Suite passes (real key)** | `uv run pytest` — the FakeModel loop tests + the `test_demo_gate` judge test + the Playwright journey test (`patterns/observability-and-evals.md`, `patterns/interface.md`). Loose asserts (≥2 iterations, tool spans present, force_finalize) — a live model's wording varies; the *outcome eval*, not a string match, judges correctness. |
 | 3 | **Server boots** | start `python -m agent` (`agent/__main__.py` → uvicorn on `settings.port`), wait for it to answer. |
 | 4 | **`/health` 200** | `curl -fsS localhost:$PORT/health` returns `{"ok":true}` (`agent/server.py`). |
-| 5 | **Two-turn run completes** | `POST /runs {goal}` (Q1) → `status == "completed"`, then `POST /runs {goal:<follow-up>, session_id:<same>}` (Q2) on the **same session** → also `completed`. **Any Q2 error fails the gate**, even if Q1 was perfect (`SPEC-RECONCILIATION.md` C3, decision #12). A 500 or `status != completed` on either turn fails. |
+| 5 | **Two-turn run completes** | `POST /runs {goal}` (Q1) → `.ok == true and .data.status == "completed"` (the `ok()` envelope — read `.data.*`, not the top level), then `POST /runs {goal:<follow-up>, session_id:<same>}` (Q2) on the **same session** → also completed. **Any Q2 error fails the gate**, even if Q1 was perfect (`SPEC-RECONCILIATION.md` C3, decision #12). A 500 or `.data.status != completed` on either turn fails. |
 | 6 | **Outcome (judge-stable) + trajectory eval pass** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip) — **and** the persisted spans show the right path (`stable_outcome_eval` + `trajectory_eval`). A **200 with a wrong answer fails here.** |
 | 7 | **UI journey (Playwright)** | the post-JS DOM shows the real answer after the run completes, with **no console error**, invariant asserts, **bounded retries** so it never flakes (`patterns/interface.md` Gate, decisions #5/#10). Headless products skip this; every build with a UI ships it. |
 | 8 | **Traces present** | `/traces` renders ≥1 run with spans for that run (`agent/observability.py`, the `spans` table). No spans = not observable = fail. |
@@ -87,16 +87,18 @@ done
 curl -fsS "${BASE}/health" | grep -q '"ok": *true' || { echo "FAIL: /health not ok"; exit 1; }
 
 # 5 — TWO-TURN run on one session. Q1 then a follow-up Q2; ANY Q2 error fails the gate.
+# The response is the ok() envelope: {"ok":true,"data":{run_id, status, answer, ...}}. Read .data.*,
+# NOT the top level — run_agent's dict carries `status:"completed"` (patterns/interface.md runner.py).
 SID="gate-$(date +%s)"
 R1="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
       -d "$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')")"
-echo "$R1" | jq -e '.status == "completed"' >/dev/null \
+echo "$R1" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
   || { echo "FAIL: Q1 did not complete: $R1"; exit 1; }
-RUN_ID="$(echo "$R1" | jq -r '.run_id // .id')"
+RUN_ID="$(echo "$R1" | jq -r '.data.run_id')"
 R2="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
       -d "$(jq -n --arg g "$FOLLOWUP" --arg s "$SID" '{goal:$g, session_id:$s}')")" \
   || { echo "FAIL: Q2 (follow-up on same session) errored"; exit 1; }
-echo "$R2" | jq -e '.status == "completed"' >/dev/null \
+echo "$R2" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
   || { echo "FAIL: Q2 did not complete on the same session: $R2"; exit 1; }
 
 # 6 — outcome (judge-stable, multi-sampled) + trajectory eval on the Q1 run
@@ -124,18 +126,24 @@ criterion with no resolvable check is a **build failure**, not a TODO — this i
 acceptance criterion is bound to an executable check" a fact the gate enforces, not a slogan
 (`COMPETITIVE-RESEARCH.md` §5.2, `workflows/build.md` §2a/§2).
 
+**Two modes — preflight vs full — by where in the build it runs.** Before code exists (the analyze
+preflight, `workflows/build.md` §2a) the test files are not written yet, so existence-checking would be red
+on a perfectly good spec. Preflight mode therefore checks only **token presence + `path::case` shape +
+uniqueness** (no `path.exists()`). The post-generation gate (DEMO check 1) runs **full** mode, which adds the
+existence + case-in-file resolution. Same parser, one flag: `--preflight` skips the file-resolution step.
+
 ```python
-# agent/eval_lint.py — exit 0 iff every EARS line is bound to a resolvable [@eval].
-import pathlib, re, sys
+# agent/eval_lint.py — exit 0 iff every EARS line is bound to a well-formed [@eval].
+#   default (full, DEMO check 1): token present AND its path::case resolves to a real test/case.
+#   --preflight (analyze pre-flight, before code exists): token present + shape + uniqueness only (no path.exists).
+import argparse, pathlib, re, sys
 EARS = re.compile(r"\bSHALL\b")
 TOKEN = re.compile(r"\[@eval:\s*([^\]:]+)::([^\]]+)\]")
 
-def main() -> int:
-    problems = []
+def main(preflight: bool = False) -> int:
+    problems, seen = [], {}
     for f in pathlib.Path("spec/capabilities").glob("*.md"):
-        text = f.read_text()
-        # one [@eval] may sit on the EARS line or the line directly under it
-        lines = text.splitlines()
+        lines = f.read_text().splitlines()
         for i, ln in enumerate(lines):
             if not EARS.search(ln):
                 continue
@@ -144,14 +152,21 @@ def main() -> int:
             if not m:
                 problems.append(f"{f}:{i+1}  EARS line has no [@eval] token"); continue
             path, case = pathlib.Path(m.group(1).strip()), m.group(2).strip()
+            ref = f"{path}::{case}"
+            if ref in seen:                          # uniqueness: two EARS lines can't share one case
+                problems.append(f"{f}:{i+1}  [@eval] duplicates {seen[ref]}: {ref}")
+            seen[ref] = f"{f}:{i+1}"
+            if preflight:                            # shape already validated by TOKEN; stop before file I/O
+                continue
             if not path.exists() or case not in path.read_text():
-                problems.append(f"{f}:{i+1}  [@eval] unresolved: {path}::{case}")
+                problems.append(f"{f}:{i+1}  [@eval] unresolved: {ref}")
     for p in problems:
-        print(f"EVAL-LINT FAIL: {p}", file=sys.stderr)
+        print(f"EVAL-LINT FAIL{' (preflight)' if preflight else ''}: {p}", file=sys.stderr)
     return 1 if problems else 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    a = argparse.ArgumentParser(); a.add_argument("--preflight", action="store_true")
+    sys.exit(main(a.parse_args().preflight))
 ```
 
 ### `agent.gate_eval` (the eval half, judge-stable, callable from the script)
@@ -185,7 +200,8 @@ EVALUATION_STEPS = ["Does the answer mention refunds?",
                     "Does it state 5 business days?",
                     "Is it free of contradicting timelines?"]
 EXPECT_TOOLS = ["search_docs"]
-FORBID_TOOLS = []                       # e.g. mutating tools that must not fire ungated
+FORBID_TOOLS = []                       # a REAL mutating tool that must not fire ungated (e.g. delete_record).
+                                        # NOT `finish` — it emits no execute_tool span, so it'd assert nothing.
 
 SAMPLES, THRESHOLD, MARGIN = 5, 4, 0.5   # judge-stability knobs (keep in the spec, not magic)
 
