@@ -7,6 +7,21 @@ set -euo pipefail
 staged=$(git diff --cached --name-only --diff-filter=ACM || true)
 [ -z "$staged" ] && exit 0
 
+# -1) GENERATED-FRONT-END FRESHNESS — the mechanical owner of the harness/ ⇄ .claude/ + CLAUDE.md equivalence
+#     (harness.md § generated). CLAUDE.md and generate.py assert ".claude/ ARE the harness roles/workflows as
+#     Claude Code subagents/slash commands, never hand-edited" — but for three iterations nothing enforced it
+#     and the slash commands a user actually invokes drifted stale (HARDENING-LOG iter 6). If a commit touches
+#     the harness source of those front-ends (or generate.py itself), the committed front-ends must already be
+#     regenerated. `generate.py --check` diffs disk vs what it would emit; a stale tree blocks the commit.
+if echo "$staged" | grep -qE '^harness/(workflows|agents)/|^harness/generate\.py$'; then
+  if command -v python >/dev/null 2>&1; then PY=python; else PY=python3; fi
+  if ! "$PY" harness/generate.py --check; then
+    echo "BLOCKED (generated front-ends stale): you edited harness/ but .claude/ + CLAUDE.md weren't regenerated."
+    echo "  -> run:  python harness/generate.py   then stage .claude/ + CLAUDE.md and re-commit."
+    exit 1
+  fi
+fi
+
 # 0) C-BRANCH-PR — `main` is boilerplate-only: block app code (agent/**, ui/**, tests/**) on the default
 #    branch. App code belongs on a feature/<slug>-<date> branch with a PR open. Allow harness/spec/docs edits.
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")

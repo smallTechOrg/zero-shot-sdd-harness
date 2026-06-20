@@ -159,6 +159,36 @@ proven, copyable code — generate from them. The Phase-1 spine (the walking ske
 | `agent/state.py` · `graph.py` | `patterns/react-agent.md` | `AgentState`; `build_graph()` (agent↔tools, finalize) |
 | `agent/runner.py` | `patterns/react-agent.md` | `run_agent()` — span `invoke_agent`, persist run+messages |
 | `agent/server.py` | `patterns/interface.md` | FastAPI: `/health`, `POST /runs`, `/traces` viewer |
+| `agent/__init__.py` · `agent/__main__.py` | `patterns/interface.md` | package marker; `python -m agent` → uvicorn on `settings.port` (gate check 3 boots this) |
+| `agent/evals.py` | `patterns/observability-and-evals.md` | `outcome_eval` / `stable_outcome_eval` / `trajectory_eval` (imported by the suite + `gate_eval`) |
+| `agent/eval_lint.py` | `workflows/gates.md` | the `[@eval]` binding lint — gate check 1, run as `python -m agent.eval_lint` |
+| `agent/gate_eval.py` | `workflows/gates.md` | judge-stable outcome+trajectory CLI — gate check 6, run as `python -m agent.gate_eval`. **Set its `CRITERION`/`EVALUATION_STEPS`/`EXPECT_TOOLS` AND the Makefile's `GOAL`/`FOLLOWUP` from the SAME P1 EARS line** — the gate judges the answer to `GOAL` against `CRITERION`, so a half-applied edit (one domain's goal, the other's rubric) false-REDs the gate — and `agent.eval_lint` (gate mode) now mechanically fails check 1 if `CRITERION` isn't a real P1 EARS line (`workflows/gates.md` § Makefile / eval_lint). |
+| `agent/sessions.py` *(generate ONLY when a resource ARRIVES from the user — a pasted document, transcript, CSV, file, or built index uploaded/pasted via the `data` field and reused across follow-up turns)* | `patterns/persistence.md` | session-scoped live-resource store + `current_session_id` ContextVar + `load_resource` HTTP ingest seam — **REQUIRED by `C-SESSION-SCOPE`** for any "analyze an uploaded/pasted X" agent (a meeting transcript is a cheap string but still needs cross-turn reuse — don't skip because it isn't "heavy"); without it Q2 loses the resource (`SESSION_DATA_LOST`) and the data-agent gate fails Q1. **DISCRIMINATOR — do NOT over-generate this:** sessions.py/`load_resource` is for a resource the USER supplies. A resource the **MODEL generates on Q1 and refines on Q2** (an itinerary, a draft email, a story, a plan — the *generate-then-refine* pattern) is carried by **short-term memory** (the checkpointer transcript + the `runner.py` merge — `patterns/memory.md`), needs **NO sessions.py**, and has no populate path; generating one yields dead code or a read tool that always reports "no data loaded." |
+| `agent/guardrails.py` *(generate when a tool executes code/SQL)* | `patterns/guardrails-and-hitl.md` | AST-validated `safe_eval` (never regex dispatch) — **REQUIRED by `C-ACTION-SAFETY`** for any code/SQL-executing tool; an ungated code tool is an injection surface and fails the trajectory contract |
+
+The five gate-support modules (`evals.py`, `eval_lint.py`, `gate_eval.py` + the server/main they run against)
+are NOT optional — `make gate` runs every one of them (`workflows/gates.md` checks 1/2/3/6); a clean `agent/`
+tree without them dies at gate step 1 with `ModuleNotFoundError`. The two *italicised* rows
+(`sessions.py`, `guardrails.py`) are **conditional but mandatory once their trigger holds** — they are OFF by
+default, but a capability that ingests a resource (`C-SESSION-SCOPE`) or executes code/SQL (`C-ACTION-SAFETY`)
+**must** generate them; the analyze pre-flight's layer check (§2a) catches a capability that needs one but
+left it OFF. Alongside the package, generate the **top-level project files the gate and deploy both require**:
+
+| File | Recipe | Carries |
+|------|--------|---------|
+| `README.md` | this file, `patterns/interface.md` | the **runnable** quick-start a non-tech owner follows — the `.env` keys (`APP_LLM_API_KEY`, `APP_LLM_PROVIDER`, `APP_LLM_MODEL`), **port 8001**, and the `uv run`-prefixed commands `make setup` / `make dev` / `make gate` (`C-RUNNER-PREFIX`, `C-PORT`). **Required, not optional**: `config.py`/`llm.py` raise `"… set them in .env (see README)"` and `harness.md` § honest treats an accurate README as a checked deliverable, so a build that ships no README points its own runtime errors at a missing file. Every command in it must work exactly as written. |
+| `pyproject.toml` | `workflows/gates.md`, `patterns/*` | project metadata + **pinned** deps + `[tool.pytest.ini_options]` with **both** `asyncio_mode = "auto"` **and** `pythonpath = ["."]`. **"Pin current versions" means pin them HERE.** For a **UI build**, the pinned deps MUST include `pytest-playwright` (+ `playwright`) — gate check 2 is `uv run pytest` over the WHOLE suite (`tests/e2e/` included), so an un-importable `from playwright…` would abort COLLECTION (non-zero exit, every other test unregistered) before the gate can run; the e2e file also `pytest.importorskip("playwright")`s as a belt-and-suspenders for a headless project (`patterns/interface.md` Gate). `pythonpath = ["."]` lets shared test helpers be imported absolutely (`from tests.helpers import …`) so collection doesn't fail. `uv run pytest`, `make gate`, and deploy's `langgraph.json "dependencies":["."]` all need this file to exist. |
+| `Makefile` | `workflows/gates.md`, `patterns/interface.md` | **all** required targets — this row is authoritative for the Makefile contract: `setup` (`cd ui && npm install` + `uv run playwright install chromium`, NEVER inside the gate — `patterns/interface.md` § UI prerequisites), `dev` (backend **and** UI together via `trap 'kill 0' INT; python -m agent & cd ui && npm run dev` — the user never starts the backend by hand, a UI with a dead backend is the most common "it's broken" report), `gate` / `demo-gate` (checks 1–8, the entry point `/build` invokes — body in `workflows/gates.md`), and `prod-gate` for `/deploy`. A headless build omits `setup`/`dev` and ships only the gate targets. |
+| `scripts/demo_gate.sh` | `workflows/gates.md` | gate checks 3–8 (boot, health, two-turn, judge, UI, traces) |
+| `scripts/fixtures/<resource>.<ext>` *(generate ONLY with `agent/sessions.py` — same `C-SESSION-SCOPE` trigger)* | this file, `workflows/gates.md` | a small representative upload the gate's Q1 carries via `DATA_FILE` (`demo_gate.sh` check 5). **REQUIRED for a data-ingest agent**: `demo_gate.sh` defaults `DATA_FILE` to this path and `jq --rawfile`s it into Q1's `data`; absent, the gate dies at check 5 with `jq --rawfile: No such file` — undiagnosable for a non-tech user. Conditional on the SAME trigger as `sessions.py` (a resource ARRIVES from the user); omit it for a key-free/own-data agent. |
+| `tests/__init__.py` · `tests/e2e/__init__.py` | — | empty package markers. Without them, shared-helper imports across test files (`from tests.helpers import …`, `patterns/observability-and-evals.md`) raise `ImportError: attempted relative import with no known parent package` and `uv run pytest` dies at **collection** — gate check 2 never starts, with an opaque error a non-tech user can't decode. |
+| `tests/conftest.py` | `patterns/persistence.md` | the autouse create_all/drop_all-per-test async DB fixture |
+| `tests/test_eval_lint.py` | `workflows/gates.md` | one-line `assert agent.eval_lint.main() == 0` so the binding is enforced under a bare `pytest` too |
+
+Without `asyncio_mode = "auto"` in `pyproject.toml`, pytest-asyncio's default strict mode **silently skips
+every unmarked `async def test_*`** — including `test_demo_gate` (the in-process 200-with-wrong-answer guard)
+and the autouse async DB fixture — while the suite still reports green. That is a false-green in the very
+check the harness leans on, so this line is mandatory, not optional (`patterns/observability-and-evals.md`).
 
 **`config.py` and `runner.py` are load-bearing — there is ONE canonical copy of each, and it lives in the
 recipe, not here.** Do not paste a second copy into this file (a divergent paste is how
@@ -172,7 +202,11 @@ recipe, not here.** Do not paste a second copy into this file (a divergent paste
   `AttributeError`/`ImportError` at runtime or a key that 401s on the real run while the build is green.
 - **`agent/runner.py`** → copy verbatim from `patterns/interface.md` § *Code — `agent/runner.py`*. It carries
   `session_id`/`thread_id` + the checkpointer (short-term memory, the two-turn gate), the per-run token→cost
-  rollup into `runs.cost_usd`, and the `status:"completed"` field the gate reads off the `ok()` envelope.
+  rollup into `runs.cost_usd`, the `status:"completed"` field the gate reads off the `ok()` envelope, and the
+  `current_session_id` ContextVar set around `graph.ainvoke` so a session-resource query tool finds the active
+  session WITHOUT the model supplying it (`C-SESSION-SCOPE` read path — `patterns/persistence.md`). The loop
+  does NOT inject session context into tools, so omitting this line makes the query tool always report "no data
+  loaded" — a green gate, a broken data agent.
 
 These two files are the single source of truth; this workflow references them so the two never diverge.
 

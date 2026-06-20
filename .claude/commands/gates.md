@@ -37,7 +37,7 @@ Each line below is one command whose exit code is the verdict; the gate is their
 | 3 | **Server boots** | start `python -m agent` (`agent/__main__.py` → uvicorn on `settings.port`), wait for it to answer. |
 | 4 | **`/health` 200** | `curl -fsS localhost:$PORT/health` returns `{"ok":true}` (`agent/server.py`). |
 | 5 | **Two-turn run completes** | `POST /runs {goal}` (Q1) → `.ok == true and .data.status == "completed"` (the `ok()` envelope — read `.data.*`, not the top level), then `POST /runs {goal:<follow-up>, session_id:<same>}` (Q2) on the **same session** → also completed. **Any Q2 error fails the gate**, even if Q1 was perfect (`SPEC-RECONCILIATION.md` C3, decision #12). A 500 or `.data.status != completed` on either turn fails. |
-| 6 | **Outcome (judge-stable) + trajectory eval pass** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip) — **and** the persisted spans show the right path (`stable_outcome_eval` + `trajectory_eval`). A **200 with a wrong answer fails here.** |
+| 6 | **Outcome (judge-stable) eval passes; trajectory advisory** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip). A **200 with a wrong answer fails here.** The persisted-span `trajectory_eval` runs too but is **ADVISORY for a 1-capability v1 slice** — logged, not gate-blocking (a benign fail-soft tool span would else false-RED a correct answer); it is promoted to a hard blocker when a 2nd capability adds a tool-ordering contract (`patterns/observability-and-evals.md` L95-98/197). |
 | 7 | **UI journey (Playwright)** | the post-JS DOM shows the real answer after the run completes, with **no console error**, invariant asserts, **bounded retries** so it never flakes (`patterns/interface.md` Gate, decisions #5/#10). Headless products skip this; every build with a UI ships it. |
 | 8 | **Traces present** | `/traces` renders ≥1 run with spans for that run (`agent/observability.py`, the `spans` table). No spans = not observable = fail. |
 
@@ -47,10 +47,20 @@ the spans landed. Don't re-run the model per assertion — one two-turn session,
 
 ### `make gate` / `make demo-gate`
 
+**`GOAL`/`FOLLOWUP` here and `gate_eval.py`'s `CRITERION` MUST come from the SAME P1 EARS line.** They are two
+per-spec edits the builder keeps in sync: DEMO 6 judges the answer to `GOAL` (this Makefile var) against
+`CRITERION` (a `gate_eval.py` constant). The defaults below are refund-domain placeholders — **both must be
+overridden per build**. Update `GOAL`/`FOLLOWUP` from the P1 capability's trigger + a natural follow-up, and
+`CRITERION`/`EVALUATION_STEPS`/`EXPECT_TOOLS` from the SAME P1 EARS line. A half-applied edit (travel
+`CRITERION`, refund `GOAL`) runs one domain's goal against the other's rubric — a guaranteed false-RED.
+**This is enforced, not just preached:** check 1's `agent.eval_lint` (full/gate mode) asserts `gate_eval.CRITERION`
+is a real EARS line in `spec/capabilities/*` and not the refund placeholder, so a `gate_eval.py` left unsynced
+fails the gate at step 1 with a named cause — not a downstream "outcome below threshold" pointing at the answer.
+
 ```makefile
 PORT     ?= 8001
-GOAL     ?= How long do refunds take?
-FOLLOWUP ?= And how do I start one?
+GOAL     ?= How long do refunds take?    # OVERRIDE per build — from the P1 EARS trigger (same line as gate_eval's CRITERION)
+FOLLOWUP ?= And how do I start one?      # OVERRIDE per build — a natural follow-up on the same session
 
 demo-gate: gate            # alias
 gate:
@@ -91,9 +101,21 @@ curl -fsS "${BASE}/health" | grep -q '"ok": *true' || { echo "FAIL: /health not 
 # 5 — TWO-TURN run on one session. Q1 then a follow-up Q2; ANY Q2 error fails the gate.
 # The response is the ok() envelope: {"ok":true,"data":{run_id, status, answer, ...}}. Read .data.*,
 # NOT the top level — run_agent's dict carries `status:"completed"` (patterns/interface.md runner.py).
+# DATA-INGEST: for an "analyze an uploaded X" agent, Q1 must CARRY the resource (else it answers "no data is
+# loaded" and the outcome eval fails). DATA_FILE defaults to the generated fixture (build.md §3 manifest:
+# scripts/fixtures/<resource>.<ext>); Q1 sends `data`, Q2 reuses it from the SAME session (no re-upload — the
+# session-scoped store working, persistence.md). For a key-free/own-data agent, leave it as the unset default
+# below and both turns send just {goal, session_id}. A session-scoped build that points DATA_FILE at a missing
+# fixture gets a self-diagnosing message here, not a raw `jq --rawfile: No such file`.
+DATA_FILE="${DATA_FILE:-}"      # OVERRIDE for a data-ingest agent: scripts/fixtures/<resource>.<ext> (build.md §3)
 SID="gate-$(date +%s)"
-R1="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
-      -d "$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')")"
+Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')"
+if [ -n "$DATA_FILE" ]; then
+  [ -f "$DATA_FILE" ] || { echo "FAIL: DATA_FILE=$DATA_FILE not found — generate a fixture at scripts/fixtures/<resource>.<ext> (build.md §3) for a session-scoped agent"; exit 1; }
+  Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" --rawfile d "$DATA_FILE" \
+                '{goal:$g, session_id:$s, data:$d}')"   # Q1 carries the uploaded resource
+fi
+R1="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' -d "$Q1_PAYLOAD")"
 echo "$R1" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
   || { echo "FAIL: Q1 did not complete: $R1"; exit 1; }
 RUN_ID="$(echo "$R1" | jq -r '.data.run_id')"
@@ -101,21 +123,33 @@ R2="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
       -d "$(jq -n --arg g "$FOLLOWUP" --arg s "$SID" '{goal:$g, session_id:$s}')")" \
   || { echo "FAIL: Q2 (follow-up on same session) errored"; exit 1; }
 echo "$R2" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
-  || { echo "FAIL: Q2 did not complete on the same session: $R2"; exit 1; }
+  || { echo "FAIL: Q2 did not complete on the same session (resource lost?): $R2"; exit 1; }
 
 # 6 — outcome (judge-stable, multi-sampled) + trajectory eval on the Q1 run
 python -m agent.gate_eval --run-id "$RUN_ID" --goal "$GOAL" \
-  || { echo "FAIL: eval gate (outcome below threshold-with-margin, high judge variance, or bad trajectory)"; exit 1; }
+  || { echo "FAIL: outcome eval (below threshold-with-margin or high judge variance; trajectory is advisory)"; exit 1; }
 
-# 7 — UI journey (skip with UI_E2E=0 for a headless product)
+# 7 — UI journey (skip with UI_E2E=0 for a headless product). PREREQUISITES the build MUST satisfy first:
+#   (a) a runnable ui/ project (ui/package.json with `dev: next dev -p 3001` + react-markdown/remark-gfm,
+#       next.config, app/layout.tsx) — see patterns/interface.md § UI prerequisites;
+#   (b) the chromium binary: `uv run playwright install chromium` (run in setup, NOT inside the gate).
+# Auto-skip with a PRINTED reason if the project was never scaffolded (ui/node_modules absent) so the gate
+# fails on a real defect, never on a missing browser/project a non-tech user can't diagnose.
 if [ "${UI_E2E:-1}" = "1" ]; then
-  uv run pytest tests/e2e/test_primary_journey.py -q \
-    || { echo "FAIL: Playwright UI journey (post-JS DOM / console error)"; exit 1; }
+  if [ ! -d ui/node_modules ]; then
+    echo "SKIP check 7: ui/node_modules absent (headless or UI not scaffolded). Run \`cd ui && npm install\` + \`uv run playwright install chromium\` to enable."
+  else
+    uv run playwright install chromium >/dev/null 2>&1 || true   # idempotent; ensure the browser binary exists
+    uv run pytest tests/e2e/test_primary_journey.py -q \
+      || { echo "FAIL: Playwright UI journey (post-JS DOM / console error)"; exit 1; }
+  fi
 fi
 
-# 8 — traces present for the Q1 run
-curl -fsS "${BASE}/traces" | grep -q "$(echo "$GOAL" | head -c 12)" \
-  || { echo "FAIL: run not visible at /traces"; exit 1; }
+# 8 — traces present for the Q1 run. Grep the RUN_ID (rendered VERBATIM, captured in check 5), NOT the goal
+# text: server.py renders the goal through _esc() (& < > escaped), so a goal whose first chars contain <, &,
+# or > — common for real ticket text like '<urgent> refund …' — would false-fail a raw-substring needle.
+curl -fsS "${BASE}/traces" | grep -q "$RUN_ID" \
+  || { echo "FAIL: run $RUN_ID not visible at /traces"; exit 1; }
 
 echo "DEMO GATE PASS"          # the only success signal is exit 0
 ```
@@ -123,9 +157,16 @@ echo "DEMO GATE PASS"          # the only success signal is exit 0
 ### `agent.eval_lint` (check 1 — the `[@eval]` binding lint, callable standalone)
 
 The cheapest check and the actual differentiator: parse every EARS line in `spec/capabilities/*.md`,
-require an `[@eval: path::case]` token, and confirm the referenced test exists and names that case. A
-criterion with no resolvable check is a **build failure**, not a TODO — this is what makes "every
-acceptance criterion is bound to an executable check" a fact the gate enforces, not a slogan
+require an `[@eval: path::case]` token, and confirm the referenced test exists and **defines a case pytest
+would actually collect**. An **EARS line** is one that opens (after an optional list bullet) with an EARS
+trigger — `WHEN` / `WHILE` / `IF` / `WHERE` — *and* contains `SHALL`; a prose sentence that merely uses the
+word SHALL in a `## What & why` paragraph is **not** a criterion and is ignored, so descriptive spec text
+never false-blocks the build (HARDENING-LOG iter 5). Resolution is by **AST** (`ast.parse` → FunctionDef/AsyncFunctionDef names +
+parametrize ids), an **exact** match — never a substring scan: a substring scan false-greens a case that
+appears only in a `# TODO` comment and a misnamed superset (`test_stub_route_and_more` passing for
+`test_stub_route`), so the differentiator could certify a criterion with **zero** executable check behind
+it. A criterion with no resolvable, collectable case is a **build failure**, not a TODO — this is what makes
+"every acceptance criterion is bound to an executable check" a fact the gate enforces, not a slogan
 (`COMPETITIVE-RESEARCH.md` §5.2, `workflows/build.md` §2a/§2).
 
 **Two modes — preflight vs full — by where in the build it runs.** Before code exists (the analyze
@@ -136,11 +177,68 @@ existence + case-in-file resolution. Same parser, one flag: `--preflight` skips 
 
 ```python
 # agent/eval_lint.py — exit 0 iff every EARS line is bound to a well-formed [@eval].
-#   default (full, DEMO check 1): token present AND its path::case resolves to a real test/case.
+#   default (full, DEMO check 1): token present AND its path::case resolves to a real, COLLECTABLE test case.
 #   --preflight (analyze pre-flight, before code exists): token present + shape + uniqueness only (no path.exists).
-import argparse, pathlib, re, sys
-EARS = re.compile(r"\bSHALL\b")
+import argparse, ast, pathlib, re, sys
+# An EARS *criterion* — not any prose sentence that happens to contain SHALL. It must START (after an
+# optional list bullet/whitespace) with an EARS keyword AND contain SHALL. This is the load-bearing scope
+# fix: spec-writers (and this harness's own _template) phrase descriptive prose as "The agent SHALL be the
+# single source of truth…" inside a `## What & why` paragraph; a bare `\bSHALL\b` match treats that prose
+# as an unbound criterion and HARD-BLOCKS the build on a sentence (HARDENING-LOG iter 5). Only a line that
+# opens with WHEN/WHILE/IF/WHERE (the EARS triggers) is a criterion requiring an [@eval].
+EARS = re.compile(r"^\s*-?\s*(WHEN|WHILE|IF|WHERE)\b.*\bSHALL\b")
 TOKEN = re.compile(r"\[@eval:\s*([^\]:]+)::([^\]]+)\]")
+
+def _defined_cases(path: pathlib.Path) -> set[str]:
+    """Names pytest would actually COLLECT from the file — parsed via AST, never a substring scan.
+    A substring match false-greens two real bugs: a case that exists only inside a `# TODO` comment
+    (no function), and a misnamed superset (`test_stub_route_and_more` satisfying `test_stub_route`).
+    We collect FunctionDef/AsyncFunctionDef names AND any `@pytest.mark.parametrize` ids, then require
+    an EXACT match below — so an unbound/misnamed/not-yet-written criterion CANNOT pass the gate."""
+    cases: set[str] = set()
+    try:
+        tree = ast.parse(path.read_text())
+    except (OSError, SyntaxError):
+        return cases
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            cases.add(node.name)                                   # base test function name
+            for dec in node.decorator_list:                       # + explicit parametrize ids: foo[id]
+                if (isinstance(dec, ast.Call) and getattr(dec.func, "attr", "") == "parametrize"):
+                    for kw in dec.keywords:
+                        if kw.arg == "ids" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                            for elt in kw.value.elts:
+                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                    cases.add(f"{node.name}[{elt.value}]")
+    return cases
+
+# Refund-domain placeholders shipped in gate_eval.py / the Makefile — a build that left ANY of these is a
+# half-applied edit that false-REDs (one domain's goal vs another's rubric). The lint owns this mechanically
+# so "keep them in sync" stops being prose (HARDENING-LOG iter 6).
+_PLACEHOLDERS = ("WHEN asked about refund timing the system SHALL state 5 business days.",
+                 "How long do refunds take?")
+
+def _ears_lines() -> list[str]:
+    out = []
+    for f in pathlib.Path("spec/capabilities").glob("*.md"):
+        out += [ln.strip(" -") for ln in f.read_text().splitlines() if EARS.search(ln)]
+    return out
+
+def _gate_eval_sync(ears: list[str]) -> list[str]:
+    """Full mode only: gate_eval.CRITERION must be a real EARS line in the spec (not the refund placeholder).
+    Catches a Makefile GOAL updated without gate_eval.py, or vice-versa — the mismatch the harness warns
+    about 3+ times but never enforced."""
+    probs = []
+    try:
+        from . import gate_eval                                   # the constants under test
+    except Exception:                                             # gate_eval not generated yet / import error
+        return probs
+    crit = getattr(gate_eval, "CRITERION", "").strip()
+    if crit in _PLACEHOLDERS:
+        probs.append(f"agent/gate_eval.py CRITERION is still the refund placeholder — set it from the P1 EARS line")
+    elif crit and crit not in {e.strip() for e in ears}:
+        probs.append(f"agent/gate_eval.py CRITERION does not match any EARS line in spec/capabilities/* — Makefile GOAL and gate_eval CRITERION must trace to the SAME P1 line: {crit!r}")
+    return probs
 
 def main(preflight: bool = False) -> int:
     problems, seen = [], {}
@@ -160,8 +258,12 @@ def main(preflight: bool = False) -> int:
             seen[ref] = f"{f}:{i+1}"
             if preflight:                            # shape already validated by TOKEN; stop before file I/O
                 continue
-            if not path.exists() or case not in path.read_text():
-                problems.append(f"{f}:{i+1}  [@eval] unresolved: {ref}")
+            if not path.exists():
+                problems.append(f"{f}:{i+1}  [@eval] unresolved (no file): {ref}"); continue
+            if case not in _defined_cases(path):     # EXACT match — never substring (superset/comment false-green)
+                problems.append(f"{f}:{i+1}  [@eval] unresolved (no collectable case `{case}`): {ref}")
+    if not preflight:                                # gate mode: the rubric must trace to a real P1 EARS line
+        problems += _gate_eval_sync(_ears_lines())
     for p in problems:
         print(f"EVAL-LINT FAIL{' (preflight)' if preflight else ''}: {p}", file=sys.stderr)
     return 1 if problems else 0
@@ -196,7 +298,10 @@ from sqlalchemy import select
 from .db import get_sessionmaker, Run
 from .evals import stable_outcome_eval, trajectory_eval   # the ONE judge-stability impl (observability-and-evals.md)
 
-# Filled from the spec at build time (one block per capability under test).
+# Filled from the spec at build time (one block per capability under test). CRITERION/EVALUATION_STEPS/
+# EXPECT_TOOLS come from the SAME P1 EARS line that the Makefile's GOAL/FOLLOWUP are derived from — a
+# mismatch (this block = travel, the Makefile GOAL = refund) runs one domain's goal against the other's
+# rubric and FALSE-REDs the gate. Override every refund-domain default below per build.
 CRITERION = "WHEN asked about refund timing the system SHALL state 5 business days."
 EVALUATION_STEPS = ["Does the answer mention refunds?",
                     "Does it state 5 business days?",
@@ -219,9 +324,15 @@ async def main(run_id: str, goal: str) -> int:
           f"(need mean≥{THRESHOLD - MARGIN})", file=sys.stderr)
     if not outcome_ok:
         print("OUTCOME FAIL: below threshold-with-margin or unstable (high judge variance)", file=sys.stderr)
+    # TRAJECTORY is ADVISORY for a 1-capability v1 slice — log its reasons, do NOT gate on them
+    # (observability-and-evals.md L95-98/197, SPEC-RECONCILIATION.md decision §D). trajectory_eval flags
+    # benign signals on a CORRECT answer — e.g. ANY fail-soft tool span sets attributes["error"] and the
+    # graph continues by design, so a single degraded-but-recovered tool call would false-RED a right answer.
+    # Outcome (judge-stable) is the v1 hard verdict. Promote trajectory to a blocker (`and ok_t`, mirroring
+    # test_demo_gate's `assert ok_t` note) ONLY when a 2nd capability adds a real tool-ordering contract.
     if not ok_t:
-        print(f"TRAJECTORY FAIL: {reasons}", file=sys.stderr)
-    return 0 if (outcome_ok and ok_t) else 1
+        print(f"TRAJECTORY advisory (not blocking until a 2nd capability): {reasons}", file=sys.stderr)
+    return 0 if outcome_ok else 1
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()

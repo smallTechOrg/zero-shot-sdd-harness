@@ -224,6 +224,13 @@ it close that gap, and every build with a UI ships all three.
                        "args": {"answer": f"Result: {last.content}"}, "id": "f"}])
           return AIMessage(content="", tool_calls=[{"name": "<your_query_tool>", "args": {...}, "id": "t"}])
   ```
+  **`args` MUST satisfy the tool's REQUIRED parameters.** The `{...}` placeholder above is illustrative —
+  fill it with real values for every required field of `<your_query_tool>` (e.g. `{"question": "..."}` for a
+  `query(question: str)` tool). An empty/placeholder `args={}` makes LangChain's `StructuredTool` raise a
+  pydantic `ValidationError`, which `tools_node` catches as a fail-soft tool error (`patterns/react-agent.md`);
+  the answer becomes `"tool <name> failed: ValidationError…"` and **every outcome test false-REDs on a correct
+  agent**. This mirrors the async-tool/`ainvoke` warning above: supply real args, or give the tool optional
+  params with defaults so an empty dict validates.
 - **Full-stack contract test** (`tests/test_api_flow.py`) — httpx + ASGI transport, FakeModel, **no key**.
   Exercise the real request/response path the UI depends on and assert **every field the UI consumes is
   present** — not just a `200`. The canonical miss: the backend returned the answer but dropped a structured

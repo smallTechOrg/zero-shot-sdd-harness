@@ -51,6 +51,9 @@ per-spec edits the builder keeps in sync: DEMO 6 judges the answer to `GOAL` (th
 overridden per build**. Update `GOAL`/`FOLLOWUP` from the P1 capability's trigger + a natural follow-up, and
 `CRITERION`/`EVALUATION_STEPS`/`EXPECT_TOOLS` from the SAME P1 EARS line. A half-applied edit (travel
 `CRITERION`, refund `GOAL`) runs one domain's goal against the other's rubric — a guaranteed false-RED.
+**This is enforced, not just preached:** check 1's `agent.eval_lint` (full/gate mode) asserts `gate_eval.CRITERION`
+is a real EARS line in `spec/capabilities/*` and not the refund placeholder, so a `gate_eval.py` left unsynced
+fails the gate at step 1 with a named cause — not a downstream "outcome below threshold" pointing at the answer.
 
 ```makefile
 PORT     ?= 8001
@@ -97,12 +100,16 @@ curl -fsS "${BASE}/health" | grep -q '"ok": *true' || { echo "FAIL: /health not 
 # The response is the ok() envelope: {"ok":true,"data":{run_id, status, answer, ...}}. Read .data.*,
 # NOT the top level — run_agent's dict carries `status:"completed"` (patterns/interface.md runner.py).
 # DATA-INGEST: for an "analyze an uploaded X" agent, Q1 must CARRY the resource (else it answers "no data is
-# loaded" and the outcome eval fails). Set DATA_FILE to a fixture path; Q1 sends `data`, Q2 reuses it from
-# the SAME session (no re-upload — that is the session-scoped store working, persistence.md). Leave DATA_FILE
-# unset for a key-free/own-data agent and both turns send just {goal, session_id}.
+# loaded" and the outcome eval fails). DATA_FILE defaults to the generated fixture (build.md §3 manifest:
+# scripts/fixtures/<resource>.<ext>); Q1 sends `data`, Q2 reuses it from the SAME session (no re-upload — the
+# session-scoped store working, persistence.md). For a key-free/own-data agent, leave it as the unset default
+# below and both turns send just {goal, session_id}. A session-scoped build that points DATA_FILE at a missing
+# fixture gets a self-diagnosing message here, not a raw `jq --rawfile: No such file`.
+DATA_FILE="${DATA_FILE:-}"      # OVERRIDE for a data-ingest agent: scripts/fixtures/<resource>.<ext> (build.md §3)
 SID="gate-$(date +%s)"
 Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')"
-if [ -n "${DATA_FILE:-}" ]; then
+if [ -n "$DATA_FILE" ]; then
+  [ -f "$DATA_FILE" ] || { echo "FAIL: DATA_FILE=$DATA_FILE not found — generate a fixture at scripts/fixtures/<resource>.<ext> (build.md §3) for a session-scoped agent"; exit 1; }
   Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" --rawfile d "$DATA_FILE" \
                 '{goal:$g, session_id:$s, data:$d}')"   # Q1 carries the uploaded resource
 fi
@@ -203,6 +210,34 @@ def _defined_cases(path: pathlib.Path) -> set[str]:
                                     cases.add(f"{node.name}[{elt.value}]")
     return cases
 
+# Refund-domain placeholders shipped in gate_eval.py / the Makefile — a build that left ANY of these is a
+# half-applied edit that false-REDs (one domain's goal vs another's rubric). The lint owns this mechanically
+# so "keep them in sync" stops being prose (HARDENING-LOG iter 6).
+_PLACEHOLDERS = ("WHEN asked about refund timing the system SHALL state 5 business days.",
+                 "How long do refunds take?")
+
+def _ears_lines() -> list[str]:
+    out = []
+    for f in pathlib.Path("spec/capabilities").glob("*.md"):
+        out += [ln.strip(" -") for ln in f.read_text().splitlines() if EARS.search(ln)]
+    return out
+
+def _gate_eval_sync(ears: list[str]) -> list[str]:
+    """Full mode only: gate_eval.CRITERION must be a real EARS line in the spec (not the refund placeholder).
+    Catches a Makefile GOAL updated without gate_eval.py, or vice-versa — the mismatch the harness warns
+    about 3+ times but never enforced."""
+    probs = []
+    try:
+        from . import gate_eval                                   # the constants under test
+    except Exception:                                             # gate_eval not generated yet / import error
+        return probs
+    crit = getattr(gate_eval, "CRITERION", "").strip()
+    if crit in _PLACEHOLDERS:
+        probs.append(f"agent/gate_eval.py CRITERION is still the refund placeholder — set it from the P1 EARS line")
+    elif crit and crit not in {e.strip() for e in ears}:
+        probs.append(f"agent/gate_eval.py CRITERION does not match any EARS line in spec/capabilities/* — Makefile GOAL and gate_eval CRITERION must trace to the SAME P1 line: {crit!r}")
+    return probs
+
 def main(preflight: bool = False) -> int:
     problems, seen = [], {}
     for f in pathlib.Path("spec/capabilities").glob("*.md"):
@@ -225,6 +260,8 @@ def main(preflight: bool = False) -> int:
                 problems.append(f"{f}:{i+1}  [@eval] unresolved (no file): {ref}"); continue
             if case not in _defined_cases(path):     # EXACT match — never substring (superset/comment false-green)
                 problems.append(f"{f}:{i+1}  [@eval] unresolved (no collectable case `{case}`): {ref}")
+    if not preflight:                                # gate mode: the rubric must trace to a real P1 EARS line
+        problems += _gate_eval_sync(_ears_lines())
     for p in problems:
         print(f"EVAL-LINT FAIL{' (preflight)' if preflight else ''}: {p}", file=sys.stderr)
     return 1 if problems else 0

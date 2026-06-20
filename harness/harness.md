@@ -79,5 +79,14 @@ journey-complete.
 - A funded `APP_LLM_API_KEY` is required for any real run. Treat secrets per the constitution: `SecretStr`,
   read only at the use boundary, never logged/printed, gitignored before the file exists.
 
+## Generated front-ends — one source, mechanically enforced
+The slash commands and sub-agents Claude Code actually loads (`.claude/commands/`, `.claude/agents/`) and
+`CLAUDE.md` are **generated from `harness/`** by `harness/generate.py` — never hand-edit them. Edit the
+source in `harness/workflows/`, `harness/agents/`, then run `python harness/generate.py`. This equivalence
+(the rules a user reads == the rules the authors edit) has a **mechanical owner**: `python harness/generate.py
+--check` exits non-zero on any stale front-end, and `.githooks/pre-commit` runs it whenever a commit touches
+`harness/workflows/`, `harness/agents/`, or `generate.py` — a stale `.claude/` is a build-blocking failure,
+not a cosmetic one (it is how the user-invoked `/build` once drifted three iterations behind its source).
+
 Procedures: `workflows/{build,deploy,maintain,spec-new-capability,gates}.md`. Sub-agents: `agents/`.
 Non-negotiables: `spec/constitution.md`.
