@@ -1,0 +1,16 @@
+# Render deploy — minimal stub. Wire fully in a deploy pass (Dockerfile/langgraph.json optional).
+# Set APP_LLM_API_KEY (and provider/model) in the Render dashboard — never commit secrets.
+services:
+  - type: web
+    name: agentic-boilerplate
+    runtime: python
+    plan: free
+    buildCommand: pip install uv && uv sync
+    startCommand: APP_PORT=$PORT uv run python -m agent   # Render injects $PORT
+    envVars:
+      - key: APP_LLM_PROVIDER
+        sync: false
+      - key: APP_LLM_MODEL
+        sync: false
+      - key: APP_LLM_API_KEY
+        sync: false
