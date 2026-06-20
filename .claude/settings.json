@@ -1,4 +1,13 @@
 {
   "model": "sonnet",
-  "effortLevel": "max"
+  "effortLevel": "max",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/sync-nudge.sh" }
+        ]
+      }
+    ]
+  }
 }

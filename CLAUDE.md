@@ -1,19 +1,19 @@
-<!-- GENERATED from harness/ — do not edit; run `python harness/generate.py` -->
+# Claude Code — entry point
 
-# Claude Code — Entry Point
+A lean, Claude-Code-native **harness** for building and evolving agentic AI apps. **Code is truth; the spec
+is its human-readable projection.** Read [`NORTH-STAR.md`](NORTH-STAR.md) first — the harness's own one-page spec.
 
-**First action: read [`harness/harness.md`](harness/harness.md)** — the operating manual. Then read the
-spec in `spec/` if it is filled in; otherwise run `/build "<your idea>"`.
+## The loop
+`intent → question it (plan mode) → implement in CODE → prove it → project SPEC from code → review`
 
-## What this repo is
-A frontier spec-driven harness that builds a production agentic AI agent from a spec. Claude Code generates
-the agent fresh from the recipes in `harness/patterns/` (current library versions), gated by mechanical
-checks. Nothing is a frozen app — the harness ships knowledge, not lock-in.
+## Commands
+- `/new "<idea>"` — bootstrap a new app: spec → v1, one real capability, proven.
+- `/change "<intent>"` — evolve an app via the loop; code + spec end in sync.
+- `/sync` — re-project the spec from the current code.
 
-## Map
-- `harness/harness.md` — the rules · `harness/workflows/` — procedures (/build, /deploy, …)
-- `harness/agents/` — sub-agent roles · `harness/patterns/` — the frontier code recipes (all 11 layers)
-- `.claude/agents/` — those roles as Claude Code subagents · `.claude/commands/` — those workflows as slash commands
-- `spec/` — the 4-file input contract you fill · `.githooks/` — mechanical guardrails
+## Parts
+- **agents:** `spec-projector` (code→spec) · `reviewer` (diff review, fixes nothing)
+- **skills:** `proof-gate` (prove it ran + gave the right answer) · `agentic-patterns` (build knowledge, on demand)
+- **hook:** a Stop nudge when code changed but the spec wasn't re-projected.
 
-A funded `APP_LLM_API_KEY` is required for a real run.
+Apps the harness builds live in their **own directory** — the harness never tangles into them.

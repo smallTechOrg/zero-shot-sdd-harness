@@ -1,50 +1,34 @@
-# Spec-driven agent harness
+# Lean spec-driven harness
 
-A frontier (mid-2026) spec-driven **harness** that builds, maintains, and deploys a production agentic AI
-agent from a short spec. It ships **knowledge, not a frozen app**: precise, copyable pattern recipes that
-**Claude Code** uses to **generate fresh code at build time**, pinning current library
-versions.
+A small, Claude-Code-native harness for building and evolving **agentic AI apps** in tight, human-managed
+iterations. **Code is the source of truth; the spec is its human-readable projection**, kept in sync by the
+harness. The harness is the product; the apps it builds are the output, and they live in their own directories.
 
-The target is a Deep-Agent ReAct loop on LangGraph (planning todos, sub-agents with isolated context,
-scratchpad memory) behind async FastAPI + SSE, with typed in-process tools (MCP for external integrations),
-memory, OTel-shaped observability rendered by a built-in `/traces` viewer (no Docker), and outcome +
-trajectory evals run as a mechanical gate.
+## Use it (in Claude Code)
+- `/new "<idea>"` — bootstrap a new app (spec → a proven v1).
+- `/change "<intent>"` — evolve it; code and spec end in sync.
+- `/sync` — re-project the spec from the current code.
 
-## Start
+Every change runs one loop: **question the intent → implement in code → prove it ran and is right → project
+the spec from the code → review.**
 
-Open this repo in Claude Code and run:
-
+## What's here
 ```
-/build "<your idea>"
-```
-
-Intake asks four questions, fills the 4-file spec, builds the agent, and stops at the demo gate.
-
-> A funded **`APP_LLM_API_KEY`** is required for any real run (intake checks for it). The runtime LLM is
-> separate from Claude Code and defaults to a cheap tier — set it in `spec/tech-stack.md`.
-
-## Everything else
-
-Read **[`harness/harness.md`](harness/harness.md)** — the operating manual (the spec contract, workflows,
-the two model roles, and what "done" means). It points to the rest.
-
-## Layout
-
-```
-harness/harness.md      the rules — read this first
-harness/workflows/      procedures: /build, /deploy, /maintain, /spec-new-capability
-harness/agents/         sub-agent roles (spec-writer, planner, qa-auditor, …)
-harness/patterns/       the frontier code recipes — all 11 layers (react-agent, tools-and-mcp,
-                        persistence, observability-and-evals, deploy, …)
-harness/generate.py     regenerates the Claude Code front-ends (CLAUDE.md, .claude/agents/, .claude/commands/) from harness/
-
-spec/product.md         why / what / success criteria / domain  ┐
-spec/capabilities/*.md  EARS acceptance criteria (feed the evals) │ the 4-file input contract
-spec/agent.md           which agentic layers are on               │ you (or /build) fill
-spec/tech-stack.md      provider · runtime model · DB · deploy · tools  ┘
-
-.githooks/              mechanical guardrails (secrets, branch rules, harness/ drift)
+NORTH-STAR.md     the harness's own one-page spec (read this)
+CLAUDE.md         entry point Claude Code loads
+.claude/
+  commands/       /new · /change · /sync
+  agents/         spec-projector · reviewer
+  skills/         proof-gate · agentic-patterns
+  hooks/          sync-nudge (spec-staleness nudge)
+  settings.json   wires the Stop hook
+.githooks/        secret-scan guard (no keys in commits)
 ```
 
-`CLAUDE.md` and `.claude/` (agents + commands) are **generated** from `harness/` — never edit
-them by hand. Edit `harness/` and run `python harness/generate.py`.
+## Principles
+Lean & human-managed · code is truth · harness ≠ app · tight iteration · Claude-Code-native ·
+verify-don't-trust. Full detail in [`NORTH-STAR.md`](NORTH-STAR.md).
+
+## Status
+Lean rebuild — structurally complete, **not yet exercised end-to-end**. Next step: `/new` a small app to
+prove the loop and flesh out the `agentic-patterns` skill.
