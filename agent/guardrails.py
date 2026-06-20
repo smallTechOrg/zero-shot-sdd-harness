@@ -1,5 +1,6 @@
 import ast
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from .observability import span
 
@@ -118,3 +119,13 @@ async def on_output(run_id: str, answer: str, policy: str = "") -> Verdict:
         v = scan_pii(answer)
         sp["action"], sp["reason"] = v.action, v.reason
         return v
+
+
+# --- HITL: human-approval gate for sensitive / irreversible tools ---
+hitl_approved: ContextVar[bool] = ContextVar("hitl_approved", default=False)
+RISKY_TOOLS = frozenset({"delete_memories"})
+
+
+def requires_approval(tool_name: str) -> bool:
+    """A risky/irreversible tool is gated until a human approves this run (HITL)."""
+    return tool_name in RISKY_TOOLS and not hitl_approved.get()

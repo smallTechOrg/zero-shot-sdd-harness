@@ -28,6 +28,13 @@ async def remember(fact: str) -> str:
 
 
 @tool
+async def delete_memories() -> str:
+    """Permanently delete ALL remembered long-term facts. Sensitive and irreversible — requires human approval (the loop gates this until approved)."""
+    from .memory import forget_all
+    return f"Deleted {await forget_all()} remembered fact(s)."
+
+
+@tool
 def write_todos(todos: list[str]) -> str:
     """Record a short ordered plan (the planning scratchpad). Call before multi-step work."""
     return "Plan recorded:\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(todos))
@@ -39,6 +46,6 @@ def finish(answer: str) -> str:
     return answer
 
 
-TOOLS = [search_document, remember, write_todos, finish]
+TOOLS = [search_document, remember, delete_memories, write_todos, finish]
 TOOL_MAP = {t.name: t for t in TOOLS}
 FINISH = "finish"

@@ -46,7 +46,7 @@ async def _load_prior_messages(session_id: str) -> list:
 
 
 async def run_agent(goal: str, model=None, run_id: str | None = None,
-                    session_id: str | None = None, checkpointer=None) -> dict:
+                    session_id: str | None = None, checkpointer=None, approve: bool = False) -> dict:
     settings = get_settings()
     run_id = run_id or uuid.uuid4().hex
     model = model or get_model()
@@ -69,17 +69,22 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
         "iterations": 0, "answer": None, "run_id": run_id,
     }
 
-    try:
-        from .sessions import current_session_id
-    except ImportError:
-        current_session_id = None
-    token = current_session_id.set(session_id) if current_session_id is not None else None
+    from .sessions import current_session_id
+    from .guardrails import hitl_approved, scan_pii
+    token = current_session_id.set(session_id)
+    htoken = hitl_approved.set(approve)
     try:
         async with span(run_id, "invoke_agent", "INTERNAL", goal=goal):
             result = await graph.ainvoke(state, config=config)
     finally:
-        if token is not None:
-            current_session_id.reset(token)
+        current_session_id.reset(token)
+        hitl_approved.reset(htoken)
+
+    _v = scan_pii(result["answer"])              # guardrail: mask PII before it leaves the system
+    if _v.action == "transform":
+        result["answer"] = _v.payload
+    elif _v.action == "block":
+        result["answer"] = "[response withheld: contained sensitive data]"
 
     async with get_sessionmaker()() as s:
         for m in result["messages"]:

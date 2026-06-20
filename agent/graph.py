@@ -21,9 +21,17 @@ def build_graph(model, checkpointer=None):
         return {"messages": state["messages"] + [resp], "iterations": state["iterations"] + 1}
 
     async def tools_node(state):
+        from .guardrails import requires_approval
         out = []
         for tc in state["messages"][-1].tool_calls:
             if tc["name"] == FINISH:
+                continue
+            if requires_approval(tc["name"]):                       # HITL: pause sensitive actions
+                async with span(state["run_id"], f"hitl.{tc['name']}", "INTERNAL") as sp:
+                    sp["blocked"], sp["reason"] = True, "requires human approval"
+                out.append(ToolMessage(
+                    content=f"⏸ '{tc['name']}' is a sensitive, irreversible action and requires human approval. It was NOT performed. Re-run with approval to confirm.",
+                    tool_call_id=tc["id"]))
                 continue
             tool = TOOL_MAP.get(tc["name"])
             async with span(state["run_id"], f"execute_tool.{tc['name']}", "TOOL", args=tc["args"]) as sp:

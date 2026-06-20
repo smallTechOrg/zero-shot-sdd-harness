@@ -41,6 +41,7 @@ class RunIn(BaseModel):
     goal: str
     session_id: str | None = None
     data: str | None = None
+    approve: bool = False        # human-in-the-loop: confirm a sensitive action on re-submit
 
 
 @app.get("/health")
@@ -56,7 +57,7 @@ async def create_run(request: Request, body: RunIn):
             if body.session_id is None:
                 body.session_id = uuid.uuid4().hex
             load_resource(body.session_id, body.data)
-        return ok(await run_agent(body.goal, session_id=body.session_id))
+        return ok(await run_agent(body.goal, session_id=body.session_id, approve=body.approve))
     except ApiError:
         raise
     except Exception as e:
