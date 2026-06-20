@@ -123,19 +123,22 @@ echo "3/5 no secret in the image context, no key in the prompt"
 ! grep -RIl "$APP_LLM_API_KEY" agent/ 2>/dev/null | grep . && { echo "key reached source"; exit 1; } || true
 
 echo "4/5 reachable URL: /health is 200"
-curl -fsS "$DEPLOY_URL/health" | grep -q '"ok":true'
+curl -fsS "$DEPLOY_URL/health" | jq -e '.ok == true' >/dev/null   # ok() envelope: {"ok":true,"data":{...}}
 
 echo "5/5 two-turn run completes AND its judge-stable outcome eval passes (200 + wrong answer = FAIL)"
+# The response is the ok() envelope — status and run_id live under .data.* (run_agent's dict, wrapped by
+# ok() in server.py), NOT at the top level. Reading top-level .status here false-REDs every correct Q1
+# ("Q1 did not complete") because .status is null there. SAME contract as demo_gate.sh (gates.md check 5).
 SID="deploy-gate-$(date +%s)"
 R1=$(curl -fsS -X POST "$DEPLOY_URL/runs" -H 'content-type: application/json' \
      -d "$(jq -n --arg g "${GATE_GOAL:?set GATE_GOAL to a goal with a known-good outcome}" --arg s "$SID" \
             '{goal:$g, session_id:$s}')")
-echo "$R1" | jq -e '.status=="completed"' >/dev/null || { echo "Q1 did not complete"; exit 1; }
+echo "$R1" | jq -e '.ok == true and .data.status == "completed"' >/dev/null || { echo "Q1 did not complete"; exit 1; }
 curl -fsS -X POST "$DEPLOY_URL/runs" -H 'content-type: application/json' \
      -d "$(jq -n --arg g "${GATE_FOLLOWUP:-And what are the next steps?}" --arg s "$SID" \
             '{goal:$g, session_id:$s}')" \
-  | jq -e '.status=="completed"' >/dev/null || { echo "Q2 (follow-up) did not complete"; exit 1; }
-python -m agent.gate_eval --run-id "$(echo "$R1" | jq -r '.run_id // .id')" --goal "$GATE_GOAL"   # judge-stable; non-zero = FAIL
+  | jq -e '.ok == true and .data.status == "completed"' >/dev/null || { echo "Q2 (follow-up) did not complete"; exit 1; }
+python -m agent.gate_eval --run-id "$(echo "$R1" | jq -r '.data.run_id')" --goal "$GATE_GOAL"   # judge-stable; non-zero = FAIL
 
 echo "PRODUCTIONISE GATE: PASS"
 ```

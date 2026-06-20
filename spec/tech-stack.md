@@ -32,7 +32,7 @@ the one real capability calls the real model (Decision #2).
 | Provider  | Cheap (default tier)         | Mid                  | Frontier            |
 |-----------|------------------------------|----------------------|---------------------|
 | Anthropic | `claude-haiku-4-5`           | `claude-sonnet-4-6`  | `claude-opus-4-8`   |
-| OpenAI    | `gpt-5.4-nano`               | `gpt-5.4-mini`       | `gpt-5.4`           |
+| OpenAI    | `gpt-5-nano`                 | `gpt-5-mini`         | `gpt-5.4`           |
 | Google    | `gemini-3.5-flash` / `gemini-2.5-flash` | `gemini-3.5-flash` | `gemini-3.5-pro` |
 
 Anthropic pricing & limits (verified against the Claude model catalog — re-verify at platform.claude.com

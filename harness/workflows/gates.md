@@ -403,8 +403,8 @@ prod-gate: gate                        # P0 — DEMO must pass first
 
 `prod_gate.sh` is `demo_gate.sh`'s health + two-turn run + judge-stable eval + traces block (checks 4-8)
 pointed at the deployed `URL` instead of a locally-booted server — the same assertions, no duplicated logic.
-P1's Postgres run reuses the conftest create_all/drop_all-per-test fixture (`patterns/react-agent.md` gate
-harness); on a real prod DB use **Alembic migrations**, not auto-`create_all` — that sequence lives in
+P1's Postgres run reuses the conftest create_all/drop_all-per-test fixture (`patterns/persistence.md` § Tests
+use the SAME driver as prod); on a real prod DB use **Alembic migrations**, not auto-`create_all` — that sequence lives in
 `workflows/deploy.md` and `patterns/persistence.md` (§ Migrations), never in Phase 1.
 
 ---

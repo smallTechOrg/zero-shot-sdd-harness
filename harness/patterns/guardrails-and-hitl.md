@@ -195,7 +195,7 @@ Wire it inside the tool body (`patterns/tools-and-mcp.md`), passing the live obj
 HITL is **not** a guardrail variant — it suspends the graph mid-run, persists full state, and resumes on a
 human decision that may arrive minutes or hours later. That durability is mandatory: **HITL requires a
 persistent checkpointer** (`AsyncSqliteSaver` local → Postgres in prod). A process restart between pause and
-approval must not lose the run. → `patterns/durability.md` for the checkpointer setup; `patterns/state.md`
+approval must not lose the run. → `patterns/durability.md` for the checkpointer setup; `patterns/react-agent.md`
 for `AgentState`.
 
 ### Trigger set (small, explicit — not every tool)
