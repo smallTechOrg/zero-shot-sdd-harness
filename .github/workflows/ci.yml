@@ -24,8 +24,7 @@ jobs:
 
       - name: Run tests
         env:
-          # Empty key forces stub LLM — no real API calls in CI
-          DATAANALYSIS_OPENROUTER_API_KEY: ""
+          DATAANALYSIS_OPENROUTER_API_KEY: ${{ secrets.DATAANALYSIS_OPENROUTER_API_KEY }}
           DATAANALYSIS_DATABASE_URL: "sqlite:///ci_test.db"
         run: uv run pytest tests/ -v --tb=short
 

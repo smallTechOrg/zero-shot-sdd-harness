@@ -32,7 +32,7 @@ jobs:
 
       - name: Run tests
         env:
-          DATAANALYSIS_OPENROUTER_API_KEY: ""
+          DATAANALYSIS_OPENROUTER_API_KEY: ${{ secrets.DATAANALYSIS_OPENROUTER_API_KEY }}
           DATAANALYSIS_DATABASE_URL: "sqlite:///ci_test.db"
         run: uv run pytest tests/ -v --tb=short
 
