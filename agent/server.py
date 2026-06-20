@@ -1,12 +1,13 @@
+import json
 import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from .config import validate_required_config
 from .db import get_sessionmaker, init_db, Run, Span
-from .runner import run_agent
+from .runner import run_agent, stream_agent
 
 
 @asynccontextmanager
@@ -62,6 +63,23 @@ async def create_run(request: Request, body: RunIn):
         raise
     except Exception as e:
         raise api_error("RUN_FAILED", str(e), status=500)
+
+
+@app.post("/runs/stream")
+async def stream_run(body: RunIn):
+    async def gen():
+        try:
+            if body.data is not None:
+                from .sessions import load_resource
+                if body.session_id is None:
+                    body.session_id = uuid.uuid4().hex
+                load_resource(body.session_id, body.data)
+            async for ev in stream_agent(body.goal, session_id=body.session_id):
+                yield f"data: {json.dumps(ev)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/", response_class=HTMLResponse)

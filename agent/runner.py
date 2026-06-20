@@ -45,6 +45,16 @@ async def _load_prior_messages(session_id: str) -> list:
     return prior
 
 
+async def _build_seed(goal: str, run_id: str, session_id: str | None) -> dict:
+    """Initial graph state: domain prompt + long-term memory + prior turns + the new goal."""
+    prior = await _load_prior_messages(session_id) if session_id else []
+    from .memory import recall_text
+    mem = await recall_text()
+    sys_prompt = DOMAIN_PROMPT + (f"\n\nKnown facts remembered across sessions:\n{mem}" if mem else "")
+    return {"messages": [SystemMessage(content=sys_prompt)] + prior + [HumanMessage(content=goal)],
+            "iterations": 0, "answer": None, "run_id": run_id}
+
+
 async def run_agent(goal: str, model=None, run_id: str | None = None,
                     session_id: str | None = None, checkpointer=None, approve: bool = False) -> dict:
     settings = get_settings()
@@ -57,17 +67,7 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
 
     graph = build_graph(model)
     config = {"recursion_limit": 50}
-    prior: list = []
-    if session_id:
-        prior = await _load_prior_messages(session_id)
-
-    from .memory import recall_text
-    mem = await recall_text()
-    sys_prompt = DOMAIN_PROMPT + (f"\n\nKnown facts remembered across sessions:\n{mem}" if mem else "")
-    state = {
-        "messages": [SystemMessage(content=sys_prompt)] + prior + [HumanMessage(content=goal)],
-        "iterations": 0, "answer": None, "run_id": run_id,
-    }
+    state = await _build_seed(goal, run_id, session_id)
 
     from .sessions import current_session_id
     from .guardrails import hitl_approved, scan_pii
@@ -106,3 +106,24 @@ async def run_agent(goal: str, model=None, run_id: str | None = None,
             "input_tokens": tok_in, "output_tokens": tok_out,
             "cost_usd": (tok_in * settings.price_in + tok_out * settings.price_out) / 1_000_000,
             "messages": result["messages"]}
+
+
+async def stream_agent(goal: str, *, model=None, session_id: str | None = None,
+                       run_id: str | None = None):
+    """Stream a run's progress over SSE: a 'step' event per node, then a 'done' event with the
+    answer. A view over the same loop as run_agent (the canonical persisted path is POST /runs)."""
+    from .sessions import current_session_id
+    run_id = run_id or uuid.uuid4().hex
+    model = model or get_model()
+    graph = build_graph(model)
+    state = await _build_seed(goal, run_id, session_id)
+    token = current_session_id.set(session_id)
+    try:
+        async for chunk in graph.astream(state, config={"recursion_limit": 50}):
+            for node, update in chunk.items():
+                if node == "finalize":
+                    yield {"event": "done", "run_id": run_id, "answer": (update or {}).get("answer", "")}
+                else:
+                    yield {"event": "step", "node": node}
+    finally:
+        current_session_id.reset(token)
