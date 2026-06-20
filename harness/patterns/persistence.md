@@ -138,6 +138,34 @@ def release_session(session_id: str) -> None:
     """Drop a session's resources — call ONLY on explicit session delete, NEVER per question."""
     _SESSIONS.pop(session_id, None)
 ```
+
+### The HTTP ingest seam — how the resource actually gets IN (the missing populate path)
+The store above describes *holding* a resource; this is how a resource *arrives over HTTP* for an "analyze
+an uploaded X" agent. `POST /runs` carries an optional `data` field (`patterns/interface.md` RunIn); on a
+turn that has it, the server calls `load_resource(session_id, data)` **before** the run, so the run's tools
+see it and **Q2 on the same session reuses it** (no re-upload). Without this populate path the demo gate's
+Q1 hits an empty session and the agent answers "no data is loaded" — a 200 that the outcome eval fails.
+Generate `load_resource` only for a data-ingesting capability (`C-SESSION-SCOPE`); key-free/own-data agents
+omit it. The parse is domain-specific — a CSV example, parsed once and reused every turn:
+```python
+# agent/sessions.py (cont.) — populate the session store from an uploaded blob, parsed ONCE
+import io
+import pandas as pd                                   # pin current pandas in pyproject.toml
+
+def load_resource(session_id: str, data: str, resource_id: str = "main") -> str:
+    """Parse an uploaded blob ONCE and stash the live object in the session bag (survives every turn).
+    Idempotent per turn: if the agent re-POSTs the same data on a follow-up it just refreshes the object,
+    it does NOT release prior resources (release happens only on explicit session delete)."""
+    df = pd.read_csv(io.StringIO(data))               # domain parse — swap for your resource type
+    get_session(session_id).by_id[resource_id] = df
+    return resource_id
+```
+The capability's query tool then reads it back by `session_id` (never re-parses): e.g. a `query_dataframe`
+`@tool` does `df = get_session(session_id).by_id.get("main")` and returns `"No spreadsheet is loaded"` only
+when truly absent. The tool receives `session_id` the same way the runner threads it (`patterns/react-agent.md`
+injects run/session context into tools). For binary/large uploads expose a sibling `POST /sessions/{id}/resource`
+(multipart) that calls the identical `load_resource`.
+
 Rules: load on first use, look up by `session_id` on every later turn, **release only** from an explicit
 `DELETE /sessions/{id}` (or a TTL sweep) — never at the end of a run. For a multi-process deploy, back the
 same interface with Redis/disk so the resource survives the worker that loaded it; the *contract* (key by

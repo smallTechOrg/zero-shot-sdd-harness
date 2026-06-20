@@ -10,11 +10,19 @@ recipe owns the serving edge **and** the self-contained `/traces` viewer (one ru
 
 ## Contract
 - `GET /health` → `{"ok": true}` — the liveness probe the demo gate hits.
-- `POST /runs {"goal": "...", "session_id"?: "..."}` → runs the agent, returns the `ok()` envelope with the
-  answer + run id. `session_id` (optional) ties follow-up turns to one session/thread — the two-turn gate
-  (`workflows/gates.md` check 5) posts the same `session_id` on Q1 and Q2; it is persisted as `thread_id`
-  and keys the session-scoped resource store (`patterns/persistence.md`).
-- `GET /` → redirect to `/traces`; `GET /traces` → server-rendered timeline (no JS).
+- `POST /runs {"goal": "...", "session_id"?: "...", "data"?: "..."}` → runs the agent, returns the `ok()`
+  envelope with the answer + run id. `session_id` (optional) ties follow-up turns to one session/thread —
+  the two-turn gate (`workflows/gates.md` check 5) posts the same `session_id` on Q1 and Q2; it is persisted
+  as `thread_id` and keys the session-scoped resource store (`patterns/persistence.md`). `data` (optional) is
+  the **data-ingest seam**: a resource an "analyze an uploaded X" agent needs (a CSV/JSON/text blob). When
+  present it is loaded into the session store **before** the run, so a data agent's Q1 carries the resource
+  and Q2 reuses it from the session (no re-upload) — without this seam a data agent's gate Q1 hits an empty
+  session and the outcome eval fails on a "no data is loaded" non-answer. Wire only when a capability ingests
+  a resource (`C-SESSION-SCOPE`); a key-free/own-data agent leaves it unset. For large/binary uploads use a
+  separate `POST /sessions/{id}/resource` (multipart) with the same load → session-store contract.
+- `GET /` → redirect to `/traces`; `GET /traces` → server-rendered timeline (no JS). The **`run_id` is
+  rendered verbatim** in each run's drill-down (as the `<details id>` and as visible muted text) — gate
+  check 8 (`workflows/gates.md`) greps it to prove the run is observable; a viewer that omits it false-REDs.
 - Port **8001** (override `APP_PORT`). One envelope shape everywhere: `ok(data)` / `api_error(code, …)` —
   every failure is a coded JSON error, never an error page or a raw 500.
 
@@ -148,6 +156,9 @@ async def _api_error_handler(_req, exc: ApiError):
 class RunIn(BaseModel):
     goal: str
     session_id: str | None = None        # optional — ties follow-up turns to one session/thread (two-turn gate)
+    data: str | None = None              # optional DATA-INGEST seam — a resource ("analyze an uploaded X")
+                                         # loaded into the session store BEFORE the run; Q2 reuses it. Wire
+                                         # only when a capability ingests a resource (C-SESSION-SCOPE).
 
 @app.get("/health")
 async def health():
@@ -156,6 +167,13 @@ async def health():
 @app.post("/runs")
 async def create_run(request: Request, body: RunIn):
     try:
+        # DATA-INGEST seam: if a resource came with this turn, load it into the session store BEFORE the run
+        # so the tools see it — and so Q2 on the same session reuses it (persistence.md § session-scoped).
+        # Generate `load_resource` only when a capability ingests data (C-SESSION-SCOPE); a key-free/own-data
+        # agent omits the `data` field and this block. Example loader (CSV → DataFrame) below the server code.
+        if body.data is not None and body.session_id is not None:
+            from .sessions import load_resource          # generated for data agents only
+            load_resource(body.session_id, body.data)
         # session_id threads through to the Run's thread_id + the session resource store (persistence.md);
         # the shared checkpointer (app state) gives Q2 on the same session Q1's context (memory.md).
         return ok(await run_agent(body.goal, session_id=body.session_id,
@@ -242,9 +260,15 @@ async def _traces_html() -> str:
                 f"<pre style='margin:2px 0 2px 8px;color:#374151;font-size:12px;white-space:pre-wrap'>{_esc(sp.attributes)}</pre>"
                 f"{err_html}</div>"
             )
+        # The run_id MUST appear VERBATIM in the rendered HTML — gate check 8 greps it
+        # (`workflows/gates.md` demo_gate.sh: `curl /traces | grep -q "$RUN_ID"`). It is emitted as the
+        # <details id> AND as visible muted text so the drill-down is deep-linkable and the gate's
+        # "proves it ran" needle resolves. Do not remove or escape it away — check 8 false-REDs without it.
         rows.append(
-            f"<details style='border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:0 0 12px'{' open' if r is runs[0] else ''}>"
-            f"<summary style='cursor:pointer'><b>{_esc(r.goal)}</b><br><small>{meta}</small></summary>"
+            f"<details id='{_esc(r.id)}' style='border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:0 0 12px'{' open' if r is runs[0] else ''}>"
+            f"<summary style='cursor:pointer'><b>{_esc(r.goal)}</b> "
+            f"<span style='color:#9ca3af;font-size:12px;font-weight:400'>{_esc(r.id)}</span>"
+            f"<br><small>{meta}</small></summary>"
             f"<div style='margin-top:8px'>{''.join(steps) or '<i>no steps recorded</i>'}</div></details>"
         )
     body = overview + ("".join(rows) or "<p>No runs yet. POST a goal to /runs.</p>")
@@ -335,6 +359,29 @@ the gate. If it returns an error, read the process log — the first error line 
 Common fixes: wrong dev port (default **3001**, not 3000 — conflicts with Grafana and other local
 tools), a browser-only library evaluated server-side (disable SSR for that component), or a missing
 global that the Node.js version partially implements. Fix the root cause from the log; don't guess.
+
+### UI prerequisites — scaffold the ui/ project + the browser binary, or check 7 dies undiagnosably
+A UI page with no runnable project and a Playwright step with no browser are both opaque to a non-tech user
+(`Executable doesn't exist` / `next: command not found`). Before the gate's check 7 the build MUST:
+
+1. **Scaffold a minimal but runnable `ui/` Next.js project** — at least `ui/package.json`, `ui/next.config.mjs`,
+   `ui/app/layout.tsx`, `ui/app/page.tsx`. A copyable `package.json` (pin current majors when you generate):
+   ```jsonc
+   {
+     "name": "agent-ui", "private": true,
+     "scripts": { "dev": "next dev -p 3001", "build": "next build", "start": "next start -p 3001" },
+     "dependencies": { "next": "^15", "react": "^19", "react-dom": "^19",
+                       "react-markdown": "^9", "remark-gfm": "^4" }
+   }
+   ```
+   Port **3001** (not 3000 — `next dev -p 3001`). `make dev` runs `cd ui && npm run dev` against this project.
+2. **Install deps + the chromium binary**: `cd ui && npm install`, then `uv run playwright install chromium`
+   (the browser the `page` fixture drives — never auto-downloaded). Put both in a `make setup` / install step,
+   never inside the gate. The gate **auto-skips check 7 with a printed reason** when `ui/node_modules` is
+   absent (`workflows/gates.md`), so a headless or un-scaffolded build fails on a real defect, not on a
+   missing browser.
+
+A headless product (`spec/tech-stack.md` UI = none) skips all of this and runs the API + outcome-eval gate only.
 
 ### Gate — Playwright asserts the post-JS DOM (run it, don't trust it)
 The journey test drives a real browser against the running app and asserts what a user actually sees

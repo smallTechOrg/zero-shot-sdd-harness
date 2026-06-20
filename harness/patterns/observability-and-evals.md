@@ -234,3 +234,11 @@ it close that gap, and every build with a UI ships all three.
   asserting the **post-JS DOM** after the real run (`patterns/interface.md`). This is the demo gate's UI half.
 
 Unit tests verify isolated mechanics; these verify the product. → `workflows/gates.md` (check 1 runs all of them).
+
+**Shared test helpers — import absolutely, not relatively.** Common fixtures (e.g. a `ContextAwareFakeModel`,
+a CSV fixture) belong in `tests/helpers.py` imported as `from tests.helpers import ContextAwareFakeModel`.
+A **relative** import (`from .helpers import …`) raises `ImportError: attempted relative import with no known
+parent package` and makes `uv run pytest` die at **collection** (gate check 2 never starts) unless `tests/` is
+a package. The build therefore emits empty `tests/__init__.py` + `tests/e2e/__init__.py` markers **and** sets
+`[tool.pytest.ini_options] pythonpath = ["."]` (`workflows/build.md` §3), so absolute `from tests.…` imports
+resolve. Standardize on the absolute form across every test file — never `from .helpers`.

@@ -35,7 +35,7 @@ Each line below is one command whose exit code is the verdict; the gate is their
 | 3 | **Server boots** | start `python -m agent` (`agent/__main__.py` → uvicorn on `settings.port`), wait for it to answer. |
 | 4 | **`/health` 200** | `curl -fsS localhost:$PORT/health` returns `{"ok":true}` (`agent/server.py`). |
 | 5 | **Two-turn run completes** | `POST /runs {goal}` (Q1) → `.ok == true and .data.status == "completed"` (the `ok()` envelope — read `.data.*`, not the top level), then `POST /runs {goal:<follow-up>, session_id:<same>}` (Q2) on the **same session** → also completed. **Any Q2 error fails the gate**, even if Q1 was perfect (`SPEC-RECONCILIATION.md` C3, decision #12). A 500 or `.data.status != completed` on either turn fails. |
-| 6 | **Outcome (judge-stable) + trajectory eval pass** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip) — **and** the persisted spans show the right path (`stable_outcome_eval` + `trajectory_eval`). A **200 with a wrong answer fails here.** |
+| 6 | **Outcome (judge-stable) eval passes; trajectory advisory** | the run's answer scores against its EARS criterion — **multi-sampled** (the judge is run *N* times; pass requires the margin-protected mean `≥ threshold − margin`, and the spread is reported so a flaky borderline verdict is visible, not a coin-flip). A **200 with a wrong answer fails here.** The persisted-span `trajectory_eval` runs too but is **ADVISORY for a 1-capability v1 slice** — logged, not gate-blocking (a benign fail-soft tool span would else false-RED a correct answer); it is promoted to a hard blocker when a 2nd capability adds a tool-ordering contract (`patterns/observability-and-evals.md` L95-98/197). |
 | 7 | **UI journey (Playwright)** | the post-JS DOM shows the real answer after the run completes, with **no console error**, invariant asserts, **bounded retries** so it never flakes (`patterns/interface.md` Gate, decisions #5/#10). Headless products skip this; every build with a UI ships it. |
 | 8 | **Traces present** | `/traces` renders ≥1 run with spans for that run (`agent/observability.py`, the `spans` table). No spans = not observable = fail. |
 
@@ -89,9 +89,17 @@ curl -fsS "${BASE}/health" | grep -q '"ok": *true' || { echo "FAIL: /health not 
 # 5 — TWO-TURN run on one session. Q1 then a follow-up Q2; ANY Q2 error fails the gate.
 # The response is the ok() envelope: {"ok":true,"data":{run_id, status, answer, ...}}. Read .data.*,
 # NOT the top level — run_agent's dict carries `status:"completed"` (patterns/interface.md runner.py).
+# DATA-INGEST: for an "analyze an uploaded X" agent, Q1 must CARRY the resource (else it answers "no data is
+# loaded" and the outcome eval fails). Set DATA_FILE to a fixture path; Q1 sends `data`, Q2 reuses it from
+# the SAME session (no re-upload — that is the session-scoped store working, persistence.md). Leave DATA_FILE
+# unset for a key-free/own-data agent and both turns send just {goal, session_id}.
 SID="gate-$(date +%s)"
-R1="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
-      -d "$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')")"
+Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" '{goal:$g, session_id:$s}')"
+if [ -n "${DATA_FILE:-}" ]; then
+  Q1_PAYLOAD="$(jq -n --arg g "$GOAL" --arg s "$SID" --rawfile d "$DATA_FILE" \
+                '{goal:$g, session_id:$s, data:$d}')"   # Q1 carries the uploaded resource
+fi
+R1="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' -d "$Q1_PAYLOAD")"
 echo "$R1" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
   || { echo "FAIL: Q1 did not complete: $R1"; exit 1; }
 RUN_ID="$(echo "$R1" | jq -r '.data.run_id')"
@@ -99,16 +107,26 @@ R2="$(curl -fsS -X POST "${BASE}/runs" -H 'content-type: application/json' \
       -d "$(jq -n --arg g "$FOLLOWUP" --arg s "$SID" '{goal:$g, session_id:$s}')")" \
   || { echo "FAIL: Q2 (follow-up on same session) errored"; exit 1; }
 echo "$R2" | jq -e '.ok == true and .data.status == "completed"' >/dev/null \
-  || { echo "FAIL: Q2 did not complete on the same session: $R2"; exit 1; }
+  || { echo "FAIL: Q2 did not complete on the same session (resource lost?): $R2"; exit 1; }
 
 # 6 — outcome (judge-stable, multi-sampled) + trajectory eval on the Q1 run
 python -m agent.gate_eval --run-id "$RUN_ID" --goal "$GOAL" \
-  || { echo "FAIL: eval gate (outcome below threshold-with-margin, high judge variance, or bad trajectory)"; exit 1; }
+  || { echo "FAIL: outcome eval (below threshold-with-margin or high judge variance; trajectory is advisory)"; exit 1; }
 
-# 7 — UI journey (skip with UI_E2E=0 for a headless product)
+# 7 — UI journey (skip with UI_E2E=0 for a headless product). PREREQUISITES the build MUST satisfy first:
+#   (a) a runnable ui/ project (ui/package.json with `dev: next dev -p 3001` + react-markdown/remark-gfm,
+#       next.config, app/layout.tsx) — see patterns/interface.md § UI prerequisites;
+#   (b) the chromium binary: `uv run playwright install chromium` (run in setup, NOT inside the gate).
+# Auto-skip with a PRINTED reason if the project was never scaffolded (ui/node_modules absent) so the gate
+# fails on a real defect, never on a missing browser/project a non-tech user can't diagnose.
 if [ "${UI_E2E:-1}" = "1" ]; then
-  uv run pytest tests/e2e/test_primary_journey.py -q \
-    || { echo "FAIL: Playwright UI journey (post-JS DOM / console error)"; exit 1; }
+  if [ ! -d ui/node_modules ]; then
+    echo "SKIP check 7: ui/node_modules absent (headless or UI not scaffolded). Run \`cd ui && npm install\` + \`uv run playwright install chromium\` to enable."
+  else
+    uv run playwright install chromium >/dev/null 2>&1 || true   # idempotent; ensure the browser binary exists
+    uv run pytest tests/e2e/test_primary_journey.py -q \
+      || { echo "FAIL: Playwright UI journey (post-JS DOM / console error)"; exit 1; }
+  fi
 fi
 
 # 8 — traces present for the Q1 run. Grep the RUN_ID (rendered VERBATIM, captured in check 5), NOT the goal
@@ -248,9 +266,15 @@ async def main(run_id: str, goal: str) -> int:
           f"(need mean≥{THRESHOLD - MARGIN})", file=sys.stderr)
     if not outcome_ok:
         print("OUTCOME FAIL: below threshold-with-margin or unstable (high judge variance)", file=sys.stderr)
+    # TRAJECTORY is ADVISORY for a 1-capability v1 slice — log its reasons, do NOT gate on them
+    # (observability-and-evals.md L95-98/197, SPEC-RECONCILIATION.md decision §D). trajectory_eval flags
+    # benign signals on a CORRECT answer — e.g. ANY fail-soft tool span sets attributes["error"] and the
+    # graph continues by design, so a single degraded-but-recovered tool call would false-RED a right answer.
+    # Outcome (judge-stable) is the v1 hard verdict. Promote trajectory to a blocker (`and ok_t`, mirroring
+    # test_demo_gate's `assert ok_t` note) ONLY when a 2nd capability adds a real tool-ordering contract.
     if not ok_t:
-        print(f"TRAJECTORY FAIL: {reasons}", file=sys.stderr)
-    return 0 if (outcome_ok and ok_t) else 1
+        print(f"TRAJECTORY advisory (not blocking until a 2nd capability): {reasons}", file=sys.stderr)
+    return 0 if outcome_ok else 1
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()

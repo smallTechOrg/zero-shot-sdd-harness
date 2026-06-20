@@ -161,16 +161,23 @@ proven, copyable code — generate from them. The Phase-1 spine (the walking ske
 | `agent/evals.py` | `patterns/observability-and-evals.md` | `outcome_eval` / `stable_outcome_eval` / `trajectory_eval` (imported by the suite + `gate_eval`) |
 | `agent/eval_lint.py` | `workflows/gates.md` | the `[@eval]` binding lint — gate check 1, run as `python -m agent.eval_lint` |
 | `agent/gate_eval.py` | `workflows/gates.md` | judge-stable outcome+trajectory CLI — gate check 6, run as `python -m agent.gate_eval` |
+| `agent/sessions.py` *(generate when a capability loads a heavy resource)* | `patterns/persistence.md` | session-scoped live-resource store + `load_resource` HTTP ingest seam — **REQUIRED by `C-SESSION-SCOPE`** for any "analyze an uploaded X" / multi-turn-over-a-loaded-resource agent; without it Q2 loses the resource (`SESSION_DATA_LOST`) and the data-agent gate fails Q1 |
+| `agent/guardrails.py` *(generate when a tool executes code/SQL)* | `patterns/guardrails-and-hitl.md` | AST-validated `safe_eval` (never regex dispatch) — **REQUIRED by `C-ACTION-SAFETY`** for any code/SQL-executing tool; an ungated code tool is an injection surface and fails the trajectory contract |
 
-These five gate-support modules are NOT optional — `make gate` runs every one of them (`workflows/gates.md`
-checks 1/2/3/6). A clean `agent/` tree without them dies at gate step 1 with `ModuleNotFoundError`. Alongside
-the package, generate the **top-level project files the gate and deploy both require**:
+The five gate-support modules (`evals.py`, `eval_lint.py`, `gate_eval.py` + the server/main they run against)
+are NOT optional — `make gate` runs every one of them (`workflows/gates.md` checks 1/2/3/6); a clean `agent/`
+tree without them dies at gate step 1 with `ModuleNotFoundError`. The two *italicised* rows
+(`sessions.py`, `guardrails.py`) are **conditional but mandatory once their trigger holds** — they are OFF by
+default, but a capability that ingests a resource (`C-SESSION-SCOPE`) or executes code/SQL (`C-ACTION-SAFETY`)
+**must** generate them; the analyze pre-flight's layer check (§2a) catches a capability that needs one but
+left it OFF. Alongside the package, generate the **top-level project files the gate and deploy both require**:
 
 | File | Recipe | Carries |
 |------|--------|---------|
-| `pyproject.toml` | `workflows/gates.md`, `patterns/*` | project metadata + **pinned** deps + `[tool.pytest.ini_options] asyncio_mode = "auto"`. **"Pin current versions" means pin them HERE.** `uv run pytest`, `make gate`, and deploy's `langgraph.json "dependencies":["."]` all need this file to exist. |
+| `pyproject.toml` | `workflows/gates.md`, `patterns/*` | project metadata + **pinned** deps + `[tool.pytest.ini_options]` with **both** `asyncio_mode = "auto"` **and** `pythonpath = ["."]`. **"Pin current versions" means pin them HERE.** `pythonpath = ["."]` lets shared test helpers be imported absolutely (`from tests.helpers import …`) so collection doesn't fail. `uv run pytest`, `make gate`, and deploy's `langgraph.json "dependencies":["."]` all need this file to exist. |
 | `Makefile` | `workflows/gates.md` | the `gate` / `demo-gate` targets (checks 1–8) — the entry point `/build` invokes |
 | `scripts/demo_gate.sh` | `workflows/gates.md` | gate checks 3–8 (boot, health, two-turn, judge, UI, traces) |
+| `tests/__init__.py` · `tests/e2e/__init__.py` | — | empty package markers. Without them, shared-helper imports across test files (`from tests.helpers import …`, `patterns/observability-and-evals.md`) raise `ImportError: attempted relative import with no known parent package` and `uv run pytest` dies at **collection** — gate check 2 never starts, with an opaque error a non-tech user can't decode. |
 | `tests/conftest.py` | `patterns/persistence.md` | the autouse create_all/drop_all-per-test async DB fixture |
 | `tests/test_eval_lint.py` | `workflows/gates.md` | one-line `assert agent.eval_lint.main() == 0` so the binding is enforced under a bare `pytest` too |
 
