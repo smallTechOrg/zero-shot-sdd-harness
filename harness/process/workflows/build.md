@@ -8,6 +8,20 @@ The pipeline is autonomous after the one human-touch approval gate.
 
 ---
 
+## The pipeline is a swarm, not a queue
+
+The arrow order above is a *dependency order*. The supervisor **runs it as a swarm**: wherever
+work is independent it spawns parallel agents and gathers at the gate (see
+[supervisor.md](../agents/supervisor.md) → Swarm orchestration). In particular:
+- intake research probes + `usage-specs/` reads run concurrently;
+- independent iterations/files run as **parallel executors**;
+- the **frontend is a first-class workstream** — built alongside its backend data in the same
+  iteration, never bolted on at the end;
+- review runs **one reviewer per dimension** in parallel; findings merge at the gate.
+
+Gates are barriers — fan out, then reconcile before the gate closes. Parallel writers use
+separate worktrees or disjoint paths; one owner per file.
+
 ## Blackboard — what each stage reads and writes
 
 | Stage      | Reads                            | Writes                                          |
