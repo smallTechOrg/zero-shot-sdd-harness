@@ -32,7 +32,6 @@ for product intent. Code conforms to features, never the reverse.
 - [features/data-model.md](features/data-model.md) — data schema
 - [features/api.md](features/api.md) — API surface
 - [features/ui.md](features/ui.md) — UI requirements
-- [features/agent-graph.md](features/agent-graph.md) — agent graph (LangGraph/etc. projects)
 
 To add a capability: add a file to `features/`. One file = one discrete feature.
 
