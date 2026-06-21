@@ -51,10 +51,6 @@ sense of the truth and corrects course.
 - [README.md](process/README.md) — agents, workflows, pipeline overview
 - [agents/](process/agents/) — supervisor, researcher, planner, executor, reviewer, deployer, analyser
 - [workflows/](process/workflows/) — build, fix, deploy
-- [handoffs.md](process/handoffs.md) — blackboard coordination, pre/postconditions
-
-**[reconcile.md](reconcile.md)** — drift detection and loop control
-
 **[layout.md](layout.md)** — repo skeleton, where things go
 
 **[patterns/](patterns/)** — hard-won knowledge
