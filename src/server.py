@@ -384,6 +384,28 @@ async def get_session(thread_id: str):
     })
 
 
+@app.get("/sessions/{session_id}/audit")
+async def get_session_audit(session_id: str):
+    """FR-001: Return all audit log entries for a session ordered by timestamp ascending."""
+    from .domain import AuditLog
+    async with get_sessionmaker()() as s:
+        rows = (await s.execute(
+            select(AuditLog)
+            .where(AuditLog.session_id == session_id)
+            .order_by(AuditLog.created_at)
+        )).scalars().all()
+    return ok([{
+        "timestamp": r.created_at.isoformat(),
+        "session_id": r.session_id,
+        "natural_language_query": r.natural_language_query,
+        "generated_sql": r.generated_sql,
+        "rows_returned": r.rows_returned,
+        "duration_ms": r.duration_ms,
+        "prompt_tokens": r.prompt_tokens,
+        "completion_tokens": r.completion_tokens,
+    } for r in rows])
+
+
 @app.get("/runs/{run_id}/spans")
 async def get_run_spans(run_id: str):
     async with get_sessionmaker()() as s:

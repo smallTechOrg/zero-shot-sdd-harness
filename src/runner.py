@@ -3,6 +3,7 @@
 Accepts optional thread_id for multi-turn conversation (AsyncSqliteSaver checkpointer keyed to thread_id).
 Accepts optional graph so the server can pass the compiled graph with the persistent checkpointer.
 """
+import json
 import uuid
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -76,6 +77,46 @@ async def _upsert_thread(thread_id: str, dataset_id: str | None, title: str,
             thread.total_cost_usd = round(thread.total_cost_usd + cost, 6)
             thread.run_count += 1
             thread.last_active_at = now
+        await s.commit()
+
+
+async def _write_audit_log(run_id: str, thread_id: str, goal: str) -> None:
+    """Write one AuditLog row per execute_sql span for this run."""
+    from .domain import AuditLog
+    async with get_sessionmaker()() as s:
+        spans = (await s.execute(
+            select(Span).where(Span.run_id == run_id, Span.kind == "TOOL")
+        )).scalars().all()
+        llm_inp, llm_out = await _sum_llm_tokens(run_id)
+        n_sql = sum(1 for sp in spans if "execute_sql" in sp.name)
+        per_prompt = llm_inp // max(n_sql, 1)
+        per_completion = llm_out // max(n_sql, 1)
+        for sp in spans:
+            if "execute_sql" not in sp.name:
+                continue
+            attrs = sp.attributes if isinstance(sp.attributes, dict) else {}
+            args = attrs.get("args", {})
+            if not isinstance(args, dict):
+                args = {}
+            sql = args.get("sql", "")
+            # rows_returned: parse from result_preview if present
+            result_preview = attrs.get("result_preview", "")
+            rows_returned = 0
+            try:
+                r = json.loads(result_preview) if result_preview else {}
+                rows_returned = r.get("row_count", 0)
+            except Exception:
+                pass
+            s.add(AuditLog(
+                session_id=thread_id,
+                run_id=run_id,
+                natural_language_query=goal,
+                generated_sql=sql,
+                rows_returned=rows_returned,
+                duration_ms=int(sp.duration_ms),
+                prompt_tokens=per_prompt,
+                completion_tokens=per_completion,
+            ))
         await s.commit()
 
 
@@ -197,6 +238,7 @@ async def run_agent(
         await s.commit()
 
     await _upsert_thread(thread_id, dataset_id, goal, inp, out, cost)
+    await _write_audit_log(run_id, thread_id, goal)
 
     return {
         "run_id": run_id,

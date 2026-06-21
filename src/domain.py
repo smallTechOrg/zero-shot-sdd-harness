@@ -12,6 +12,21 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base, _now, _uuid
 
 
+class AuditLog(Base):
+    """One row per execute_sql tool call — FR-001 audit schema."""
+    __tablename__ = "audit_log"
+    id:                     Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    session_id:             Mapped[str] = mapped_column(String, index=True)   # = thread_id
+    run_id:                 Mapped[str] = mapped_column(String)
+    natural_language_query: Mapped[str] = mapped_column(String)
+    generated_sql:          Mapped[str] = mapped_column(String)
+    rows_returned:          Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms:            Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens:          Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens:      Mapped[int] = mapped_column(Integer, default=0)
+    created_at:             Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Thread(Base):
     """A conversation session tied to one dataset."""
     __tablename__ = "threads"
