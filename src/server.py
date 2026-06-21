@@ -525,6 +525,60 @@ async def dataset_summary(dataset_id: str):
     return ok({"id": ds.id, "name": ds.name, "tables": schema.get("tables", []), "col_stats": col_stats})
 
 
+# --- dashboard pin panels ------------------------------------------------------------
+
+class PanelIn(BaseModel):
+    session_id: str
+    title: str = ""
+    query_text: str = ""
+    answer: str = ""
+    chart_spec: str | None = None
+    panel_type: str = "text"   # text | table | chart
+    position: int = 0
+
+
+@app.post("/dashboard/{session_id}/panels")
+async def pin_panel(session_id: str, body: PanelIn):
+    from .domain import DashPanel
+    panel = DashPanel(
+        session_id=session_id, title=body.title or body.query_text[:60],
+        query_text=body.query_text, answer=body.answer,
+        chart_spec=body.chart_spec, panel_type=body.panel_type, position=body.position,
+    )
+    async with get_sessionmaker()() as s:
+        s.add(panel)
+        await s.commit()
+        panel_id = panel.id
+    return ok({"id": panel_id, "session_id": session_id})
+
+
+@app.get("/dashboard/{session_id}")
+async def get_dashboard(session_id: str):
+    from .domain import DashPanel
+    async with get_sessionmaker()() as s:
+        panels = (await s.execute(
+            select(DashPanel).where(DashPanel.session_id == session_id).order_by(DashPanel.position, DashPanel.created_at)
+        )).scalars().all()
+    return ok([{
+        "id": p.id, "session_id": p.session_id, "title": p.title,
+        "query_text": p.query_text, "answer": p.answer, "chart_spec": p.chart_spec,
+        "panel_type": p.panel_type, "position": p.position,
+        "created_at": p.created_at.isoformat(),
+    } for p in panels])
+
+
+@app.delete("/dashboard/{session_id}/panels/{panel_id}")
+async def remove_panel(session_id: str, panel_id: str):
+    from .domain import DashPanel
+    async with get_sessionmaker()() as s:
+        panel = await s.get(DashPanel, panel_id)
+        if panel is None or panel.session_id != session_id:
+            return err(f"panel {panel_id} not found")
+        await s.delete(panel)
+        await s.commit()
+    return ok({"deleted": True})
+
+
 # --- /traces viewer (server-rendered HTML, no JS) ------------------------------------
 
 @app.get("/", include_in_schema=False)

@@ -174,8 +174,30 @@ function FollowUps({ followUps, onSelect }) {
 
 // ── Message ────────────────────────────────────────────────────────────────
 
-function Message({ msg, onFollowUp }) {
+function Message({ msg, onFollowUp, sessionId }) {
   const isUser = msg.role === "user";
+  const [pinned, setPinned] = useState(false);
+
+  const pinToBoard = async () => {
+    const type = msg.chartSpec ? "chart" : "text";
+    const chartSpecStr = msg.chartSpec ? JSON.stringify(msg.chartSpec) : null;
+    try {
+      await fetch(`${API}/dashboard/${sessionId}/panels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          title: (msg.goal || msg.content || "").substring(0, 60),
+          query_text: msg.goal || msg.content || "",
+          answer: msg.content || "",
+          chart_spec: chartSpecStr,
+          panel_type: type,
+        }),
+      });
+      setPinned(true);
+      setTimeout(() => setPinned(false), 2000);
+    } catch {}
+  };
 
   const renderAnswer = () => {
     const text = msg.content ?? "";
@@ -221,13 +243,22 @@ function Message({ msg, onFollowUp }) {
             {msg.followUps?.length > 0 && (
               <FollowUps followUps={msg.followUps} onSelect={onFollowUp} />
             )}
-            <div className="mt-2 flex gap-3 text-xs text-gray-400">
+            <div className="mt-2 flex gap-3 text-xs text-gray-400 items-center flex-wrap">
               {msg.runId && (
                 <a href="http://localhost:8001/traces" target="_blank" rel="noreferrer"
                   className="underline hover:text-blue-500">trace</a>
               )}
               {msg.cost != null && (
                 <span>${msg.cost.toFixed(5)} · {(msg.inputTokens || 0) + (msg.outputTokens || 0)} tok</span>
+              )}
+              {!msg.content?.startsWith("Error:") && sessionId && (
+                <button
+                  onClick={pinToBoard}
+                  className="ml-auto text-gray-400 hover:text-blue-600 transition-colors"
+                  title="Pin to dashboard"
+                >
+                  {pinned ? "Pinned!" : "Pin to dashboard"}
+                </button>
               )}
             </div>
           </>
@@ -476,12 +507,20 @@ function SessionHeader({ dataset, threadCost, threadTokens, onNewSession }) {
           <span>{threadTokens.toLocaleString()} tok · ${threadCost.toFixed(5)}</span>
         )}
       </div>
-      <button
-        onClick={onNewSession}
-        className="text-gray-400 hover:text-red-500 underline"
-      >
-        New session
-      </button>
+      <div className="flex gap-3 items-center">
+        <a
+          href="/dashboard"
+          className="text-blue-500 hover:text-blue-700 underline"
+        >
+          Dashboard
+        </a>
+        <button
+          onClick={onNewSession}
+          className="text-gray-400 hover:text-red-500 underline"
+        >
+          New session
+        </button>
+      </div>
     </div>
   );
 }
@@ -564,7 +603,7 @@ function ChatPanel({ sessionId, dataset, onTokenUpdate }) {
           </div>
         )}
         {messages.map((msg) => (
-          <Message key={msg.id} msg={msg} onFollowUp={handleFollowUp} />
+          <Message key={msg.id} msg={msg} onFollowUp={handleFollowUp} sessionId={sessionId} />
         ))}
         <div ref={bottomRef} />
       </div>

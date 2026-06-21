@@ -206,6 +206,49 @@ async def test_audit_log_returns_entries(client):
 
 
 @pytest.mark.asyncio
+async def test_pin_panel_and_get_dashboard(client):
+    """POST /dashboard/{session_id}/panels then GET /dashboard/{session_id}."""
+    r = await client.post("/dashboard/sess-1/panels", json={
+        "session_id": "sess-1", "title": "Revenue by region",
+        "query_text": "What is revenue by region?", "answer": "East: $1M, West: $2M",
+        "panel_type": "text",
+    })
+    assert r.status_code == 200 and r.json()["ok"]
+    panel_id = r.json()["data"]["id"]
+
+    r2 = await client.get("/dashboard/sess-1")
+    assert r2.status_code == 200
+    data = r2.json()["data"]
+    assert len(data) == 1
+    assert data[0]["id"] == panel_id
+    assert data[0]["title"] == "Revenue by region"
+
+
+@pytest.mark.asyncio
+async def test_remove_panel(client):
+    """DELETE /dashboard/{session_id}/panels/{panel_id} removes the panel."""
+    r = await client.post("/dashboard/sess-2/panels", json={
+        "session_id": "sess-2", "query_text": "test", "answer": "test answer",
+    })
+    panel_id = r.json()["data"]["id"]
+    r2 = await client.delete(f"/dashboard/sess-2/panels/{panel_id}")
+    assert r2.status_code == 200 and r2.json()["data"]["deleted"]
+    r3 = await client.get("/dashboard/sess-2")
+    assert r3.json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_remove_panel_wrong_session(client):
+    """DELETE with wrong session_id returns error."""
+    r = await client.post("/dashboard/sess-3/panels", json={
+        "session_id": "sess-3", "query_text": "q", "answer": "a",
+    })
+    panel_id = r.json()["data"]["id"]
+    r2 = await client.delete(f"/dashboard/sess-999/panels/{panel_id}")
+    assert not r2.json()["ok"]
+
+
+@pytest.mark.asyncio
 async def test_audit_log_since_filter(client):
     """GET /audit-log?since= must exclude older spans."""
     import time

@@ -44,3 +44,17 @@ class DataTable(Base):
     n_cols:     Mapped[int] = mapped_column(Integer, default=0)
     columns:    Mapped[list] = mapped_column(JSON, default=list)  # [{"name": ..., "type": ...}, ...]
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DashPanel(Base):
+    """A pinned query result panel on the user's dashboard."""
+    __tablename__ = "dash_panels"
+    id:         Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(String, index=True)   # = thread_id from the run
+    title:      Mapped[str] = mapped_column(String, default="")
+    query_text: Mapped[str] = mapped_column(String, default="")   # the NL question
+    answer:     Mapped[str] = mapped_column(String, default="")   # the prose answer
+    chart_spec: Mapped[str | None] = mapped_column(String, nullable=True)  # Plotly JSON or None
+    panel_type: Mapped[str] = mapped_column(String, default="text")  # text | table | chart
+    position:   Mapped[int] = mapped_column(Integer, default=0)    # display order
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
