@@ -7,5 +7,19 @@
       "Bash(*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/push-after-commit.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
   }
 }
