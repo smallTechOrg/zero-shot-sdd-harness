@@ -29,11 +29,18 @@ analyser:
 - Whenever the supervisor spots a material signal — in the **logs** (errors, flaky tests, slow
   runs) or in the **conversation** (frustration, repeated corrections, confusion).
 
-The analyser then runs its checks and reports. It is invoked-on-signal, not self-watching.
+The analyser is invoked **after every handoff back to the supervisor** — not just at phase
+gates. Each time a sub-agent returns control, the analyser runs before the next stage is
+dispatched. This keeps it a forcing function: every stage must leave behind what the analyser
+reads (logs, artefacts, session-report fields), and any gap is caught one handoff later
+rather than at the gate. Between handoffs it is still invoked-on-signal, not self-watching.
 
 ## Preconditions
 
-- A gate has been reached, or the supervisor routed a signal here (logs/tests exist to read)
+- A sub-agent has handed control back to the supervisor, a gate has been reached, or the
+  supervisor routed a signal here (logs/tests exist to read). On an early-stage handoff where
+  little has changed, the analyser still runs and writes a findings file — confirming what is
+  present and naming what the next stage owes.
 
 ## Postconditions
 
@@ -60,6 +67,9 @@ opinion:
   module maps to a spec section. An orphan on either side is drift.
 - **Merge integrity:** every `done` CR's delta was folded into the spec baseline (no applied
   change left un-merged — the silent reconciliation break).
+- **Tracker integrity:** every FR `## Progress Tracker` row matches reality — a row marked
+  `gate-green` or `accepted` has a corresponding gate output in `logs/`/the session report, and
+  no iteration in the plan is missing its tracker row. A claim with no evidence is drift.
 - **Behaviour:** the `evals/` golden set passes at threshold; trajectory signals (turn /
   tool-call / token counts) are within budget.
 

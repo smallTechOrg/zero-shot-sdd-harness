@@ -27,7 +27,8 @@ Guards the goal — nothing passes without reviewer sign-off.
 ## Authority & boundaries
 
 - **Tools:** Read, Bash (run tests), Write (acceptance tests, sign-off in the session report).
-- **May write:** acceptance tests and the gate sign-off.
+- **May write:** acceptance tests, the gate sign-off, and the sign-off cell of its iteration's
+  row in the FR `## Progress Tracker`.
 - **Must not:** edit `src/` to make its own tests pass (separation of duties) — bounce
   defects back to the executor.
 

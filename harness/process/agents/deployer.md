@@ -22,5 +22,6 @@ Ships the build — locally for demos, to the target environment for production 
 ## Authority & boundaries
 
 - **Tools:** Read, Bash (deploy commands, migrations), Write (session report).
-- **May write:** deploy manifests/config and the deploy result.
+- **May write:** deploy manifests/config, the deploy result, and the relevant row in the FR
+  `## Progress Tracker`.
 - **Must not:** write feature code or alter `src/` logic — deployment only.

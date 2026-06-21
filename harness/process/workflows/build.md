@@ -27,13 +27,20 @@ separate worktrees or disjoint paths; one owner per file.
 | Stage      | Reads                            | Writes                                          |
 |------------|----------------------------------|-------------------------------------------------|
 | researcher | user's brief                     | `spec/features/FR-NNN.md`, `spec/rules/`        |
-| planner    | `spec/`                          | iteration plan (session report)                 |
-| executor   | `spec/`, iteration plan          | `src/`, `tests/`, recipe scaffold               |
-| reviewer   | `spec/`, `src/`, `tests/`        | acceptance tests, sign-off (session report)     |
-| deployer   | `src/`, config                   | local demo running, result (session report)     |
+| planner    | `spec/`                          | FR Iteration Plan + seeded tracker rows         |
+| executor   | `spec/`, iteration plan          | `src/`, `tests/`, recipe scaffold, FR tracker   |
+| reviewer   | `spec/`, `src/`, `tests/`        | acceptance tests, sign-off, FR tracker          |
+| deployer   | `src/`, config                   | local demo running, result, FR tracker          |
 | analyser   | `spec/`, `src/`, `logs/`         | `logs/analysis/`, spec amendment proposals      |
 
 Sub-agents share no memory. Coordination is through durable artefacts on disk.
+
+**The FR is the single trackable file.** The planner writes the `## Iteration Plan` and seeds
+the `## Progress Tracker` in `spec/features/FR-NNN.md`; every stage thereafter updates the
+tracker row it touches as control passes back to the supervisor (status + gate-output ref +
+sign-off). Reading the FR alone tells anyone where the build stands. The analyser cross-checks
+the tracker against `logs/` on each pass — a `gate-green` row with no matching gate output is
+drift.
 
 ---
 
@@ -68,7 +75,9 @@ Reads the spec and produces an iteration plan where each iteration:
 - Iteration 0: scaffold — `/health` returns 200 (~8 min)
 - Iteration 1: first model + migration + unit test (~12 min)
 
-Records the full iteration plan in the session report (see planner agent for format).
+Writes the full iteration plan into the FR's `## Iteration Plan` section and seeds the
+`## Progress Tracker` rows (one per iteration, status `todo`); a snapshot also goes to the
+session report (see planner agent for format). The FR is the source of truth.
 
 ### 3. executor — one iteration at a time
 
@@ -138,7 +147,12 @@ Confirm all irreversible actions with the user before proceeding.
 
 ### 6. analyser — close the loop
 
-After each iteration, check: does `src/` match the FR? Do logs match `src/`?
+The supervisor invokes the analyser **after every handoff back to it** — after each stage
+above returns, not only at the end of an iteration. Every pass writes a findings file to
+`logs/analysis/`; an early-stage pass confirms what is present and names what the next stage
+still owes, so a missing artefact surfaces one handoff later instead of at the gate.
+
+At each pass, check: does `src/` match the FR? Do logs match `src/`?
 
 | Signal | Action |
 |--------|--------|

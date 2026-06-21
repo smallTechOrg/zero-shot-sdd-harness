@@ -13,8 +13,14 @@ pipeline, owns the human channel, and is the only agent that can ask the user a 
   job, not the analyser's. On a signal it routes to the analyser / fix workflow.
 - Checks pre/postconditions at every handoff — blocks a stage if its inputs aren't ready
 - Holds the session report open and ensures each stage appends to it
-- Invokes the analyser at every phase gate and whenever it spots a material signal
-  (in the logs *or* the conversation)
+- **Invokes the analyser after every handoff back to the supervisor** — not only at phase
+  gates. Every time a sub-agent returns control, the analyser runs before the next stage is
+  dispatched. This makes the analyser a forcing function: each stage must leave behind what
+  the analyser needs to read (logs, artefacts, session-report fields), or the very next
+  analyser pass flags it as drift. Catching a missing artefact one handoff later is cheap;
+  discovering it absent at the gate is not.
+- Also invokes the analyser whenever it spots a material signal — in the **logs** (errors,
+  flaky tests, slow runs) or in the **conversation** (frustration, repeated corrections)
 
 ## Authority & boundaries
 

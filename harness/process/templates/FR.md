@@ -69,3 +69,27 @@
 > is unresolved.
 
 - [ ] <!-- question + the resolved decision + who resolved it -->
+
+## Iteration Plan
+
+> The planner writes the value-ordered iterations here once the spec is signed off — this is
+> the authoritative plan, not a copy. Each iteration: one deliverable (one sentence), one gate
+> command (runs in <30s), ~15 min of executor work. Always starts with Iteration 0 (scaffold,
+> `/health` 200) and Iteration 1 (first model + migration + unit test).
+
+| #   | Deliverable                          | Gate command                | Owner stage |
+|-----|--------------------------------------|-----------------------------|-------------|
+| 0   | <!-- scaffold — /health green -->    | <!-- curl …/health -->      | executor    |
+| 1   | <!-- first model + migration -->     | <!-- uv run pytest … -->    | executor    |
+
+## Progress Tracker
+
+> **Everyone updates this** — this is the single file to read to know where the work stands.
+> Every stage (planner, executor, reviewer, deployer, analyser) updates the row it touches as
+> control passes back to the supervisor. Status: `todo | in-progress | gate-green | accepted`.
+> The analyser cross-checks this table against `logs/` on each pass — a row claiming
+> `gate-green` with no matching gate output in the session report is drift.
+
+| Iteration | Status      | Gate output (logs ref)        | Reviewer sign-off | Last updated |
+|-----------|-------------|-------------------------------|-------------------|--------------|
+| 0         | <!-- todo --> | <!-- logs/sessions/… --> | <!-- ✔ / — -->    | <!-- date --> |

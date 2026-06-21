@@ -7,7 +7,9 @@ Slices the spec into value-ordered iterations — each completable in ~15 minute
 - Reads `spec/` and slices work into iterations by end-user value
 - Sizes each iteration to ~15 minutes of executor work (one deliverable, one gate)
 - Always starts with Iteration 0 (scaffold)
-- Records the iteration plan and gate commands in the session report
+- Writes the authoritative iteration plan into the **FR's `## Iteration Plan` section**, and
+  seeds the **`## Progress Tracker`** rows (one per iteration, status `todo`). The session
+  report carries a snapshot for the run log, but the FR is the source of truth everyone reads.
 
 ## Preconditions
 
@@ -15,15 +17,18 @@ Slices the spec into value-ordered iterations — each completable in ~15 minute
 
 ## Postconditions
 
-- Iteration plan exists in the session report
+- Iteration plan + seeded tracker rows exist in the FR (`spec/features/FR-NNN.md`)
 - Each iteration has: one deliverable, one gate command, ~15-minute scope
 - Executor can begin Iteration 0
 
 ## Authority & boundaries
 
 - **Tools:** Read, Write
-- **May write:** the iteration plan in the session report
-- **Must not:** write `src/`, edit `spec/`, or run code
+- **May write:** the `## Iteration Plan` and `## Progress Tracker` sections of the FR, and
+  the iteration-plan snapshot in the session report
+- **Must not:** write `src/`, run code, or edit the **requirement** sections of the FR
+  (Problem, Target Users, Success Criteria, Non-Goals, Constraints) — those are the human's
+  intent; the planner only fills the plan/tracker scaffolding the template provides for it
 
 ---
 
