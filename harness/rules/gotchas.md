@@ -71,10 +71,10 @@ add one only on real demand. Both bootstrap schema with `create_tables()` (SQLAl
 
 ## Databases — DuckDB (analytics / local-first)
 
-- **[C-DUCKDB-RECIPE]** DuckDB is not a Postgres recipe with the URL swapped — reusing it
-  means rewriting `db/`, dropping Alembic, editing `pyproject.toml` (it burned ~30% of one
-  Iteration 0).
-  → Use the `python-fastapi-duckdb` recipe.
+- **[C-DUCKDB-RECIPE]** Analytics is not the relational recipe with the engine swapped —
+  forcing a SQLAlchemy/relational scaffold to do columnar file queries means rewriting `db/`
+  and the query path (adapting the wrong recipe burned ~30% of one Iteration 0).
+  → Use the `python-fastapi-duckdb` recipe; don't adapt `python-fastapi-sqlite`.
 
 - **[C-DUCKDB-VIEW]** DuckDB views are connection-scoped — a `CREATE VIEW` is gone after a
   server restart even though the file and the `datasets` row remain ("table or view not
