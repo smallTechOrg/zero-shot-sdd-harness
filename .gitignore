@@ -8,6 +8,10 @@ node_modules/
 .next/
 dist/
 build/
+# ...but NOT the /build skill dir — the generic build/ pattern above would otherwise
+# swallow the build workflow's skill shim (this is why /build silently failed to commit).
+!.claude/skills/build/
+!.claude/skills/build/**
 *.egg-info/
 .DS_Store
 *.log
