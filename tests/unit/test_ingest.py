@@ -69,3 +69,35 @@ def test_duplicate_name_raises(db, csv_file):
     ingest_file(db, csv_file, "sales")
     with pytest.raises(Exception):  # DuckDB UNIQUE constraint
         ingest_file(db, csv_file, "sales")
+
+
+@pytest.fixture
+def parquet_file(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
+    f = tmp_path / "data.parquet"
+    pq.write_table(table, f)
+    return str(f)
+
+
+def test_ingest_parquet(db, parquet_file):
+    result = ingest_file(db, parquet_file, "pdata")
+    assert result["file_type"] == "parquet"
+    assert result["row_count"] == 3
+
+
+@pytest.fixture
+def excel_file(tmp_path):
+    import pandas as pd
+
+    f = tmp_path / "report.xlsx"
+    pd.DataFrame({"a": [1, 2], "b": [3, 4]}).to_excel(f, index=False)
+    return str(f)
+
+
+def test_ingest_excel(db, excel_file):
+    result = ingest_file(db, excel_file, "report")
+    assert result["file_type"] == "excel"
+    assert result["row_count"] == 2

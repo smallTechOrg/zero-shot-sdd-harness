@@ -1,30 +1,24 @@
-from typing import Any
-
 from src.config import settings
-from src.integrations.stubs.llm import StubLLMClient
 
 
-class LLMClient:
-    """Thin async LLM client. Swap the provider without changing call sites."""
-
-    async def complete(self, messages: list[dict]) -> dict[str, Any]:
-        provider = settings.resolved_llm_provider
-
-        if provider == "stub":
-            return await StubLLMClient().complete(messages)
-
-        if provider == "gemini":
-            from src.integrations._gemini import GeminiClient
-            return await GeminiClient().complete(messages)
-
-        raise ValueError(f"Unknown LLM provider: {provider!r}")
+class BaseLLMClient:
+    def complete(self, prompt: str, system: str = "") -> str:
+        raise NotImplementedError
 
 
-_client: LLMClient | None = None
+class StubLLMClient(BaseLLMClient):
+    def complete(self, prompt: str, system: str = "") -> str:
+        if "plot" in prompt.lower() or "chart" in prompt.lower():
+            return (
+                '{"intent": "chart", '
+                '"sql": "SELECT product, SUM(revenue) FROM sales GROUP BY product", '
+                '"x_col": "product", "y_col": "SUM(revenue)"}'
+            )
+        return '{"intent": "table", "sql": "SELECT * FROM sales LIMIT 10"}'
 
 
-def get_llm_client() -> LLMClient:
-    global _client
-    if _client is None:
-        _client = LLMClient()
-    return _client
+def get_llm_client() -> BaseLLMClient:
+    provider = settings.resolved_llm_provider
+    if provider == "stub":
+        return StubLLMClient()
+    raise NotImplementedError(f"Provider {provider!r} not yet implemented")

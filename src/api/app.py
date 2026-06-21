@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.api.datasets import router as datasets_router
 from src.api.health import router as health_router
+from src.api.query import router as query_router
 from src.api.ui import router as ui_router
 from src.db.connection import init_db
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(ui_router)
     app.include_router(datasets_router)
+    app.include_router(query_router)
     return app
 
 

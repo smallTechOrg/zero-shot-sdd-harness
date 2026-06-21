@@ -1,42 +1,96 @@
+import json
+from typing import TypedDict
+
 from langgraph.graph import END, StateGraph
 
-from src.agent.state import AgentState
-from src.agent.nodes import finalize, handle_error, invoke_tool, plan_action
 
-MAX_ITERATIONS = 25
-
-
-def _route(state: AgentState) -> str:
-    if state.get("error"):
-        return "handle_error"
-    if state.get("result") is not None:
-        return "finalize"
-    if state.get("iterations", 0) >= MAX_ITERATIONS:
-        return "handle_error"
-    return "invoke_tool"
+class AnalystState(TypedDict):
+    question: str
+    session_id: str
+    datasets: list[str]
+    plan: str
+    sql: str
+    intent: str          # "table" | "chart"
+    raw_rows: list
+    columns: list[str]
+    response: dict
 
 
-def build_graph() -> StateGraph:
-    g = StateGraph(AgentState)
+def plan_node(state: AnalystState) -> dict:
+    """LLM plans what to do — returns intent + SQL."""
+    from src.integrations.llm import get_llm_client
 
-    g.add_node("plan_action", plan_action)
-    g.add_node("invoke_tool", invoke_tool)
-    g.add_node("finalize", finalize)
-    g.add_node("handle_error", handle_error)
+    llm = get_llm_client()
+    datasets_info = ", ".join(state["datasets"]) if state["datasets"] else "none"
+    prompt = (
+        f"Datasets available: {datasets_info}\n"
+        f"User question: {state['question']}\n"
+        "Return JSON with keys: intent (table|chart), sql, "
+        "and for chart: x_col, y_col."
+    )
+    raw = llm.complete(prompt, system="You are a senior data analyst.")
+    parsed = json.loads(raw)
+    return {
+        "intent": parsed.get("intent", "table"),
+        "sql": parsed.get("sql", ""),
+        "plan": raw,
+    }
 
-    g.set_entry_point("plan_action")
 
-    g.add_conditional_edges("plan_action", _route, {
-        "invoke_tool": "invoke_tool",
-        "finalize": "finalize",
-        "handle_error": "handle_error",
-    })
+def query_data_node(state: AnalystState) -> dict:
+    """Execute the SQL against DuckDB and return raw rows."""
+    from src.db.connection import get_db
 
-    g.add_edge("invoke_tool", "plan_action")
-    g.add_edge("finalize", END)
-    g.add_edge("handle_error", END)
+    conn = get_db()
+    try:
+        df = conn.execute(state["sql"]).fetchdf()
+        return {
+            "raw_rows": df.values.tolist(),
+            "columns": list(df.columns),
+        }
+    finally:
+        conn.close()
 
+
+def respond_node(state: AnalystState) -> dict:
+    """Format the response based on intent."""
+    if state["intent"] == "chart":
+        response = {
+            "type": "chart",
+            "plotly_spec": {
+                "data": [
+                    {
+                        "type": "bar",
+                        "x": [r[0] for r in state["raw_rows"]],
+                        "y": [r[1] for r in state["raw_rows"]],
+                    }
+                ],
+                "layout": {"title": state["question"]},
+            },
+        }
+    else:
+        cols = state["columns"]
+        header = "| " + " | ".join(cols) + " |"
+        sep = "| " + " | ".join(["---"] * len(cols)) + " |"
+        rows = [
+            "| " + " | ".join(str(v) for v in row) + " |"
+            for row in state["raw_rows"]
+        ]
+        table = "\n".join([header, sep] + rows)
+        response = {"type": "table", "markdown": table}
+    return {"response": response}
+
+
+def build_graph():
+    g = StateGraph(AnalystState)
+    g.add_node("plan", plan_node)
+    g.add_node("query_data", query_data_node)
+    g.add_node("respond", respond_node)
+    g.set_entry_point("plan")
+    g.add_edge("plan", "query_data")
+    g.add_edge("query_data", "respond")
+    g.add_edge("respond", END)
     return g.compile()
 
 
-graph = build_graph()
+analyst_graph = build_graph()
