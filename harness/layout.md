@@ -1,40 +1,73 @@
 # Project Layout
 
-The repository root holds the four layers (`spec/`, `src/`, `logs/`, `harness/`) plus the
-`.claude/` adapter and project config. These conventions are language-neutral; the
-concrete, per-project choices live in `spec/engineering/tech-stack.md`, and stack-specific
-footguns live in `../knowledge/gotchas.md`.
+The repository root holds the four layers plus the `.claude/` adapter and project config.
+These conventions are language-neutral at the harness level; Python specifics are noted
+where they are the established default.
+
+---
 
 ## Where things go
 
-- **All application source code lives in `src/`.** Never at the repo root — for every
-  stack (backend packages, web UI, scripts, data).
-- **Tests live in `tests/` at the repo root**, not inside `src/`.
-- **Runtime behavior is written to `logs/`** — never committed if it contains live data
-  (`*.log` is git-ignored); structured logs go to `logs/runtime/`.
-- **The spec is the contract.** `src/` conforms to `spec/`, never the reverse.
+- **All application source code lives in `src/`** — never at the repo root, for every
+  stack (backend, frontend, scripts, data pipelines).
+- **Tests live in `tests/` at the repo root** — co-located with `src/`, not inside it.
+  (Python/pytest convention; stack recipes may vary for other languages.)
+- **Runtime output goes to `logs/`** — never committed; gitignored entirely.
+- **The spec is the contract** — `src/` conforms to `spec/`, never the reverse.
+
+---
 
 ## Repo skeleton
 
 ```
-spec/        goal     — human-authored intent (product/ + engineering/)
-src/         action   — the code (one package/module per concern)
-logs/        outcome  — sessions/ (journals), runtime/, analysis/
-harness/     method   — rules/, method/, knowledge/, roles/, workflows/  (source of truth)
-.claude/     adapter  — settings, hooks, rules shim, agents, skills
-CLAUDE.md    entry    — thin pointer into harness/
-README.md             — what this project is
+spec/
+  features/     FR-NNN.md and CR-NNN.md files — one per request
+  rules/         tech-stack.md, code-style.md, and any project overrides
+  patterns/      agentic-ai.md, working-with-llms.md, lateral patterns
+
+src/             all application code
+  agent/         agent loop, nodes, graph assembly (LangGraph projects)
+  api/           HTTP layer (FastAPI routers, request/response models)
+  db/            DB models, migrations, session factory
+  integrations/  thin clients for external providers (LLM, APIs)
+    stubs/       offline stubs — used in Phase 2, replaced in Phase 3+
+  ui/            frontend (Next.js or templates)
+  config.py      pydantic-settings config, loaded once at startup
+
+tests/           all tests
+  unit/          fast, no network, no DB
+  integration/   requires DB; automated setup via conftest.py
+  e2e/           golden-path smoke tests
+
+logs/            gitignored — runtime/, sessions/, analysis/
+harness/         the method — rules/, process/, patterns/
+.claude/         thin Claude Code adapter
+CLAUDE.md        entry point
+README.md        what this project is — overview, setup, usage, config, dev
 ```
+
+---
+
+## Python project conventions
+
+These apply to all Python builds using this harness:
+
+- **Package manager:** `uv` — dependencies in `pyproject.toml`
+- **Entry point:** `src/__main__.py` — starts the server on port 8001
+- **Config:** `src/config.py` using `pydantic-settings`; loaded once, validated at startup
+- **DB migrations:** `alembic` — `alembic upgrade head` is the Phase 1 gate command
+- **Tests:** `uv run pytest` from the repo root
+- **Linting:** `uv run ruff check .`
+- **Stubs:** `APPNAME_LLM_PROVIDER=stub` env var enables stub mode; stub mode adds a
+  visible banner on every UI page
 
 ## Rules
 
 1. Application code in `src/`; tests in `tests/`; never at the root.
-2. One concern per package/module; no god-files.
+2. One concern per module — no god-files.
 3. Prompts and templates are data files loaded at runtime, not inlined in code.
-4. External services (LLM, DB, APIs) sit behind a thin client/abstraction, never called
-   raw from business logic.
-5. The skeleton phase must run fully offline (stubs, no keys, no network).
-
-The concrete stack — language, framework, database, UI, deploy target, default port,
-model names — is chosen by the researcher/architect and recorded in
-`spec/engineering/tech-stack.md`.
+4. External services (LLM, DB, APIs) sit behind a thin client in `src/integrations/` —
+   never called raw from business logic.
+5. The Phase 2 stub phase must run fully offline — no API keys, no network I/O.
+6. `README.md` must always be accurate: every command works exactly as written from the
+   directory stated.
