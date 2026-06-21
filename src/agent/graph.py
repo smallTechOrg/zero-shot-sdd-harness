@@ -3,6 +3,8 @@ from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from src.db.connection import get_db
+
 
 class AnalystState(TypedDict):
     question: str
@@ -39,8 +41,6 @@ def plan_node(state: AnalystState) -> dict:
 
 def query_data_node(state: AnalystState) -> dict:
     """Execute the SQL against DuckDB and return raw rows."""
-    from src.db.connection import get_db
-
     conn = get_db()
     try:
         df = conn.execute(state["sql"]).fetchdf()

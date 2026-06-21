@@ -8,7 +8,13 @@ class BaseLLMClient:
 
 class StubLLMClient(BaseLLMClient):
     def complete(self, prompt: str, system: str = "") -> str:
-        if "plot" in prompt.lower() or "chart" in prompt.lower():
+        # Extract only the user question line so prompt boilerplate doesn't trigger chart intent
+        question_line = prompt
+        for line in prompt.splitlines():
+            if line.lower().startswith("user question:"):
+                question_line = line
+                break
+        if "plot" in question_line.lower() or "chart" in question_line.lower():
             return (
                 '{"intent": "chart", '
                 '"sql": "SELECT product, SUM(revenue) FROM sales GROUP BY product", '
