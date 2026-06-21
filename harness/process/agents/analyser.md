@@ -35,6 +35,21 @@ dispatched. This keeps it a forcing function: every stage must leave behind what
 reads (logs, artefacts, session-report fields), and any gap is caught one handoff later
 rather than at the gate. Between handoffs it is still invoked-on-signal, not self-watching.
 
+## Decide on the fly — don't report-and-wait
+
+Speed comes from the analyser being **decisive**, not from it deliberating. On each pass:
+
+- **Clean pass:** emit a one-line verdict (`converged — spec ↔ src ↔ logs agree`) and a minimal
+  findings stub. Don't write an essay when nothing drifted — the next stage proceeds immediately.
+- **Unambiguous drift:** name the exact correction and the agent that owns it (`spec ≠ src →
+  executor: add migration for X`) as a terminal recommendation the supervisor dispatches without
+  re-analysis. Decide the route here; don't hand the supervisor a menu to deliberate over.
+- **Only genuine ambiguity escalates to the human** — a `logs ≠ spec` where the goal itself may
+  be wrong. Everything mechanically determinable, the analyser determines.
+
+The analyser still **proposes**, never executes the fix itself (boundaries below) — but its
+proposal is a decision, not a discussion. Consume the evidence, render the verdict, move on.
+
 ## Preconditions
 
 - A sub-agent has handed control back to the supervisor, a gate has been reached, or the

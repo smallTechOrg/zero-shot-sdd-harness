@@ -45,6 +45,20 @@ Fan out in parallel:
   parallel; findings merge at the gate.
 - **Awareness** — the analyser's checks (tests, evals, coverage, drift) run concurrently.
 
+### Model & effort per stage
+
+Latency is dominated by model choice, so pick the cheapest tier that clears the bar and record
+it in the session report's **Run telemetry** (so latency is comparable run-over-run):
+
+- **Default for build stages: Sonnet.** Opus is markedly slower — reserve it for genuinely hard
+  reasoning (thorny spec ambiguity, a stuck fix), not routine scaffolding/iteration.
+- **Effort scales to the stage:** `low` for mechanical work (recipe copy, appname replace,
+  boilerplate tests), `medium` for normal iteration and review, higher only for the hardest
+  reasoning. Don't run every stage at `max`.
+- **Benchmark intent:** runs have been on Sonnet/max; the next benchmark drops to Sonnet at
+  `low`/`medium` to measure the speedup. Capture model+effort+wall-clock every run so the
+  comparison is real, not remembered.
+
 Rules of the swarm:
 - **Gates are barriers.** Fan out, then *gather and reconcile* before the gate closes — never
   let one parallel branch advance past a red gate.
