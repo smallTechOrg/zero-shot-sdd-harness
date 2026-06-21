@@ -1,4 +1,6 @@
 import json as _json
+import time
+import uuid as _uuid
 from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -53,9 +55,20 @@ def plan_node(state: AnalystState) -> dict:
 def query_data_node(state: AnalystState) -> dict:
     """Execute the SQL against DuckDB and return raw rows."""
     conn = get_db()
+    start = time.monotonic()
     try:
         df = conn.execute(state["sql"]).fetchdf()
-        # Round-trip through JSON to convert numpy types → Python natives
+        duration_ms = int((time.monotonic() - start) * 1000)
+        rows_affected = len(df)
+
+        # Write audit log
+        conn.execute(
+            """INSERT INTO audit_log (id, session_id, query_text, rows_affected, duration_ms)
+               VALUES (?, ?, ?, ?, ?)""",
+            [str(_uuid.uuid4()), state["session_id"], state["sql"], rows_affected, duration_ms],
+        )
+
+        # Convert to native Python types (JSON round-trip)
         records = _json.loads(df.to_json(orient="split"))
         return {
             "raw_rows": records["data"],

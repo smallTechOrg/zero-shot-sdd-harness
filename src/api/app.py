@@ -8,12 +8,16 @@ from src.api.datasets import router as datasets_router
 from src.api.health import router as health_router
 from src.api.query import router as query_router
 from src.api.ui import router as ui_router
-from src.db.connection import init_db
+from src.db.connection import get_db, restore_views
+from src.db.schema import create_tables
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    conn = get_db()
+    create_tables(conn)
+    restore_views(conn)
+    conn.close()
     yield
 
 

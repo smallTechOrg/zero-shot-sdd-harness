@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -10,6 +11,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const sessionRef = useRef<string>('');
+  if (!sessionRef.current) {
+    sessionRef.current = typeof crypto !== 'undefined'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  }
 
   async function uploadFile() {
     const file = fileRef.current?.files?.[0];
@@ -36,7 +43,7 @@ export default function Home() {
     const res = await fetch(`${API}/query/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, session_id: 'default' }),
+      body: JSON.stringify({ question, session_id: sessionRef.current }),
     });
     const data = await res.json();
     setResult(data);
@@ -93,7 +100,19 @@ export default function Home() {
 
 function ResultView({ result }: { result: any }) {
   if (result.type === 'table') {
-    return <pre className="text-sm whitespace-pre-wrap font-mono">{result.markdown}</pre>;
+    return (
+      <div className="overflow-x-auto">
+        <ReactMarkdown
+          components={{
+            table: (props) => <table className="min-w-full border-collapse text-sm" {...props} />,
+            th: (props) => <th className="border px-3 py-1 bg-gray-100 font-semibold text-left" {...props} />,
+            td: (props) => <td className="border px-3 py-1" {...props} />,
+          }}
+        >
+          {result.markdown}
+        </ReactMarkdown>
+      </div>
+    );
   }
   if (result.type === 'chart') {
     return <PlotlyChart spec={result.plotly_spec} />;
