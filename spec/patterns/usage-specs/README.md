@@ -1,5 +1,10 @@
 # Usage-specs — version-pinned API shapes the seam-generating agent reads first
 
+> **These are project spec artefacts, not harness method.** They live in `spec/patterns/` because
+> the libs and versions are this project's choice; they are established and edited **as part of a
+> feature request** (especially the first, which pins the initial stack). The canonical *recipes*
+> they guard stay in `harness/recipes/`.
+
 A **usage-spec** is a tiny, version-**stamped** cheat-sheet for one pinned library: the *correct* and
 *forbidden* API shapes plus the 2–3 idioms our tested core actually relies on for **that** version. It is
 the right-sized version of Tessl's "Spec Registry" idea (`reports/archaeology/COMPETITIVE-RESEARCH.md` §2):
@@ -10,7 +15,7 @@ wrong API; these files pin the agent to the API of the version we actually insta
 ## How they're used (build-time)
 Before generating the domain seams for a layer, the **agent-builder reads the usage-spec(s) for the libs that
 layer touches** (`agents/agent-builder.md` § Generate, step 3), then writes code from the layer recipe.
-A usage-spec does **not** replace the recipe in `harness/patterns/*.md` (the recipe is the proven code); it
+A usage-spec does **not** replace the recipe in `harness/recipes/` (the recipe is the proven code); it
 is the *API-shape guardrail* that stops a generated seam from drifting onto a wrong-version call.
 
 Map of which spec covers what:

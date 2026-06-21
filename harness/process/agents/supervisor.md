@@ -38,7 +38,7 @@ the supervisor spawns a **swarm** — parallel agents that run at once and gathe
 Sequential-only is the exception (a true data dependency), not the default.
 
 Fan out in parallel:
-- **Intake** — research probes and `usage-specs/` reads run concurrently while the FR is drafted.
+- **Intake** — research probes and `spec/patterns/usage-specs/` reads run concurrently while the FR is drafted.
 - **Build** — independent **steps** of the one iteration run as parallel executors; the
   **frontend is a first-class step**, built alongside its backend data (never deferred to the end).
 - **Review** — one reviewer per dimension (correctness, security, gate-checklist, eval) in

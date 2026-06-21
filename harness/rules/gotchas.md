@@ -105,7 +105,7 @@ add one only on real demand. Both bootstrap schema with `create_tables()` (SQLAl
   → Keep the model in config, never hardcoded. `gemini-2.5-flash` is the safe documented
   default; confirm the current id against the provider / the `claude-api` skill before a real
   run. See [working-with-llms.md](../patterns/working-with-llms.md) and
-  [usage-specs/google-genai.md](../patterns/usage-specs/google-genai.md).
+  [usage-specs/google-genai.md](../../spec/patterns/usage-specs/google-genai.md).
 
 - **[C-SESSION-COMMIT]** A FastAPI `BackgroundTask` (or any queued async work) that reads a
   row the request just wrote can race a still-open DB session and see nothing.

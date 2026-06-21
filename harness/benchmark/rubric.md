@@ -40,5 +40,6 @@ step, and the critical-path length (longest dependency chain in the step DAG).
 - **Quality score:** PASS only if **all** floor items hold; otherwise FAIL + the failing items.
 - **Run verdict:** PASS iff Quality = PASS and Speed ≥ 4/5 at Target.
 
-Record both raw numbers and the verdict in [results.md](results.md) — the raw numbers are what
-reveal the dominant cost (tooling vs model-latency vs rework) and thus what to optimise next.
+Record both raw numbers and the verdict in the run's session report (or share it back to the
+owner) — the raw numbers are what reveal the dominant cost (tooling vs model-latency vs rework)
+and thus what to optimise next.

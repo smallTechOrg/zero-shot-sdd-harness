@@ -67,13 +67,16 @@ sense of the truth and corrects course.
 - [workflows/](process/workflows/) — build, fix, deploy
 **[layout.md](layout.md)** — repo skeleton, where things go
 **[recipes/](recipes/)** — proven, version-stamped runnable scaffolds (python-fastapi-sqlite, python-fastapi-duckdb, frontend-nextjs)
-**[benchmark/](benchmark/)** — the harness self-benchmark: golden briefs + a speed×quality rubric + a trend ledger. Measures whether harness changes make builds faster *and* higher-quality.
+**[benchmark/](benchmark/)** — the harness self-benchmark: a speed×quality rubric + a scoring procedure that consumes a `/build` session run log. Measures whether harness changes make builds faster *and* higher-quality. (Briefs and results live out-of-band, not in the repo.)
 
 **[patterns/](patterns/)** — hard-won knowledge
 - [working-with-llms.md](patterns/working-with-llms.md) — provider selection, stubs, model lifecycle, error handling
 - [observability.md](patterns/observability.md) — logs, session reports, drift signals, the analyser
 - [engineering.md](patterns/engineering.md) — fundamental software-engineering principles
-- [usage-specs/](patterns/usage-specs/) — version-pinned API-shape guardrails (fastapi, langgraph, google-genai, …)
+
+> Version-pinned **usage-specs** (API-shape guardrails: fastapi, langgraph, google-genai, …) are
+> a *project* artefact, not a method one — they now live in [../spec/patterns/usage-specs/](../spec/patterns/usage-specs/)
+> and are established/edited as part of a feature request.
 
 ---
 
