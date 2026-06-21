@@ -6,17 +6,21 @@ off. See [../harness/README.md](../harness/README.md) for the full SDD method.
 
 ```
 spec/
-  rules/        project-specific rule overrides (on top of harness/rules/)
+  rules/        constraints — tech stack, code style, rule overrides
   features/     what the system should do — vision, architecture, capabilities
-  patterns/     how to build it — tech stack, code style, framework choices
+  patterns/     optional — reusable patterns the coding agent may apply
 ```
 
 ---
 
 ## rules/
 
-Project-specific overrides on top of [harness/rules/](../harness/rules/).
-Empty until this project needs to diverge from the harness defaults.
+Hard constraints for this project. The researcher fills these in at intake.
+
+- [rules/tech-stack.md](rules/tech-stack.md) — language, framework, DB, deploy target
+- [rules/code-style.md](rules/code-style.md) — style rules, framework gotchas
+
+Any overrides to [harness/rules/](../harness/rules/) also live here.
 
 ## features/
 
@@ -34,11 +38,9 @@ To add a capability: add a file to `features/`. One file = one discrete feature.
 
 ## patterns/
 
-How to build it — stack choices, code conventions, framework-specific rules. The generic
-and agentic patterns live in [harness/patterns/](../harness/patterns/).
-
-- [patterns/tech-stack.md](patterns/tech-stack.md) — language, framework, DB, deploy target
-- [patterns/code-style.md](patterns/code-style.md) — style rules, framework gotchas
+Lateral patterns — cross-cutting concerns that apply broadly across the system
+(e.g. retry strategy, caching approach, observability conventions). Optional;
+the coding agent adds these when a pattern emerges and is worth codifying.
 
 ---
 
@@ -46,5 +48,5 @@ and agentic patterns live in [harness/patterns/](../harness/patterns/).
 
 1. **Spec first** — no `src/` change without a backing spec change.
 2. **One fact, one place** — never duplicate across files; cross-reference with links.
-3. **`features/` = WHAT, `patterns/` = HOW** — no implementation detail in features.
+3. **`features/` = WHAT, `rules/` = HOW + constraints** — no implementation detail in features.
 4. **Update spec before code** — if requirements change, spec changes first.
