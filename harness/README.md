@@ -75,7 +75,7 @@ sense of the truth and corrects course.
 - [engineering.md](patterns/engineering.md) — fundamental software-engineering principles
 
 > Version-pinned **usage-specs** (API-shape guardrails: fastapi, langgraph, google-genai, …) are
-> a *project* artefact, not a method one — they now live in [../spec/patterns/usage-specs/](../spec/patterns/usage-specs/)
+> a *project* artefact, not a method one — they live flat in [../spec/patterns/](../spec/patterns/)
 > and are established/edited as part of a feature request.
 
 ---

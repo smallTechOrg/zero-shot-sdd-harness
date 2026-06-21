@@ -28,7 +28,7 @@ Owns intake — understands the user's intent and frames it as a spec the planne
 
 - **Tools:** Read, Write, Edit
 - **May write:** `spec/features/`, `spec/rules/tech-stack.md`, `spec/rules/code-style.md`, and
-  `spec/patterns/usage-specs/` (the version-pinned API guardrails for the stack this FR pins —
+  `spec/patterns/` usage-spec files (the version-pinned API guardrails for the stack this FR pins —
   establish/refresh them as part of authoring the spec, especially the first FR)
 - **Must not:** write `src/`, run code, or deploy
 

@@ -3,7 +3,7 @@
 A **recipe** is a tested starter scaffold for one stack rung. The **planner names the recipe**
 in the step plan; the **executor copies it** into `src/`/`ui/` and adapts it to the spec — it
 does not invent the scaffold from scratch. Recipes are the *proven code*; the
-[`../../spec/patterns/usage-specs/`](../../spec/patterns/usage-specs/) files are the *API-shape
+[`../../spec/patterns/`](../../spec/patterns/) usage-spec files are the *API-shape
 guardrails* the executor reads before writing the domain seams a recipe leaves open. (Recipes
 are canonical method and stay in `harness/`; the usage-specs are a project artefact in `spec/`,
 established/edited as part of a feature request.)
@@ -48,7 +48,7 @@ Re-sync steps when a pinned lib bumps:
 1. Update the recipe's deps to the new version.
 2. Run the recipe's **gate** (the `## Phase N gate` / quickstart in its README) — it must be green.
 3. Fix any drift the new version introduced; refresh the matching
-   `spec/patterns/usage-specs/*.md` in the **same** change (the usage-spec and the recipe move
+   `spec/patterns/<lib>.md` in the **same** change (the usage-spec and the recipe move
    together — across the `harness/`↔`spec/` boundary).
 4. Only then update the stamp (libs + date) in the recipe README.
 

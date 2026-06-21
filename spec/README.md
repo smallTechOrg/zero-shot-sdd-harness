@@ -8,8 +8,7 @@ off. See [../harness/README.md](../harness/README.md) for the full SDD method.
 spec/
   rules/        constraints — tech stack, code style, rule overrides
   features/     what the system should do — vision, architecture, capabilities
-  patterns/     reusable patterns the coding agent may apply
-    usage-specs/  version-pinned API-shape guardrails for the libs this project pins
+  patterns/     reusable patterns + version-pinned usage-specs (one file per lib, flat)
 ```
 
 ---
@@ -34,20 +33,22 @@ The researcher authors these; the supervisor signs them off before any code is w
 
 ## patterns/
 
-Lateral patterns — cross-cutting concerns that apply broadly across the system
-(e.g. retry strategy, caching approach, observability conventions). Optional;
-the coding agent adds these when a pattern emerges and is worth codifying.
+Two kinds of files live here, flat:
 
-### patterns/usage-specs/
+**Lateral patterns** — cross-cutting concerns that apply broadly (retry strategy, caching,
+observability conventions). Optional; the coding agent adds these when a pattern emerges.
 
-Version-**pinned** API-shape guardrails — one short cheat-sheet per library the project pins
-(the correct/forbidden API shapes for *that* version), so a generated seam can't drift onto a
-wrong-version call. These are **project artefacts, not method**: they belong here in `spec/`
-(not `harness/`) because the libs and versions are this project's choice, and they are
-**established and edited as part of a feature request** — especially the first one, which pins
-the initial stack. When a feature bumps a pinned lib, its usage-spec is refreshed in the same
+**Usage-specs** — version-**pinned** API-shape guardrails, one short file per library the
+project pins (correct/forbidden shapes for *that* version), so a generated seam can't drift
+onto a wrong-version call. These are **project artefacts, not method**: they belong here in
+`spec/` (not `harness/`) because the libs and versions are this project's choice. They are
+**established and edited as part of a feature request** — especially the first, which pins the
+initial stack. When a feature bumps a pinned lib, its usage-spec is refreshed in the same
 change (see [harness/recipes/README.md](../harness/recipes/README.md) → re-sync convention). The
 canonical *recipes* that these guard stay in `harness/recipes/`.
+
+Files: `fastapi.md`, `langgraph.md`, `langchain-core.md`, `google-genai.md`,
+`sqlalchemy-async.md`, `pydantic-settings.md`, `nextjs.md`.
 
 ---
 

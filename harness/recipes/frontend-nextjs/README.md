@@ -82,7 +82,7 @@ Drop-in for the existing `genId()`; the persistence wiring already in `ChatPage.
 
 ## Wiring notes for the planner / executor
 - The page reads the FastAPI **`{ ok, data }` envelope** (`json.data.answer`, `.run_id`, `.chart_spec`,
-  `.cost_usd`, `.input_tokens`/`.output_tokens`) — keep the server's envelope in sync (`spec/patterns/usage-specs/fastapi.md`).
+  `.cost_usd`, `.input_tokens`/`.output_tokens`) — keep the server's envelope in sync (`spec/patterns/fastapi.md`).
 - Charts: `layout.js` loads **Plotly from the CDN** (no npm dep, no SSR crash); a `chart_spec` of
   `{ data, layout }` renders via `window.Plotly.newPlot`. Swap for `react-markdown`-only if the spec has no charts.
 - Trace deep-link points at `http://localhost:8001/traces` (the server renders the timeline — don't rebuild it).
