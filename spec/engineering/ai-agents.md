@@ -26,7 +26,7 @@ These rules are never optional, never skipped, and must survive context compress
 
 8. **Stub LLM outputs must be distinct per pipeline node and article-shaped.** Pipeline nodes that share a stub provider must inject unambiguous tags (e.g. `<node:plan>`, `<node:draft>`, `<node:title>`) into their prompts, and the stub must branch on those tags — never on prose keywords from the prompt body (keyword matching cross-contaminates: the word "outline" in a draft prompt must not cause the stub to emit outline bullets instead of a draft). Stub "draft" output must contain paragraphs/headings, not just bullets, so offline demos are credible.
 
-9. **Data-access agents must use a ReAct loop — never a "sample and guess" pipeline.** If the agent's job is to answer questions about external data (CSV files, databases, APIs, file systems), it must generate executable actions (SQL, API calls, file reads), run them against the **full** data, and feed results back to the LLM iteratively until the LLM signals a final answer. A pipeline that passes a sample of data to the LLM and expects a single-shot answer will produce wrong results at scale and must be redesigned before Phase 2 is marked complete. The correct pattern — load → plan action → execute action → observe result → loop until done — must be specced in `07-agent-graph.md` before any code is written. See Section 10 of this file for the full pattern.
+9. **Any agent interacting with external providers must use a ReAct loop — never a single-shot pipeline.** If the agent's job requires calling any external provider (data sources, APIs, services, or compute engines), it must plan tool calls, execute them through the tool abstraction, observe results, and loop iteratively until the LLM signals a final answer. A single-shot pipeline cannot chain dependent calls, cannot retry on tool failure, and cannot self-correct when a provider returns unexpected output. The correct pattern — plan tool call → invoke tool → observe result → loop until done — must be specced in `07-agent-graph.md` before any code is written. See Section 10 of this file for the full pattern.
 
 10. **Every commit must be pushed immediately.** `git commit` and `git push` are a single atomic action — never one without the other. Use `git commit -m "..." && git push origin <branch>` as a single command. A commit that is not pushed does not exist as far as the project is concerned. This is not optional and is not context-compression-safe — if you remember only this sentence: **commit then push, every time, no exceptions.**
 
@@ -157,40 +157,42 @@ Build what the spec says, nothing more.
 - No premature abstractions
 - If you spot a future improvement, add it to `reports/sessions/[current].md` under "Future improvements" and keep moving
 
-## 10. Agent Loop Design Patterns
+## 10. ReAct Loop + Tool Invocation
+
+Every agent that interacts with an external provider must implement a ReAct (Reason + Act) loop that invokes tools. This section defines both the loop mechanics and the Tool abstraction that `invoke_tool` executes.
 
 ### When to use a ReAct loop
 
-Use a ReAct (Reason + Act) loop whenever the agent needs to interact with external data to answer a question. This covers:
+Use a ReAct loop whenever the agent must interact with **any external provider** to complete its task:
 
-- Data analysis over CSV / database tables
-- Web search agents that need to look up facts
-- File system agents that browse or read files
-- API agents that call external services
+- **Data providers:** databases, CSV files, search indices, vector stores
+- **Service providers:** REST APIs, GraphQL endpoints, email, messaging, calendar, CRM
+- **Compute providers:** code execution, image generation, document processing, web scraping
 
-**Never** design a single-shot pipeline for these cases ("pass a sample to the LLM and return whatever it says"). Single-shot answers are wrong for any dataset larger than the sample, and cannot self-correct.
+**Never** design a single-shot pipeline when the agent needs to interact with an external provider ("build a prompt and return whatever the LLM says"). Single-shot pipelines cannot chain dependent calls, cannot retry on tool failure, and cannot self-correct when a provider returns unexpected output.
 
 ### The canonical ReAct loop shape
 
+Tool loading and session setup happen **before** the loop — they are not nodes in the loop graph:
+
 ```
-START
-  │
-  ▼
-load_data          ← load full data into queryable form (in-memory SQLite, index, etc.)
-  │
-  ▼
-plan_action ◄───────────────────────────────────┐
-  │                                             │
-  ├──(error / LLM failure) → handle_error       │
-  │                                             │
-  ├──(FINAL ANSWER signal) → finalize → END     │
-  │                                             │
-  └──(action returned) → execute_action ────────┘
-                              │
-                              ├──(hard error: non-recoverable) → handle_error
-                              │
-                              └──(SQL/API error: feed back to LLM for self-correction)
+[pre-loop: register tools, load session context into AgentState]
+          │
+          ▼
+plan_action ◄──────────────────────────────────────┐
+  │                                                │
+  ├──(LLM failure) ──────► handle_error            │
+  │                                                │
+  ├──(FINAL ANSWER signal) ─► finalize ──► END     │
+  │                                                │
+  └──(tool call) ──────────► invoke_tool ──────────┘
+                                  │
+                                  ├──(fatal: infra failure) ─► handle_error
+                                  │
+                                  └──(tool error: feed back to LLM for self-correction)
 ```
+
+`invoke_tool` is the single node responsible for all tool execution — every interaction with every external provider is dispatched through here. See the Tool Invocation section below.
 
 ### Termination protocol (mandatory)
 
@@ -200,7 +202,7 @@ The LLM must have an unambiguous way to signal it is done. Define this in the sp
 FINAL ANSWER: <the complete answer text here>
 ```
 
-The `plan_action` node checks if the LLM response starts with `FINAL ANSWER:` (case-insensitive). If yes, strip the prefix and route to `finalize`. If no, treat the response as the next action to execute and loop.
+`plan_action` checks if the LLM response starts with `FINAL ANSWER:` (case-insensitive). If yes, strip the prefix and route to `finalize`. If no, parse the response as a tool call and route to `invoke_tool`.
 
 This is not optional — without a termination signal, the loop runs until max iterations.
 
@@ -212,7 +214,7 @@ Every ReAct loop must have a configurable ceiling:
 max_agent_iterations: int = Field(default=10)
 ```
 
-After `execute_action` increments `iteration_count`, check:
+After `invoke_tool` increments `iteration_count`, check:
 ```python
 if iteration_count >= max_iterations:
     return {**state, "error": f"Max iterations ({max_iterations}) reached"}
@@ -220,107 +222,24 @@ if iteration_count >= max_iterations:
 
 Route to `handle_error`. Never let a loop run unboundedly.
 
-### Self-correction on action errors
-
-When an action fails (e.g. SQL syntax error, API 4xx, file not found), **do not immediately fail the pipeline**. Instead:
-
-1. Append the failed action and its error message to `action_history` in state, flagged as `is_error: True`
-2. Increment `iteration_count`
-3. Route back to `plan_action`
-
-The prompt for the next `plan_action` call shows the error inline:
-
-```
-[2] SQL: SELECT MIN(x) FROM data GROUP BY region
-    Error: misuse of aggregate function MIN()
-    → This query failed. Please write a corrected SQL query.
-```
-
-The LLM sees the error and writes a corrected action.
-
-**Recoverable — feed back and loop:**
-- SQL syntax or runtime errors (let the LLM rewrite the query)
-- Malformed or non-JSON LLM response (ask the LLM to reformat its output)
-- Unknown capability name (tell the LLM the valid capability list; see Section 11)
-- Non-SELECT SQL attempt on a read-only tool (remind the LLM the constraint; ask for SELECT)
-- Tool parameter validation failure (show the parameter schema; ask the LLM to retry)
-
-**Fatal — route to `handle_error` immediately:**
-- Max iterations reached
-- LLM call itself fails (network error, 5xx)
-- Infrastructure failure in tool executor (DB connection dropped, file missing, credentials revoked)
-
-The key principle: **if the LLM could correct the mistake given better information, feed back and loop. Only fail when the environment itself is broken.**
-
-### In-memory data cache pattern
-
-When the agent loads data at the start of a run (CSV → SQLite, documents → vector index, etc.), the connection or index object is not serializable and cannot live in `AgentState`. Use a module-level dict keyed by `run_id`:
-
-```python
-_db_cache: dict[str, sqlite3.Connection] = {}
-
-def _cleanup_db(run_id: str) -> None:
-    conn = _db_cache.pop(run_id, None)
-    if conn:
-        conn.close()
-```
-
-- `load_data` creates the resource and stores it: `_db_cache[state["run_id"]] = conn`
-- `execute_action` reads it: `conn = _db_cache.get(run_id)`
-- `finalize` and `handle_error` both call `_cleanup_db(run_id)` in a `finally` block
-
-This guarantees the resource is cleaned up whether the pipeline succeeds or fails.
-
-### Action history in AgentState
-
-The running log of actions and their results must live in state so the full context is available to the LLM on every `plan_action` call:
-
-```python
-class AgentState(TypedDict, total=False):
-    ...
-    action_history: list[dict]  # [{"action": str, "result": str, "is_error": bool}]
-    iteration_count: int
-    llm_response: str           # raw last LLM output — router inspects this for FINAL ANSWER
-```
-
-Persist `action_history` to the database as JSON so it can be displayed in the UI (the "Agent reasoning" trace).
-
-### What to spec in 07-agent-graph.md before writing code
-
-Before writing any node code, `07-agent-graph.md` must answer:
-
-1. What action type does the LLM generate? (SQL, HTTP request, file path, etc.)
-2. What is the exact FINAL ANSWER signal string?
-3. What constitutes a recoverable action error vs a fatal error?
-4. What is the max iterations default?
-5. How is the in-session data store created and cleaned up?
-6. What fields does `AgentState` carry for history and iteration count?
-7. **What tools does the agent have access to?** — name, type, capabilities, and parameter schemas for every tool. (See Section 11 — Tool Registry.)
-8. **What is the exact LLM tool invocation format?** — the JSON shape the LLM must produce to call a tool.
-9. **What triggers tool registration?** — the user action (file upload, API key entry, etc.) that creates a Tool record in the DB.
-
-If any of these are missing from the spec, raise a blocker before Phase 2 starts.
-
 ---
 
-## 11. Tool Registry and Capability Dispatch
-
-A **Tool** is a named, typed, executable unit that the LLM can invoke during the ReAct loop. Every external interaction the agent performs — querying a data source, calling an API, sending a message, reading a file — must be modelled as a Tool. This section defines the standard Tool abstraction and the patterns for registering, loading, and dispatching tools.
-
 ### Tool anatomy
+
+A **Tool** is a named, typed, executable unit that the LLM invokes during the ReAct loop. Every external interaction the agent performs must be modelled as a Tool — there is no other channel for the agent to interact with the outside world.
 
 Every tool has the same structure:
 
 ```
 Tool
   ├── id           — unique identifier (UUID)
-  ├── name         — snake_case label shown to the LLM (e.g. "csv_query", "weather_api")
+  ├── name         — snake_case label shown to the LLM (e.g. "weather_api", "send_email")
   ├── type         — implementation type that determines which executor runs it
   ├── description  — one sentence shown to the LLM in the planning prompt
-  ├── config_json  — type-specific runtime config (table name, base URL, credentials ref, etc.)
+  ├── config_json  — type-specific runtime config (base URL, credentials ref, table name, etc.)
   └── capabilities — one or more named actions the tool exposes
         └── Capability
-              ├── name              — the callable action (e.g. "run_query", "get", "send")
+              ├── name              — the callable action (e.g. "get", "search", "send")
               ├── description       — shown to the LLM
               └── parameter_schema  — JSON Schema dict describing the parameters
 ```
@@ -339,20 +258,20 @@ A single ReAct loop can call tools from multiple categories in the same session.
 
 ### Tool Registry pattern
 
-Tools are created when a user connects a resource — not at agent startup. The registration flow is:
+Tools are registered when a user connects a provider — not at agent startup:
 
 ```
-User connects a resource
-(uploads CSV, provides API endpoint, enters credentials, etc.)
-       ↓
+User connects a provider
+(uploads a file, provides an API endpoint, enters credentials, etc.)
+         ↓
 System creates a Tool record (name, type, description, config)
-       ↓
+         ↓
 System creates Capability records (one per action the tool exposes)
-       ↓
-Tool is available to any session that includes this resource
+         ↓
+Tool is available to any session that includes this provider
 ```
 
-The `load_data` node loads all Tool + Capability records for the current session from the DB at run start. This lets the agent discover its available tools at runtime — no hardcoded tool list in agent code.
+Before the ReAct loop starts, all Tool + Capability records for the session are loaded from the DB into `AgentState`. This lets the agent discover its tools at runtime — no hardcoded tool list in agent code.
 
 `AgentState` must carry the loaded tools list:
 
@@ -365,17 +284,17 @@ tools: list[dict]  # [{"name", "type", "config", "capabilities": [{"name", "desc
 Define exactly one invocation format in `07-agent-graph.md` before writing any node code. The recommended shape:
 
 ```json
-{"tool": "csv_query", "capability": "run_query", "parameters": {"query": "SELECT ..."}}
+{"tool": "weather_api", "capability": "get_forecast", "parameters": {"city": "London"}}
 ```
 
 When the session has only one tool, `tool` may be omitted for brevity — but include it whenever there are multiple tools so the LLM is explicit. The `plan_action` prompt must show the LLM the exact format to use, with an example.
 
-### Capability dispatch in execute_action
+### Tool invocation (`invoke_tool`)
 
-`execute_action` dispatches by **tool type**, not by capability name. Multiple tool types can expose a capability with the same name (e.g. both `csv_query` and `sql_query` can expose `run_query`):
+`invoke_tool` is the executor for all tool calls. It dispatches by **tool type**, not by capability name — multiple tool types can expose a capability with the same name:
 
 ```python
-def execute_action(state):
+def invoke_tool(state):
     # 1. Parse LLM response — bad JSON is recoverable
     try:
         call = json.loads(state["llm_response"])
@@ -389,70 +308,128 @@ def execute_action(state):
     tool = _find_tool_for_capability(state["tools"], capability_name)
     if tool is None:
         valid = [cap["name"] for t in state["tools"] for cap in t["capabilities"]]
-        return _loop_back(state, error=f"Unknown capability '{capability_name}'. Valid options: {valid}")
+        return _loop_back(state, error=f"Unknown capability '{capability_name}'. Valid: {valid}")
 
-    # 3. Dispatch by tool type
+    # 3. Dispatch by tool type — add a case for each registered tool type
     match tool["type"]:
-        case "csv_query":
-            result = _execute_sql(state["run_id"], parameters.get("query", ""))
         case "http_request":
             result = _execute_http(tool["config"], parameters)
         case "send_email":
             result = _execute_email(tool["config"], parameters)
+        case "csv_query":
+            result = _execute_sql(state["run_id"], parameters.get("query", ""))
         case _:
-            # Fatal — no executor registered for this type
-            return _error(state, f"No executor registered for tool type '{tool['type']}'")
+            return _error(state, f"No executor for tool type '{tool['type']}'")
 
     return _loop_back(state, capability=capability_name, parameters=parameters, result=result)
 ```
 
-`_loop_back` appends the result (or error) to `action_history`, increments `iteration_count`, checks the max-iterations guard, and returns the new state. It never raises — it always returns a valid state dict.
+`_loop_back` appends the result (or error) to `tool_call_history`, increments `iteration_count`, checks the max-iterations guard, and returns the new state. It never raises.
+
+### Self-correction on tool errors
+
+When a tool call fails, **do not immediately fail the pipeline**. Instead:
+
+1. Append the failed call and its error to `tool_call_history` in state, flagged as `is_error: True`
+2. Increment `iteration_count`
+3. Route back to `plan_action`
+
+The prompt for the next `plan_action` call shows the error inline:
+
+```
+[2] Tool: weather_api | Capability: get_forecast | Parameters: {"city": "Londn"}
+    Error: City not found. Check the spelling and try again.
+    → This tool call failed. Correct it and try again.
+```
+
+**Recoverable — feed back and loop:**
+- Tool execution errors (bad parameters, validation failure, 4xx from a provider)
+- Malformed or non-JSON LLM response (ask the LLM to reformat)
+- Unknown capability name (tell the LLM the valid capability list)
+- Tool parameter validation failure (show the parameter schema; ask the LLM to retry)
+
+**Fatal — route to `handle_error` immediately:**
+- Max iterations reached
+- LLM call itself fails (network error, 5xx)
+- Infrastructure failure in tool executor (provider unreachable, credentials revoked)
+
+The key principle: **if the LLM could correct the mistake given better information, feed back and loop. Only fail when the environment itself is broken.**
 
 ### Prompting the LLM about available tools
 
-The `plan_action` prompt must list every available tool and capability clearly. Format each tool as a block the LLM can scan:
+The `plan_action` prompt must list every available tool and capability. Format each tool as a block:
 
 ```
 Available tools:
 
-Tool: csv_query  — Execute SQL SELECT queries against the uploaded dataset.
-  Capability: run_query
-    Description: Run a SQL SELECT against the data table.
+Tool: weather_api  — Get current conditions and forecasts from the weather service.
+  Capability: get_forecast
+    Description: Retrieve a weather forecast for a city.
     Parameters:
-      query  (string, required)  — A valid SQL SELECT statement. Table name: 'sales_2024'.
+      city  (string, required)  — Name of the city.
+      days  (integer, optional) — Number of forecast days (default: 3).
 
 To use a tool, respond with exactly this JSON (no prose, no markdown fences):
-{"tool": "csv_query", "capability": "run_query", "parameters": {"query": "..."}}
+{"tool": "weather_api", "capability": "get_forecast", "parameters": {"city": "..."}}
 
-When you have enough information to answer the user's question, respond with:
+When you have enough information to answer, respond with:
 FINAL ANSWER: <your complete answer here>
 ```
 
-Key rules for the tool prompt block:
-- List tool name, type description, and every capability with its parameter schema
-- Show the **exact** invocation JSON — do not leave the format ambiguous
-- Put the FINAL ANSWER signal on the same page so the LLM sees both together
-- For multi-source sessions, include the real table name (or endpoint) for each tool, not a generic placeholder
+Rules for the tool prompt block:
+- List every tool, every capability, and every parameter with its schema
+- Show the **exact** invocation JSON — never leave the format ambiguous
+- Put the FINAL ANSWER signal on the same page so the LLM sees both options together
+- Use real names (actual API names, actual table names) — never generic placeholders
+
+### Tool call history in AgentState
+
+The running log of tool calls and their results must live in state so the full context is available on every `plan_action` call:
+
+```python
+class AgentState(TypedDict, total=False):
+    ...
+    tools: list[dict]              # loaded before loop starts
+    tool_call_history: list[dict]  # [{"tool": str, "capability": str, "parameters": dict, "result": str, "is_error": bool}]
+    iteration_count: int
+    llm_response: str              # raw last LLM output — router inspects this for FINAL ANSWER
+```
+
+Persist `tool_call_history` to the database as JSON so it can be surfaced in the UI as an agent reasoning trace.
 
 ### Multi-tool sessions
 
-When a session has multiple tools (two CSVs, a CSV + an external API, etc.):
-- The `load_data` node loads all tools and their capabilities into `state["tools"]`
+When a session has multiple tools (a data source + an API, two APIs, etc.):
+- All tools and their capabilities are loaded into `state["tools"]` before the loop starts
 - The planning prompt lists all of them
-- The LLM may call tools in any order and combine results across iterations
-- `execute_action` resolves the `tool` field from the LLM response against the `state["tools"]` list; if `tool` is missing, scan all tools for the named capability
+- The LLM may call any tool in any iteration and combine results across iterations
+- `invoke_tool` resolves the `tool` field from the LLM response against `state["tools"]`; if `tool` is absent, scan all tools for the named capability
 
-The agent can JOIN results across tools by accumulating intermediate results in `action_history` and referencing them in later iterations.
+The agent can chain results across tools by accumulating intermediate outputs in `tool_call_history` and referencing them in later iterations.
 
 ### Security boundaries (non-negotiable)
 
-- **Data source tools:** Enforce read-only at the executor level. Any non-SELECT SQL must be rejected as a recoverable error — never passed to the database. Log every rejection.
+- **Data source tools:** Enforce read-only at the executor level. Any write attempt must be rejected as a recoverable error — never passed to the provider. Log every rejection.
 - **External action tools** (`send_email`, `post_webhook`, `write_file`): Require explicit user opt-in in the UI before the session starts if the action is irreversible. Log every execution with its parameters.
 - **Compute tools** (`python_eval`, `shell_exec`): Require a sandboxed executor. Never enable by default. Explicitly excluded from v0.1 scope unless the spec requires them.
 
+### What to spec in 07-agent-graph.md before writing code
+
+Before writing any node code, `07-agent-graph.md` must answer:
+
+1. What does the LLM produce when it wants to call a tool? (exact JSON invocation shape)
+2. What is the exact FINAL ANSWER signal string?
+3. What constitutes a recoverable tool error vs a fatal error?
+4. What is the max iterations default?
+5. What fields does `AgentState` carry for tool call history and iteration count?
+6. **What tools does the agent have access to?** — name, type, capabilities, and parameter schemas for every tool.
+7. **What triggers tool registration?** — the user action (file upload, API key entry, etc.) that creates a Tool record.
+
+If any of these are missing from the spec, raise a blocker before Phase 2 starts.
+
 ---
 
-## 12. When Stuck
+## 11. When Stuck
 
 If requirements are unclear:
 1. Stop
@@ -464,7 +441,7 @@ If the spec is ambiguous:
 2. Propose an interpretation
 3. Wait for confirmation before implementing
 
-## 13. Closing a Session
+## 12. Closing a Session
 
 Before ending a session:
 - [ ] Working tree is clean (all changes committed and pushed)
