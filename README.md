@@ -1,3 +1,34 @@
+# Data Analyst Agent
+
+Ask natural-language questions over CSV, JSON, Excel, and Parquet files. Powered by Gemini 2.5 Flash + DuckDB.
+
+## Prerequisites
+
+- Python >= 3.12
+- [uv](https://docs.astral.sh/uv/) package manager (`brew install uv` or `pip install uv`)
+- Node.js >= 20 (for the frontend)
+
+## Quickstart (backend, stub mode — no API key needed)
+
+```bash
+# 1. Install dependencies
+uv sync --extra dev
+
+# 2. Copy env file
+cp .env.example .env
+
+# 3. Start the server
+uv run uvicorn src.api.main:app --port 8001
+
+# 4. Verify health
+curl http://localhost:8001/health
+# -> {"status":"ok","stub_mode":true,"llm_provider":"stub"}
+```
+
+To use live Gemini AI, set `DAA_LLM_PROVIDER=gemini` and `DAA_GEMINI_API_KEY=your-key` in `.env`.
+
+---
+
 # SDD Agent Harness
 
 A spec-driven development harness for building AI agents with Claude Code.
