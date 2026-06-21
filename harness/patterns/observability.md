@@ -60,10 +60,31 @@ The analyser holds a standing observation mandate but acts on signals. Invoke it
 - On material signals: errors, failing/flaky tests, slow generations, repeated user
   frustration in the prompts
 
+## Tracing — OpenTelemetry GenAI conventions
+
+Standardise structured-log / span fields on the OTel **GenAI** semantic conventions so traces
+are portable to Langfuse / Phoenix / Logfire with a one-line exporter swap, and double as eval
+inputs. Use the span hierarchy `invoke_agent → chat → execute_tool` and these attribute names:
+
+- `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.finish_reasons`
+- `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
+- `gen_ai.tool.name`
+
+Inventing bespoke attribute names locks you out of that ecosystem. Default to console/local
+export — **never** default telemetry to a vendor; a SaaS exporter is one opt-in env var. Add a
+redaction flag (`TRACE_INCLUDE_SENSITIVE_DATA=false`) to honour
+[secret-hygiene.md](../rules/secret-hygiene.md).
+
 ## A build is not done until logs reconcile
 
 The loop closes when `spec ↔ src ↔ logs` agree and the analyser has nothing outstanding.
 A system that runs but whose logs diverge from the spec is not done.
+
+**Without an executable drift check, SDD collapses back into documentation-driven
+development** — a reconciliation rule with no automated check is just a wish. Bind the loop to
+at least one mechanical check (exit code is the verdict), using any of: schema validation,
+contract tests, payload inspection, spec-diffs. The analyser owns these (see
+[../process/agents/analyser.md](../process/agents/analyser.md)).
 
 ## Phase tracking in git
 

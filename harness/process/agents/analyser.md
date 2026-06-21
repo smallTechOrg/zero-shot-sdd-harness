@@ -35,3 +35,22 @@ The analyser is always watching. The supervisor invokes it:
 - **May write:** `logs/analysis/` and proposed `spec/` amendments (for approval).
 - **Must not:** silently edit the goal (`spec/`) or the action (`src/`). It observes and
   proposes; others change.
+
+---
+
+## Drift is checked, not just asserted
+
+Reconciliation with no executable check collapses SDD back into documentation-driven
+development. At every phase gate the analyser runs at least one mechanical check, not a prose
+opinion:
+
+- **Coverage:** every EARS Success Criterion maps to ≥1 passing acceptance test; every `src/`
+  module maps to a spec section. An orphan on either side is drift.
+- **Merge integrity:** every `done` CR's delta was folded into the spec baseline (no applied
+  change left un-merged — the silent reconciliation break).
+- **Behaviour:** the `evals/` golden set passes at threshold; trajectory signals (turn /
+  tool-call / token counts) are within budget.
+
+Concrete techniques: schema validation, contract tests, payload inspection, spec-diffs. See
+[observability.md](../../patterns/observability.md). The check's exit status is the verdict —
+"it should reconcile" is not a result.

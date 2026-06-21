@@ -30,14 +30,18 @@ Sub-agents share no memory. Coordination is through durable artefacts on disk.
 Runs the intake script (`harness/process/agents/researcher.md`):
 - Round 1: 4 core questions — problem, users, success criteria, constraints
 - Round 2: 4 detail questions — integrations, non-goals, data shape, first runnable milestone
-- Round N: adaptive until FR is complete or user accepts the risk of gaps
-- Proposes tech stack; user approves
+- Writes the FR with **EARS Success Criteria** and `[NEEDS CLARIFICATION]` markers wherever
+  it would otherwise guess; resolves all markers in **one bounded clarify pass**
+- Proposes tech stack (DuckDB vs Postgres is first-class); user approves
 - Collects all API keys before sign-off; records which are present (boolean) in session report
-- Writes `spec/features/FR-NNN.md` from template (`harness/process/templates/FR.md`)
-- Fills `spec/rules/tech-stack.md` with the approved stack
+- Writes `spec/features/FR-NNN.md` from template; fills `spec/rules/tech-stack.md`
 
-**Gate (supervisor):** FR coherent, stack approved, all keys identified.
-After sign-off the pipeline runs autonomously, gated by tests and user acceptance.
+**Pre-code spec gate (reviewer):** before the planner starts, the reviewer checks the FR for
+the four requirement-bug classes (wrong level of detail, ambiguity, conflict, incompleteness)
+and any unresolved marker. Cheapest place to catch a defect. (See `reviewer.md`.)
+
+**Gate (supervisor):** FR coherent, EARS criteria testable, stack approved, all keys identified,
+no open clarification markers. After sign-off the pipeline runs autonomously.
 
 ### 2. planner — slice into 15-minute iterations
 
@@ -56,13 +60,23 @@ Records the full iteration plan in the session report (see planner agent for for
 
 Implements exactly one iteration per invocation. No more.
 
-**Iteration 0 steps (always):**
-1. Copy `harness/recipes/python/` to the project root
+**Iteration 0 steps — stack-conditional** (the planner names the recipe; see the selection
+table in `planner.md`). Copying the *wrong* recipe is exactly how the slow build lost — the
+recipe must match the approved stack:
+
+1. Copy the **selected** recipe to the project root:
+   - DuckDB / analytics → `harness/recipes/python-fastapi-duckdb/`
+   - PostgreSQL / transactional → `harness/recipes/python-fastapi-postgres/`
 2. Replace all `appname` / `APPNAME` occurrences with the project name
-3. `uv sync`
-4. `uv run alembic revision --autogenerate -m "init"`
-5. `uv run alembic upgrade head`
-6. Confirm `curl http://localhost:8001/health` returns 200
+3. `uv sync --extra dev`
+4. Initialise the schema — **conditional on the recipe**:
+   - Postgres recipe → `uv run alembic revision --autogenerate -m "init"` → `alembic upgrade head`
+   - DuckDB recipe → `uv run python -c "from src.db import create_tables; create_tables()"`
+     (no Alembic; see [gotchas.md](../../rules/gotchas.md) C-DUCKDB-VIEW)
+5. Confirm `curl http://localhost:8001/health` returns 200 with `stub_mode: true`
+6. **Update `README.md`** — name, one-line description, prerequisites, exact `uv sync` +
+   run quickstart, `.env` setup. README is an Iteration-0 deliverable, never deferred
+   (C-README).
 7. Commit: `iter-0: scaffold — /health green`
 
 **Subsequent iterations:**
@@ -83,11 +97,20 @@ Implements exactly one iteration per invocation. No more.
 
 Reviews `src/` against the FR after each iteration.
 
-**Gate (all four required before next iteration starts):**
-1. Tests pass — output shown in session report
-2. Working tree clean and pushed
-3. Reviewer signed off
-4. Session report updated
+**The fixed gate checklist** (the planner does not re-invent it; the reviewer runs it).
+Every line is pass/fail — an iteration that fails any applicable line is not done:
+
+1. Gate command run, **output shown** in the session report (not "should pass").
+2. Tests green against the **production driver**; offline (`…=stub`, no key, no network).
+3. Golden-path smoke asserts rendered **content**, not just a 200 status.
+4. Live-server: `python -m src` up; `curl /health` + one real page → 200, **exit codes logged**.
+5. Stub mode is visibly **banner-labelled** in any UI (C-STUB-BANNER).
+6. **No carry-forward defect deferred a second time** — a flagged defect is fixed, not re-noted.
+7. Evals pass at threshold (agent-behaviour iterations); README current at the final gate.
+8. Working tree clean and pushed; session report updated.
+
+See [testing.md](../../rules/testing.md) for the full gate law and
+[gotchas.md](../../rules/gotchas.md) for the referenced IDs.
 
 ### 5. deployer — ship after Iteration 2
 

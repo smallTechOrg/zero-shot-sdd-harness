@@ -8,6 +8,19 @@ shared with the build workflow.
 
 ---
 
+## Size the fix first — ceremony scales to the change
+
+Artifact depth must match change size. The category-wide failure of SDD tooling is using a
+sledgehammer on a one-line bug. Route by size:
+
+| Change size | Path |
+|-------------|------|
+| One-line / obvious / single-file, no behaviour change to spec | **Light path:** a thin CR (delta only) + the single gate that proves it + one reviewer line. Skip the full pipeline. |
+| Touches ≥3 files or both spec and src, or changes documented behaviour | **Full path** below (analyser → planner → … ↺) |
+
+Either way the CR is a **delta** and folds back into the spec baseline when it lands (the
+archive/merge step in [spec-driven.md](../../rules/spec-driven.md)). Never skip the merge.
+
 ## When to use
 
 - A gate test is failing or flaky
