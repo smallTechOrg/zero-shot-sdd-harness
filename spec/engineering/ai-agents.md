@@ -305,76 +305,99 @@ Before the ReAct loop starts, all Tool + Capability records for the session are 
 tools: list[dict]  # [{"name", "type", "config", "capabilities": [{"name", "description", "parameter_schema"}]}]
 ```
 
-### LLM response modes
+### LLM response — execution plan
 
-The LLM can respond in two modes. Decide which mode(s) the agent supports in `07-agent-graph.md` before writing any code; the `plan_action` prompt must instruct the LLM accordingly.
-
-**Mode 1 — Single tool call**
-
-The LLM invokes one tool and waits for the result before deciding the next step. Use this mode when steps are sequential and each depends on the previous result.
-
-```json
-{"tool": "weather_api", "capability": "get_forecast", "parameters": {"city": "London"}}
-```
-
-**Mode 2 — Execution plan**
-
-The LLM emits a structured workflow that the runtime executes — with parallel branches, conditional routing, sub-agent invocations, and join strategies. Use this mode when tasks can be parallelised or when the overall workflow has branching logic too complex to reason about linearly.
+The LLM always responds with a structured **execution plan** that the agent runtime interprets. The plan is a state machine: each state is a named node with a type, transition fields (`on_success`, `on_error`), and type-specific fields. The runtime walks the graph, executing each state in order, launching parallel branches concurrently, and routing on outcomes.
 
 ```yaml
-id: market_and_travel_analyzer
+id: agent_market_and_travel_analyzer    # canonical name for this task
+goal: "Analyze stock trends and flight prices simultaneously, then book if both align."
+start: fork_research_tasks              # entry-point state
+
 states:
-  fork_research:
+
+  fork_research_tasks:
     type: parallel
     branches:
-      - id: stock_branch
+      - id: stock_analysis_branch
+        start: fetch_market_data
         states:
-          fetch_stock:
+          fetch_market_data:
             type: tool_call
-            tool: get_stock_ticker
-            parameters: { ticker: "AAPL" }
-      - id: travel_branch
+            tool_name: stock_ticker_api
+            capability_name: get_stock_ticker
+            arguments: { ticker: "AAPL" }
+            on_success: branch_complete
+            on_error:                   # empty = propagate to workflow default
+
+      - id: travel_analysis_branch
+        start: fetch_flight_data
         states:
-          fetch_flights:
+          fetch_flight_data:
             type: tool_call
-            tool: get_flight_price
-            parameters: { destination: "SFO" }
+            tool_name: flight_price_api
+            capability_name: get_flight_price
+            arguments: { destination: "SFO" }
+            on_success: branch_complete
+            on_error: abort_workflow
+
     join:
-      strategy: all        # wait for all branches; "race" = first-wins
-      next: evaluate
+      strategy: all   # "all" = wait for every branch; "race" = first-wins
+      next: evaluate_combined_metrics
 
-  evaluate:
+  evaluate_combined_metrics:
     type: reasoning
-    instructions: "Review stock trend and flight price. Decide whether to book."
-    next: decide
+    instructions: "Look at the stock trend from stock_analysis_branch and flight price from travel_analysis_branch. Make a booking decision."
+    on_success: execute_action
 
-  decide:
+  execute_action:
     type: switch
-    expression: "stock_trend == 'bullish' && flight_price < 400"
+    expression: "context.stock_analysis_branch.last_output.trend == 'bullish' && context.travel_analysis_branch.last_output.price < 400"
     cases:
-      true:  complete
-      false: abort
+      true:  complete_workflow
+      false: abort_workflow
+    on_error: abort_workflow
+
+  complete_workflow:
+    type: end
+    status: success
+
+  abort_workflow:
+    type: end
+    status: failed
+    reason: "Market conditions or flight prices did not meet optimization thresholds."
 ```
 
-Execution plan node types:
+**Execution plan fields:**
 
-| Type | Description |
+| Top-level field | Description |
 |---|---|
-| `tool_call` | Invoke a single tool capability with parameters |
-| `parallel` | Fork into concurrent branches; join by `all` (wait for all) or `race` (first wins) |
-| `reasoning` | Pass intermediate results back to the LLM for a reasoning step |
-| `switch` | Conditional branch based on an expression over accumulated context |
-| `end` | Terminal state — success or failure with an optional reason |
+| `id` | Canonical name for this task instance |
+| `goal` | The objective as understood by the LLM |
+| `start` | Name of the entry-point state |
+| `states` | Map of state name → state definition |
+
+**State types:**
+
+| Type | Key fields | Description |
+|---|---|---|
+| `tool_call` | `tool_name`, `capability_name`, `arguments`, `on_success`, `on_error` | Invoke a tool capability; route on outcome |
+| `parallel` | `branches[]` (`id`, `start`, `states`), `join` (`strategy`, `next`) | Fork concurrent branches; join by `all` (every branch) or `race` (first wins) |
+| `reasoning` | `instructions`, `on_success` | Pass accumulated context back to the LLM for a reasoning step |
+| `switch` | `expression`, `cases`, `on_error` | Route based on an expression over `context` |
+| `end` | `status`, `reason` (optional) | Terminal state — `success` or `failed` |
+
+`on_error` is optional on any state. An empty or absent `on_error` propagates the failure to the nearest enclosing parallel branch or the workflow default error handler.
 
 ### Tool invocation (`invoke_tool`)
 
 `invoke_tool` resolves the named tool from the session's registry, then calls the appropriate capability method on that tool instance with the provided parameters. Each tool encapsulates its own internal implementation — the harness does not prescribe how a specific tool type queries a provider or manages connections. That is the tool's responsibility.
 
-For **single tool calls** (Mode 1), `invoke_tool` calls the capability, captures the result or error, appends it to `tool_call_history`, and returns to `plan_action`.
+The plan executor walks the execution plan graph: for `tool_call` states it resolves the tool by `tool_name`, calls the named `capability_name` with `arguments`, and routes via `on_success` or `on_error`. For `parallel` states it launches all branches as concurrent tasks and holds at the join point until the join strategy is satisfied. For `reasoning` states it passes accumulated context back to the LLM. For `switch` states it evaluates the expression against `context` and routes to the matching case.
 
-For **execution plans** (Mode 2), a plan executor interprets the plan graph: launching parallel branches as concurrent tasks, waiting at join points per the join strategy (`all` / `race`), routing through conditionals, and invoking sub-agents as opaque tool calls. The master agent receives only the final output of each branch — not the sub-agent's internal trace.
+Sub-agent tools are invoked the same way as any other `tool_call` — the plan executor is unaware of whether the tool is an API wrapper or a child agent.
 
-`invoke_tool` must never raise. Any failure is captured as a `tool_call_history` entry with `is_error: True` and returned to `plan_action` for self-correction, unless the failure is infrastructure-level (see Self-correction below).
+`invoke_tool` must never raise. Any tool failure is captured in `tool_call_history` with `is_error: True` and handled via the state's `on_error` transition. Infrastructure-level failures (provider unreachable, credentials revoked) route directly to `handle_error` — see Self-correction below.
 
 ### Self-correction on tool errors
 
@@ -407,38 +430,36 @@ The key principle: **if the LLM could correct the mistake given better informati
 
 ### Prompting the LLM about available tools
 
-The `plan_action` prompt must list every available tool and capability, specify the response mode(s) the agent supports, and show the exact format for each mode.
+The `plan_action` prompt must list every available tool and capability, and instruct the LLM to respond with an execution plan.
 
 **Minimum required elements:**
-- Every tool: name, description, each capability with its parameter schema
-- Sub-agent tools listed the same way as regular tools (name, capability, prompt parameter)
-- The exact invocation format for the supported mode(s) — never leave format ambiguous
-- The FINAL ANSWER signal on the same page so the LLM sees all three options together
-- Real names for everything (actual tool names, actual API endpoints) — no generic placeholders
+- Every tool: `tool_name`, description, each capability with `capability_name` and `arguments` schema
+- Sub-agent tools listed the same as regular tools
+- The execution plan schema — show the state types, required fields, and transition fields
+- The FINAL ANSWER signal
+- Real names throughout — no generic placeholders like `<tool>` or `<endpoint>`
 
-**Example prompt block (Mode 1 + sub-agent):**
+**Example prompt block:**
 
 ```
 Available tools:
 
-Tool: weather_api  — Get conditions and forecasts from the weather service.
-  Capability: get_forecast
-    Parameters:
+tool_name: weather_api  — Current conditions and forecasts.
+  capability_name: get_forecast
+    arguments:
       city  (string, required)  — City name.
       days  (integer, optional) — Forecast days (default: 3).
 
-Tool: market_analyst_agent  — Specialist agent for equity analysis.
-  Capability: analyze
-    Parameters:
-      prompt  (string, required)  — Analysis question to answer.
+tool_name: market_analyst_agent  — Specialist agent for equity analysis.
+  capability_name: analyze
+    arguments:
+      prompt  (string, required)  — Analysis question.
 
-To invoke a tool:
-{"tool": "<name>", "capability": "<capability>", "parameters": {...}}
+Respond with a YAML execution plan using the schema defined in your instructions.
+Use tool_call states to invoke tools, parallel states for concurrent work,
+reasoning states to analyse intermediate results, and switch states to branch.
 
-To emit an execution plan (use when tasks can run in parallel):
-{"type": "parallel", "branches": [...], "join": {"strategy": "all", "next": "<state>"}, ...}
-
-When you have enough information to answer:
+When you have enough information to answer the user's question:
 FINAL ANSWER: <your complete answer here>
 ```
 
@@ -467,7 +488,7 @@ Persist `tool_call_history` to the database as JSON so it can be surfaced in the
 
 Before writing any node code, `07-agent-graph.md` must answer:
 
-1. **Which LLM response mode(s) does this agent support?** Single tool call, execution plan, or both — and what is the exact format for each.
+1. **What is the execution plan schema for this agent?** Define the full YAML structure — state types in use, required fields per type, transition field conventions, and the `context` access pattern for referencing branch outputs.
 2. What is the exact FINAL ANSWER signal string?
 3. What constitutes a recoverable tool error vs a fatal error?
 4. What is the max iterations default?
