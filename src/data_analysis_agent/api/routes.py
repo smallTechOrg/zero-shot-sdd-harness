@@ -70,34 +70,44 @@ def upload_csv(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise api_error("INVALID_FILE", "Only CSV files are supported.")
+    supported_extensions = (".csv", ".xlsx", ".xls", ".json")
+    filename = file.filename or ""
+    if not any(filename.lower().endswith(ext) for ext in supported_extensions):
+        raise api_error("INVALID_FILE", f"Supported file types: {', '.join(supported_extensions)}")
 
     settings = get_settings()
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
+    parquet_dir = upload_dir / "parquet"
 
-    ds = DataSourceRow(name=file.filename, type="csv", file_path="")
+    ds = DataSourceRow(name=filename, type="csv", file_path="")
     session.add(ds)
     session.flush()
 
-    dest = upload_dir / f"{ds.id}.csv"
-    with dest.open("wb") as f:
+    # Save original upload as-is
+    suffix = Path(filename).suffix.lower()
+    raw_dest = upload_dir / f"{ds.id}{suffix}"
+    with raw_dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    # Convert to Parquet and extract metadata
     try:
-        df = pd.read_csv(str(dest))
-        ds.file_path = str(dest)
-        ds.row_count = len(df)
-        ds.column_names = list(df.columns)
+        from data_analysis_agent.tools.ingester import FileIngester
+        result = FileIngester().ingest(str(raw_dest), parquet_dir, ds.id)
     except Exception as exc:
-        dest.unlink(missing_ok=True)
+        raw_dest.unlink(missing_ok=True)
         session.rollback()
-        raise api_error("PARSE_FAILED", f"Could not parse CSV: {exc}")
+        raise api_error("PARSE_FAILED", f"Could not process file: {exc}")
 
-    # Derive SQL-safe table name from filename
+    ds.file_path = str(raw_dest)
+    ds.parquet_path = result.parquet_path
+    ds.row_count = result.row_count
+    ds.column_names = result.column_names
+    ds.schema_json = result.schema_json
+
+    # Derive SQL-safe table name from original filename stem
     import re
-    table_name = re.sub(r'[^\w]', '_', file.filename.rsplit('.', 1)[0]).lower()
+    table_name = re.sub(r'[^\w]', '_', filename.rsplit('.', 1)[0]).lower()
     table_name = re.sub(r'_+', '_', table_name).strip('_') or 'data'
     if table_name[0].isdigit():
         table_name = 'ds_' + table_name
@@ -107,7 +117,10 @@ def upload_csv(
         name="csv_query",
         type="csv_query",
         description=f"Execute SQL SELECT queries against '{ds.name}' (table: {table_name}).",
-        config_json=json.dumps({"table_name": table_name}),
+        config_json=json.dumps({
+            "table_name": table_name,
+            "parquet_path": result.parquet_path,
+        }),
     )
     session.add(tool)
     session.flush()
@@ -124,7 +137,15 @@ def upload_csv(
         }),
     )
     session.add(cap)
-    log.info("upload.success", data_source_id=ds.id, filename=file.filename, table=table_name)
+    log.info(
+        "upload.success",
+        data_source_id=ds.id,
+        filename=filename,
+        table=table_name,
+        parquet_path=result.parquet_path,
+        rows=result.row_count,
+        parquet_bytes=result.file_size_bytes,
+    )
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -153,6 +174,8 @@ def delete_datasource(
 
     if ds.file_path:
         Path(ds.file_path).unlink(missing_ok=True)
+    if ds.parquet_path:
+        Path(ds.parquet_path).unlink(missing_ok=True)
 
     session.delete(ds)
     log.info("datasource.deleted", datasource_id=datasource_id)

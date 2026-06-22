@@ -26,8 +26,10 @@ class DataSourceRow(Base):
     type: Mapped[str] = mapped_column(Text, nullable=False, default="csv")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parquet_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     column_names_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, default=_now
     )
@@ -41,6 +43,13 @@ class DataSourceRow(Base):
     @column_names.setter
     def column_names(self, value: list[str]) -> None:
         self.column_names_json = json.dumps(value)
+
+    @property
+    def schema(self) -> list[dict]:
+        """Column schema with dtype and nullability: [{name, dtype, nullable}]."""
+        if self.schema_json:
+            return json.loads(self.schema_json)
+        return []
 
 
 class ToolRow(Base):

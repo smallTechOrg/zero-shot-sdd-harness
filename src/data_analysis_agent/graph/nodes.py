@@ -1,6 +1,7 @@
 import json
 import math
 import sqlite3
+from pathlib import Path
 
 import pandas as pd
 import structlog
@@ -79,6 +80,7 @@ def _load_tool_registry(session_id: str) -> tuple[list[dict], list[dict]]:
                     "name": ds.name,
                     "type": ds.type,
                     "file_path": ds.file_path,
+                    "parquet_path": ds.parquet_path,
                     "column_names": ds.column_names,
                     "row_count": ds.row_count,
                 })
@@ -210,15 +212,25 @@ def load_data(state: AgentState) -> AgentState:
         all_column_names: list[str] = []
         total_rows = 0
 
-        # Load each CSV into the shared in-memory SQLite under its own table name
+        # Load each data source into the shared in-memory SQLite under its own table name.
+        # Prefer Parquet (preserves dtypes); fall back to raw CSV for pre-Parquet uploads.
         updated_tools = []
         for ds in data_sources:
-            if ds["type"] == "csv" and ds.get("file_path"):
-                table = _table_name_for(ds["name"])
-                df = pd.read_csv(ds["file_path"])
-                df.to_sql(table, conn, index=False, if_exists="replace")
-                all_column_names.extend([f"{table}.{c}" for c in df.columns])
-                total_rows += len(df)
+            parquet_path = ds.get("parquet_path")
+            file_path = ds.get("file_path")
+
+            if parquet_path and Path(parquet_path).exists():
+                df = pd.read_parquet(parquet_path)
+            elif file_path and Path(file_path).exists():
+                df = pd.read_csv(file_path)
+            else:
+                log.warning("load_data.no_file", ds_id=ds.get("id"), name=ds.get("name"))
+                continue
+
+            table = _table_name_for(ds["name"])
+            df.to_sql(table, conn, index=False, if_exists="replace")
+            all_column_names.extend([f"{table}.{c}" for c in df.columns])
+            total_rows += len(df)
 
         # Ensure each tool's config has the correct runtime table name
         for tool in tools:
