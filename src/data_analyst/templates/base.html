@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Senior Data Analyst Agent{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; color: #1a1a1a; background: #f7f7f8; }
+    header { background: #0f172a; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+    header a { color: #cbd5e1; text-decoration: none; }
+    .banner { background: #b45309; color: #fff; padding: 8px 20px; font-size: 14px; }
+    main { padding: 20px; }
+    .cols { display: grid; grid-template-columns: 280px 1fr 320px; gap: 16px; }
+    .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
+    .panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: #475569; margin-top: 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #e2e8f0; padding: 4px 8px; text-align: left; }
+    th { background: #f1f5f9; }
+    .msg { padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; }
+    .msg.user { background: #e0e7ff; }
+    .msg.assistant { background: #f1f5f9; }
+    code, pre { background: #0f172a; color: #e2e8f0; border-radius: 6px; }
+    pre { padding: 8px; overflow-x: auto; font-size: 12px; }
+    input[type=text], input[type=file] { width: 100%; padding: 6px; margin: 4px 0; box-sizing: border-box; }
+    button { background: #2563eb; color: #fff; border: 0; padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+    .audit .err { color: #b91c1c; }
+    .audit .ok { color: #15803d; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>📊 Senior Data Analyst Agent</strong>
+    <a href="/">Home</a>
+  </header>
+  {% if llm_provider == "stub" %}
+  <div class="banner">
+    ⚠ STUB MODE — no Gemini API key set. Answers are placeholder text, not real AI output.
+    Set <code>DATA_ANALYST_GEMINI_API_KEY</code> to enable real Gemini.
+  </div>
+  {% endif %}
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

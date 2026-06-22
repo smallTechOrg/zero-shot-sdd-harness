@@ -1,11 +1,22 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
+
+
+def _apply_sqlite_pragmas(engine: Engine) -> None:
+    """WAL + a busy timeout so nested writers (route + graph) queue, not error."""
+
+    @event.listens_for(engine, "connect")
+    def _set_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 
 def _get_engine() -> Engine:
@@ -16,6 +27,8 @@ def _get_engine() -> Engine:
         url = get_settings().database_url
         connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
         _engine = create_engine(url, echo=False, connect_args=connect_args)
+        if url.startswith("sqlite"):
+            _apply_sqlite_pragmas(_engine)
     return _engine
 
 

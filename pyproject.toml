@@ -36,3 +36,7 @@ packages = ["src/data_analyst"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+    "ignore:Field name \"schema_json\".*:UserWarning",
+    "ignore:Using `httpx` with `starlette.testclient`.*:DeprecationWarning",
+]

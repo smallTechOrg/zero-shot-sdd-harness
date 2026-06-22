@@ -1,178 +1,104 @@
-# AI Agent Boilerplate — Spec-Driven, Zero-Shot to Working Agent
+# Senior Data Analyst Agent
 
-This is a boilerplate for building AI agents spec-first. Give it a one-line idea. Walk away with a working, tested, phased agent.
+> **All commands run from the repository root** (this directory — where `pyproject.toml` and `alembic.ini` live). There is no subdirectory to `cd` into.
 
----
+Store multiple datasets, ask questions across them in **natural language**, and get back formatted text + result tables. Every SQL/data operation is written to an **audit log**. Sessions are **persistent** (survive restarts). Highly **token-economical**: only a dataset's schema and a few sample rows ever reach the LLM — never your raw data.
 
-## What This Is
+- **LLM:** Google Gemini (`gemini-2.5-flash` default, `gemini-2.5-pro` for complex questions). Runs in **offline stub mode** with no API key (the UI shows a banner) — set a key to enable real Gemini.
+- **Engines:** [DuckDB](https://duckdb.org) runs analytical SQL over your datasets; a small SQLite store (SQLAlchemy + Alembic) holds sessions, the dataset registry, messages, and the audit log.
 
-A starting point for anyone who wants to build an AI agent without writing boilerplate from scratch. The repo ships with:
+## Requirements
 
-- A structured **spec template** covering product vision, architecture, capabilities, data model, API, and UI
-- An **agent-builder** sub-agent that orchestrates the full build lifecycle
-- Sub-agents for spec writing, reviewing, tech design, planning, and auditing
-- Engineering rules baked into the spec so every AI coding session is consistent
-- Phase-gated implementation — minimal working thing first, then iterative expansion
+- Python 3.12+
+- [`uv`](https://docs.astral.sh/uv/)
 
----
-
-## How to Use This
-
-### Step 1 — Clone and configure
+## Setup
 
 ```bash
-git clone https://github.com/smallTechOrg/ai-spec-driven-boilerplate.git my-agent
-cd my-agent
-cp .env.example .env
+# from the repo root
+cp .env.example .env          # defaults work out of the box (stub mode)
+uv sync                       # install dependencies
 ```
 
-### Step 2 — Open in Claude Code (or any AI coding assistant)
+Create the metadata database schema (run from the repo root):
 
 ```bash
-claude
+uv run alembic upgrade head
+uv run alembic current        # must print a revision hash (e.g. "530216b527e1 (head)"), not blank
 ```
 
-### Step 3 — Kick off the agent builder with your idea
+A blank `alembic current` means no migration was applied — re-run `upgrade head`.
 
-```
-/build I want an agent that monitors my Shopify store for low-inventory products and automatically drafts restock emails to suppliers
-```
+## Run the app
 
-Or just describe your idea naturally — the agent-builder will take it from there.
-
----
-
-## What Happens Next (Fully Automated)
-
-The **agent-builder** orchestrates this sequence:
-
-```
-Your idea
-    ↓
-[spec-writer]     → Asks clarifying questions → Drafts product spec
-    ↓
-[spec-reviewer]   → Checks coherence, flags gaps → Requests revisions
-    ↓
-[spec-writer]     → Iterates until spec is complete
-    ↓
-[tech-designer]   → Proposes tech stack, architecture, data model
-    ↓
-You approve the spec & tech design
-    ↓
-[planner]         → Breaks work into phases (minimal → complete)
-    ↓
-[plan-reviewer]   → Validates plan against spec
-    ↓
-Phase 1: Build the minimal working agent (core loop, no polish)
-    ↓
-[qa-auditor]      → Tests phase 1
-    ↓
-Phase 2, 3, ... : Iterate and expand
-    ↓
-[drift-auditor]   → Ensures code matches spec throughout
-    ↓
-Hand-off to you
+```bash
+# from the repo root
+uv run python -m data_analyst
 ```
 
-**Nothing is skipped.** If a phase fails QA, it stays in that phase until it passes.
+Then open **http://localhost:8001**.
 
----
+1. Create a session.
+2. Upload a CSV or Parquet file as a dataset.
+3. Ask a question in natural language — the agent generates SQL, runs it in DuckDB, and shows the answer + table.
+4. Check the **Audit log** panel to see every SQL/data operation.
 
-## Development Phases (Default Model)
+### Enable real Gemini (optional)
 
-| Phase | What Gets Built |
-|-------|-----------------|
-| 1 | Domain models + data layer |
-| 2 | Core agent loop (no integrations, stubbed tools) |
-| 3 | First real integration (the "happy path" end-to-end) |
-| 4 | Error handling, retries, resilience |
-| 5 | Remaining integrations |
-| 6 | API / CLI surface |
-| 7 | Basic UI (if needed) |
-| 8 | Integration tests |
-| 9 | Observability + logging |
-| 10 | Polish, documentation, hand-off |
+Set your key in `.env` (no other flag needed — `provider=auto` switches automatically):
 
-Each phase ends with a commit and passes QA before the next phase begins.
-
----
-
-## Repo Layout
-
-```
-.claude/
-  agents/           ← Sub-agents (agent-builder, spec-writer, etc.)
-  commands/         ← Slash commands (/build, /spec-check, /plan)
-.github/
-  copilot-instructions.md  ← Global Copilot instructions (mandatory spec reads)
-  agents/           ← Copilot agent mode definitions (drift-auditor, planner, etc.)
-  prompts/          ← Slash-style Copilot prompts (/plan, /challenge, /spec-check)
-  instructions/     ← Scoped auto-applied rules (code-style, secret-hygiene, etc.)
-spec/
-  product/          ← What your agent does (fill this in or let spec-writer do it)
-  engineering/      ← How AI agents should write code for this project (immutable rules)
-    workflows/      ← Step-by-step procedures for each agent/workflow type
-reports/
-  sessions/         ← Auto-generated session logs from every AI coding session
-CLAUDE.md           ← Entry point for Claude Code
-AGENTS.md           ← Entry point for OpenAI Codex / GitHub Copilot
-.env.example        ← Environment variable template
+```bash
+DATA_ANALYST_GEMINI_API_KEY=your-key-here
 ```
 
----
+Without a key the app stays fully usable in **stub mode** (a banner makes this obvious).
 
-## Manually Editing the Spec
+## Run the tests
 
-If you prefer to write the spec yourself before involving AI:
+```bash
+# from the repo root — no Gemini API key required
+uv run pytest
+```
 
-1. Open `spec/product/01-vision.md` and fill in the placeholders
-2. Work through each file in `spec/product/` in order
-3. Once the spec is complete, run `/plan` to jump straight to the planning phase
+Tests run against SQLite (the production metadata driver) and the real DuckDB engine, with the LLM stubbed — fully offline, no network.
 
----
+## Configuration
 
-## Rules That AI Agents Follow
+All variables are prefixed `DATA_ANALYST_` (see `.env.example`):
 
-Every AI session in this repo follows the rules in `spec/engineering/ai-agents.md`:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATA_ANALYST_DATABASE_URL` | `sqlite:///./data/metadata.db` | SQLite metadata store |
+| `DATA_ANALYST_DUCKDB_PATH` | `./data/datasets.duckdb` | DuckDB analytical engine file |
+| `DATA_ANALYST_GEMINI_API_KEY` | _(empty)_ | Gemini key; empty = stub mode |
+| `DATA_ANALYST_LLM_PROVIDER` | `auto` | `auto` \| `gemini` \| `stub` |
+| `DATA_ANALYST_LLM_MODEL` | `gemini-2.5-flash` | NL→SQL / summary model |
+| `DATA_ANALYST_LLM_MODEL_ESCALATION` | `gemini-2.5-pro` | Model for complex questions |
+| `DATA_ANALYST_SAMPLE_ROWS` | `5` | Sample rows per dataset sent to the LLM |
+| `DATA_ANALYST_PORT` | `8001` | Web server port |
 
-- Read the full spec before writing any code
-- Open a session report at `reports/sessions/`
-- Commit every logical unit of work (never accumulate uncommitted changes)
-- One phase at a time — no skipping
-- Write tests before marking a phase complete
-- Update this README whenever the project layout changes
+## What's in v0.1
 
----
+- Dataset management (upload CSV/Parquet, register, list)
+- Natural-language cross-dataset queries → text + tables
+- Audit logging of every SQL/data operation
+- Persistent sessions
 
-## FAQ
+**Deferred to later phases:** charts, dashboards, deeper senior-analyst workflow simulation.
 
-**Can I use this without Claude Code?**
-Yes. `AGENTS.md` has the same entry point for OpenAI Codex and GitHub Copilot. The sub-agents are plain markdown files.
+## Architecture
 
-**What if my agent needs a database?**
-The spec template includes a data model section. The tech-designer sub-agent will recommend the right database for your use case.
+```
+Browser (FastAPI + Jinja2, port 8001)
+        │
+        ▼
+LangGraph agent:  plan → generate_sql → execute_sql → summarize → finalize   (+ handle_error)
+        │                         │
+   Gemini (schema + samples)      ▼
+                            DuckDB (your datasets, analytical SQL — aggregation happens here)
+        │
+        ▼
+SQLite metadata store: sessions · datasets · messages · audit log
+```
 
-**What if I already have a tech stack in mind?**
-Tell the agent-builder upfront: `/build [idea] — use Python + FastAPI + PostgreSQL`. It will skip the tech design Q&A for those decisions.
-
-**What if something breaks?**
-Each phase is resilient by design. The QA auditor will catch failures before the next phase starts. You can always re-run a phase.
-
----
-
-## Test-Branch Workflow
-
-The recommended way to iterate on this boilerplate:
-
-1. Keep `main` as the clean boilerplate — only spec, engineering rules, and agent config.
-2. For each build attempt, create a numbered test branch: `test-1`, `test-2`, etc.
-3. Give the agent-builder a single-line prompt on the test branch. Let it build.
-4. Review and test the result on that branch.
-5. **Never merge the generated application code back to main.** Test branches are disposable.
-6. If a run surfaces a boilerplate improvement (a clearer spec template, a missing rule), cherry-pick or manually apply that fix to `main`.
-
----
-
-## Contributing
-
-This is a boilerplate, not a framework. Improvements to the spec templates, engineering rules, agent definitions, or workflow specs belong on `main`. Generated application code does not.
+Only schema + sample rows reach the LLM; raw data and full result sets never leave the machine.

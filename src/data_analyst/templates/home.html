@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel" style="max-width: 640px;">
+  <h2>Sessions</h2>
+  {% if sessions %}
+  <ul>
+    {% for s in sessions %}
+    <li><a href="/sessions/{{ s.id }}">{{ s.name }}</a> <small>(updated {{ s.updated_at.strftime("%Y-%m-%d %H:%M") }})</small></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No sessions yet. Create one to start analysing data.</p>
+  {% endif %}
+  <form method="post" action="/sessions/new">
+    <input type="text" name="name" placeholder="New session name, e.g. Q2 billing review" required>
+    <button type="submit">Create session</button>
+  </form>
+</div>
+{% endblock %}

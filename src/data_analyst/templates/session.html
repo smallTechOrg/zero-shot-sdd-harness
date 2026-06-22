@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ session.name }} — Data Analyst{% endblock %}
+{% block content %}
+<h1 style="font-size:18px;">{{ session.name }}</h1>
+<div class="cols">
+
+  <section class="panel">
+    <h2>Datasets</h2>
+    {% if datasets %}
+    <ul>
+      {% for d in datasets %}
+      <li><strong>{{ d.name }}</strong> <small>({{ d.file_format }}, {{ d.row_count }} rows)</small></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p><small>No datasets yet. Upload a CSV or Parquet file.</small></p>
+    {% endif %}
+    <form method="post" action="/sessions/{{ session.id }}/upload" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".csv,.parquet" required>
+      <input type="text" name="name" placeholder="Display name (optional)">
+      <button type="submit">Upload dataset</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Conversation</h2>
+    {% if messages %}
+      {% for m in messages %}
+      <div class="msg {{ m.role }}">
+        <strong>{{ m.role }}:</strong> {{ m.content }}
+        {% if m.generated_sql %}<pre>{{ m.generated_sql }}</pre>{% endif %}
+        {% if m.result_table_json and m.result_table_json.columns %}
+        <table>
+          <thead><tr>{% for c in m.result_table_json.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for row in m.result_table_json.rows[:50] %}
+            <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+    <p><small>Ask a question about your datasets in natural language.</small></p>
+    {% endif %}
+    <form method="post" action="/sessions/{{ session.id }}/chat">
+      <input type="text" name="question" placeholder="e.g. What is the total revenue per customer?" required>
+      <button type="submit">Ask</button>
+    </form>
+  </section>
+
+  <section class="panel audit">
+    <h2>Audit log</h2>
+    {% if audit %}
+      {% for a in audit %}
+      <div style="border-bottom:1px solid #eee; padding:6px 0; font-size:12px;">
+        <span class="{{ 'ok' if a.status == 'success' else 'err' }}">{{ a.status }}</span>
+        · {{ a.created_at.strftime("%H:%M:%S") }}
+        {% if a.row_count is not none %}· {{ a.row_count }} rows{% endif %}
+        · {{ a.duration_ms }}ms
+        <div>{{ a.nl_prompt }}</div>
+        {% if a.generated_sql %}<pre>{{ a.generated_sql }}</pre>{% endif %}
+        {% if a.error_message %}<div class="err">{{ a.error_message }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+    <p><small>No operations logged yet.</small></p>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}
