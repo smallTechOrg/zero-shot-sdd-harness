@@ -93,7 +93,7 @@ harness/            ← engineering rules and patterns
 CLAUDE.md
 pyproject.toml
 alembic.ini
-dev.py              ← setup checker (--build, --reset)
+agent.py              ← setup checker (--run, --reset)
 .env.example
 ```
 
@@ -116,7 +116,7 @@ uv run alembic upgrade head
 uv run pytest tests/unit/ -v          # no key needed
 uv run pytest tests/ -v               # requires real key
 uv run python -m agent                 # API at http://localhost:8001
-python dev.py --build                  # migrations + frontend build + start hint
+python agent.py --run                    # migrations + frontend build + start server
 ```
 
 ---

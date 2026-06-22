@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-dev.py — local setup checker and build helper
+agent.py — local setup checker and run helper
 
 Usage:
-  python dev.py            # check everything
-  python dev.py --build    # check + run alembic + build frontend + start server
-  python dev.py --reset    # restore spec templates and wipe runtime data
+  python agent.py           # check everything
+  python agent.py --run     # check + alembic + build frontend + start server
+  python agent.py --reset   # restore spec templates and wipe runtime data
 """
 import argparse
 import os
@@ -174,12 +174,12 @@ def check_frontend() -> None:
     if out.exists():
         ok("frontend/out/ built — server will serve UI at /app/")
     else:
-        warn("frontend not built — run: cd frontend && pnpm build  (or use --build)")
+        warn("frontend not built — run: cd frontend && pnpm build  (or use --run)")
 
 
 # ── actions ───────────────────────────────────────────────────────────────────
-def do_build() -> None:
-    header("Build")
+def do_run() -> None:
+    header("Build & run")
 
     # alembic
     info("applying migrations...")
@@ -205,10 +205,14 @@ def do_build() -> None:
             fail("frontend build failed")
 
     if not _failures:
-        print(f"\n{GREEN}{BOLD}Ready.{RESET}\n")
-        print("  Start the server:")
-        print(f"    {CYAN}uv run python -m agent{RESET}       # API only  → http://localhost:8001")
-        print(f"    {CYAN}./build.sh{RESET}                   # API + UI  → http://localhost:8001/app/\n")
+        print(f"\n{GREEN}{BOLD}Starting server…{RESET}")
+        print(f"  {CYAN}http://localhost:8001{RESET}       (API)")
+        fe_out = ROOT / "frontend" / "out"
+        if fe_out.exists():
+            print(f"  {CYAN}http://localhost:8001/app/{RESET}  (UI)\n")
+        else:
+            print()
+        os.execvp("uv", ["uv", "run", "python", "-m", "agent"])
 
 
 def do_reset() -> None:
@@ -239,8 +243,8 @@ def do_reset() -> None:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
-    parser = argparse.ArgumentParser(description="dev.py — setup checker and build helper")
-    parser.add_argument("--build", action="store_true", help="run alembic + build frontend after checks")
+    parser = argparse.ArgumentParser(description="agent.py — setup checker and build helper")
+    parser.add_argument("--run", action="store_true", help="run alembic + build frontend after checks")
     parser.add_argument("--reset", action="store_true", help="restore spec templates and clear runtime data")
     args = parser.parse_args()
 
@@ -268,10 +272,10 @@ def main() -> None:
         print(f"{GREEN}{BOLD}All checks passed.{RESET}")
 
     if args.build:
-        do_build()
+        do_run()
     else:
-        print(f"\n  Run {CYAN}python dev.py --build{RESET} to apply migrations and build the frontend.")
-        print(f"  Run {CYAN}python dev.py --reset{RESET} to restore spec templates for a fresh build.\n")
+        print(f"\n  Run {CYAN}python agent.py --run{RESET} to apply migrations and build the frontend.")
+        print(f"  Run {CYAN}python agent.py --reset{RESET} to restore spec templates for a fresh build.\n")
 
 
 if __name__ == "__main__":
