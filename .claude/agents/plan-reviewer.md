@@ -10,7 +10,7 @@ You are invoked by the agent-builder after the planner produces a plan.
 
 ### Spec Coverage
 
-- [ ] Every capability in `spec/product/capabilities/` is covered by at least one phase
+- [ ] Every capability in `spec/capabilities/` is covered by at least one phase
 - [ ] Every API endpoint/CLI command is covered (if applicable)
 - [ ] Data model is implemented before it's used (Phase 1 comes before anything that writes to the DB)
 - [ ] No phase implements something not in the spec (if it does, flag it)

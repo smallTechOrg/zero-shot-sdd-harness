@@ -11,11 +11,11 @@ The user names a new capability (by slug or description). The planner or spec-wr
 
 1. **Determine the slug.** If the user gave a description rather than a slug, derive a kebab-case slug (≤ 5 words).
 
-2. **Find the next capability file number.** Read `spec/product/capabilities/00-index.md` for existing entries. The next file is `NN-<slug>.md` where NN is the next unused two-digit number.
+2. **Find the next capability file number.** Read `spec/capabilities/00-index.md` for existing entries. The next file is `NN-<slug>.md` where NN is the next unused two-digit number.
 
 3. **Write the capability file.** Use the template below.
 
-4. **Register in index.** Append a row to the table in `spec/product/capabilities/00-index.md`.
+4. **Register in index.** Append a row to the table in `spec/capabilities/00-index.md`.
 
 5. **Return the path** and a one-sentence summary. Do not implement the capability — that's the planner's job.
 
@@ -64,6 +64,6 @@ Checkbox list. Each item must be testable.
 
 ## Constraints
 
-- Do **not** invent requirements. Use only information the user provides plus what's already in `spec/product/`.
+- Do **not** invent requirements. Use only information the user provides plus what's already in `spec/`.
 - Leave all tables empty rather than populating from assumptions.
 - Mark status as `draft` always.

@@ -17,16 +17,16 @@ You are invoked by the agent-builder after the spec-writer produces a draft, and
 ### Completeness
 
 - [ ] All `<!-- FILL IN -->` placeholders are replaced
-- [ ] `spec/product/01-vision.md`: purpose, users, success criteria, and out-of-scope are all defined
-- [ ] `spec/product/02-architecture.md`: system overview, components, and data flow are clear
-- [ ] At least one capability file exists in `spec/product/capabilities/`
+- [ ] `spec/01-vision.md`: purpose, users, success criteria, and out-of-scope are all defined
+- [ ] `spec/02-architecture.md`: system overview, components, and data flow are clear
+- [ ] At least one capability file exists in `spec/capabilities/`
 - [ ] Every capability has: what it does, inputs, outputs, external calls, and success criteria
 - [ ] Every external call has a defined failure mode
 - [ ] Success criteria are testable (not vague like "it works well")
 
 ### Agent Graph (CRITICAL BLOCKER — applies when project uses an agent framework)
 
-If the tech design specifies LangGraph, CrewAI, AutoGen, or any agent orchestration framework, `spec/product/07-agent-graph.md` **must** exist and contain all of the following before the spec is approved:
+If the tech design specifies LangGraph, CrewAI, AutoGen, or any agent orchestration framework, `spec/07-agent-graph.md` **must** exist and contain all of the following before the spec is approved:
 
 - [ ] `GenerationState` (or equivalent) fully typed with every field named and typed
 - [ ] Every node listed with: what it reads from state, what it writes to state, external calls it makes, and how it handles errors
@@ -70,18 +70,18 @@ Report findings in this structure:
 ### Critical Issues (must fix before proceeding)
 
 List issues that block the build. Example:
-- `spec/product/capabilities/02-search.md` — failure mode for Tavily API is not defined
-- `spec/product/01-vision.md` — success criterion 3 is not testable ("performs well")
+- `spec/capabilities/02-search.md` — failure mode for Tavily API is not defined
+- `spec/01-vision.md` — success criterion 3 is not testable ("performs well")
 
 ### Minor Issues (should fix, not blockers)
 
 List issues that are worth fixing but don't block:
-- `spec/product/02-architecture.md` — deployment model section is missing
+- `spec/02-architecture.md` — deployment model section is missing
 
 ### Assumptions to Confirm
 
 List things the spec-writer flagged as assumed:
-- `spec/product/04-data-model.md` — assumed soft deletes; confirm with user
+- `spec/04-data-model.md` — assumed soft deletes; confirm with user
 
 ### Looks Good
 

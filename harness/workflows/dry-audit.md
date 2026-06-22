@@ -6,8 +6,8 @@ is a link.
 
 ## Scope
 
-Audit these trees: `spec/` (all files), root files (`README.md`, `CLAUDE.md`, `AGENTS.md`,
-`.github/`, `.claude/`). Do **not** read `src/` or `tests/` — DRY for code is a separate concern.
+Audit these trees: `spec/` (all files), `harness/` (all files), root files (`README.md`,
+`CLAUDE.md`, `.claude/`). Do **not** read `src/` or `tests/` — DRY for code is a separate concern.
 
 ## Procedure
 
@@ -33,7 +33,7 @@ Audit these trees: `spec/` (all files), root files (`README.md`, `CLAUDE.md`, `A
 ```
 | Fact | Canonical home | Violations | Recommendation |
 |---|---|---|---|
-| layered architecture | spec/product/02-architecture.md | CLAUDE.md:12 (restatement) | Replace with link |
+| layered architecture | spec/02-architecture.md | CLAUDE.md:12 (restatement) | Replace with link |
 ```
 
 End with a one-line summary: violation count, worst offender file.

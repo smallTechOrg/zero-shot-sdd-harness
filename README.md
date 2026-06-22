@@ -103,19 +103,15 @@ Each phase ends with a commit and passes QA before the next phase begins.
 .claude/
   agents/           ← Sub-agents (agent-builder, spec-writer, etc.)
   commands/         ← Slash commands (/build, /spec-check, /plan)
-.github/
-  copilot-instructions.md  ← Global Copilot instructions (mandatory spec reads)
-  agents/           ← Copilot agent mode definitions (drift-auditor, planner, etc.)
-  prompts/          ← Slash-style Copilot prompts (/plan, /challenge, /spec-check)
-  instructions/     ← Scoped auto-applied rules (code-style, secret-hygiene, etc.)
-spec/
-  product/          ← What your agent does (fill this in or let spec-writer do it)
-  engineering/      ← How AI agents should write code for this project (immutable rules)
-    workflows/      ← Step-by-step procedures for each agent/workflow type
+spec/               ← What your agent does (fill this in or let spec-writer do it)
+  capabilities/     ← One file per discrete capability
+  tech-stack.md     ← Language, framework, libraries
+  code-style.md     ← Style and structural rules
+harness/            ← How Claude Code should build for this project (immutable rules)
+  workflows/        ← Step-by-step procedures for each agent/workflow type
 reports/
   sessions/         ← Auto-generated session logs from every AI coding session
 CLAUDE.md           ← Entry point for Claude Code
-AGENTS.md           ← Entry point for OpenAI Codex / GitHub Copilot
 .env.example        ← Environment variable template
 ```
 
@@ -125,15 +121,15 @@ AGENTS.md           ← Entry point for OpenAI Codex / GitHub Copilot
 
 If you prefer to write the spec yourself before involving AI:
 
-1. Open `spec/product/01-vision.md` and fill in the placeholders
-2. Work through each file in `spec/product/` in order
+1. Open `spec/01-vision.md` and fill in the placeholders
+2. Work through each file in `spec/` in order
 3. Once the spec is complete, run `/plan` to jump straight to the planning phase
 
 ---
 
 ## Rules That AI Agents Follow
 
-Every AI session in this repo follows the rules in `spec/engineering/ai-agents.md`:
+Every Claude Code session in this repo follows the rules in `harness/ai-agents.md`:
 
 - Read the full spec before writing any code
 - Open a session report at `reports/sessions/`
@@ -145,9 +141,6 @@ Every AI session in this repo follows the rules in `spec/engineering/ai-agents.m
 ---
 
 ## FAQ
-
-**Can I use this without Claude Code?**
-Yes. `AGENTS.md` has the same entry point for OpenAI Codex and GitHub Copilot. The sub-agents are plain markdown files.
 
 **What if my agent needs a database?**
 The spec template includes a data model section. The tech-designer sub-agent will recommend the right database for your use case.

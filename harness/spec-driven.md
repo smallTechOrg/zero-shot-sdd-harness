@@ -24,14 +24,14 @@ When spec comes first:
 
 ## What Goes in the Spec
 
-**Product spec (`spec/product/`):**
+**Product spec (`spec/`):**
 - What the agent does (behavior, not implementation)
 - Who uses it and why
 - What data it handles
 - What APIs and integrations it uses
 - What the UI looks like (if any)
 
-**Engineering spec (`spec/engineering/`):**
+**Engineering spec (`harness/`):**
 - What tech stack to use and why
 - How to write code consistently
 - How to handle errors, secrets, and testing

@@ -21,7 +21,7 @@ The README is the first thing a user touches. A wrong README fails the entire bu
 
 **All application source code must live inside `src/`.** Never place HTML, CSS, JavaScript, Python packages, templates, or data files at the repo root.
 
-The repo root is for project-level config only: `pyproject.toml`, `alembic.ini`, `README.md`, `.env.example`, and boilerplate infrastructure (`spec/`, `reports/`, `.github/`, `AGENTS.md`, `CLAUDE.md`). If you are about to create an application file at the root, stop and put it in `src/` instead.
+The repo root is for project-level config only: `pyproject.toml`, `alembic.ini`, `README.md`, `.env.example`, and boilerplate infrastructure (`spec/`, `reports/`, `harness/`, `CLAUDE.md`). If you are about to create an application file at the root, stop and put it in `src/` instead.
 
 This applies to all project types — Python packages, static web apps, TypeScript projects, and any other stack.
 
@@ -29,7 +29,7 @@ This applies to all project types — Python packages, static web apps, TypeScri
 
 ## Directory Tree
 
-The repo root **is** the agent project. There is no `<agent-slug>/` subdirectory — boilerplate files (`spec/`, `reports/`, `.github/`, `AGENTS.md`, `CLAUDE.md`) coexist with project files at the root.
+The repo root **is** the agent project. There is no `<agent-slug>/` subdirectory — boilerplate files (`spec/`, `reports/`, `harness/`, `CLAUDE.md`) coexist with project files at the root.
 
 ```
 <repo root>                           ← repo root IS the agent project
@@ -88,8 +88,7 @@ The repo root **is** the agent project. There is no `<agent-slug>/` subdirectory
 ├── spec/                             ← agent spec files (preserved from boilerplate)
 ├── reports/
 │   └── sessions/                     ← session report created BEFORE Phase 1
-├── .github/                          ← preserved from boilerplate
-├── AGENTS.md                         ← preserved from boilerplate
+├── harness/                          ← engineering harness (preserved from boilerplate)
 ├── CLAUDE.md                         ← preserved from boilerplate
 ├── pyproject.toml
 ├── alembic.ini

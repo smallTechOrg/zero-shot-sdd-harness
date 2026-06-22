@@ -11,7 +11,7 @@ Run the drift-auditor to check whether the code matches the spec.
 ## What It Does
 
 Invokes the drift-auditor sub-agent (`.claude/agents/drift-auditor.md`) which:
-1. Reads every spec file in `spec/product/`
+1. Reads every spec file in `spec/`
 2. Searches the codebase for the corresponding implementation
 3. Reports any divergences between spec and code
 

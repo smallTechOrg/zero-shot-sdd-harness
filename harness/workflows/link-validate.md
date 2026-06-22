@@ -31,7 +31,7 @@ Only include rows where `Problem != ok`, plus a final count. Then:
 
 ```
 ## Orphans
-- spec/engineering/workflows/plan-review.md (0 inbound links)
+- harness/workflows/plan-review.md (0 inbound links)
 ```
 
 ## Constraints

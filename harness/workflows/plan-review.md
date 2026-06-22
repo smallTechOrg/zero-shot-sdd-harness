@@ -7,7 +7,7 @@ Any plan in [`reports/`](../../../reports/) gets a staff-level review before exe
 Read the plan front-to-back, then cross-reference against the spec. Evaluate along five axes —
 in order, stop and flag on the first that fails:
 
-1. **Spec alignment.** Does every behavioural change trace to a sentence in `spec/product/`? If the plan invents behaviour, the plan is wrong — the spec change is the missing first step.
+1. **Spec alignment.** Does every behavioural change trace to a sentence in `spec/`? If the plan invents behaviour, the plan is wrong — the spec change is the missing first step.
 2. **Phasing.** Is each phase independently verifiable (test-gated)? Are phases ordered so a partial completion leaves the repo shippable?
 3. **Scope.** Anything in the plan not in the Goal? Anything in the Goal missing from the plan?
 4. **Risk.** Did the plan surface the real risks, or only obvious ones? A risks section with only "might have bugs" is not serious.

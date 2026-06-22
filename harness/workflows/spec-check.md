@@ -5,7 +5,7 @@ per the rule in [`../spec-driven.md`](../spec-driven.md). Report findings as a p
 
 ## Procedure
 
-1. **List all capability specs.** Read every file in `spec/product/` (and `spec/product/capabilities/` when it exists). For each, extract numbered behavior steps.
+1. **List all capability specs.** Read every file in `spec/` (and `spec/capabilities/` when it exists). For each, extract numbered behavior steps.
 
 2. **Locate each component in code.** For each spec'd component, find the corresponding Python module/class in `src/`. Note any that are missing entirely.
 

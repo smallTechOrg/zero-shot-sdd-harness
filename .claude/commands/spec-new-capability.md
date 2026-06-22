@@ -17,9 +17,9 @@ Add a new capability to the spec.
 ## What It Does
 
 Invokes the spec-writer sub-agent to:
-1. Create a new capability file in `spec/product/capabilities/`
-2. Update `spec/product/capabilities/00-index.md`
-3. Check if the capability affects the architecture (`spec/product/02-architecture.md`) or data model (`spec/product/04-data-model.md`) and update those if needed
+1. Create a new capability file in `spec/capabilities/`
+2. Update `spec/capabilities/00-index.md`
+3. Check if the capability affects the architecture (`spec/02-architecture.md`) or data model (`spec/04-data-model.md`) and update those if needed
 
 Then invokes the spec-reviewer to validate the new capability fits the existing spec.
 

@@ -1,6 +1,6 @@
 # AI Agent Rules
 
-**These rules apply to every AI coding session in this repo — Claude Code, GitHub Copilot, Cursor, or any other AI assistant.**
+**These rules apply to every Claude Code session in this repo.**
 
 Read this file completely before doing anything else.
 
@@ -20,7 +20,7 @@ These rules are never optional, never skipped, and must survive context compress
 
 5. **No SQLite substitute for PostgreSQL tests.** If the production database is PostgreSQL, tests run against PostgreSQL. Tests that only pass on SQLite do not count as passing.
 
-6. **Golden-path UI smoke test is mandatory before Phase 2 passes.** If the project has any UI or HTTP surface, Phase 2 must include an automated test that walks the full primary user journey via `TestClient` (or equivalent) and asserts **response content**, not just status codes. See `spec/engineering/workflows/golden-path-smoke-test.md`. A build that returns 200 but renders a broken-looking page is a failing build.
+6. **Golden-path UI smoke test is mandatory before Phase 2 passes.** If the project has any UI or HTTP surface, Phase 2 must include an automated test that walks the full primary user journey via `TestClient` (or equivalent) and asserts **response content**, not just status codes. See `harness/workflows/golden-path-smoke-test.md`. A build that returns 200 but renders a broken-looking page is a failing build.
 
 7. **Stub / offline providers must be clearly signalled in the UI.** If an LLM provider is stubbed (no key, demo mode), the UI must display a visible banner on every page. Silent stubs that look like real output are a bug — users will report "it didn't work." The provider should auto-select real when an API key is present (`provider=auto` → real when key set, stub otherwise). Never require the user to flip a flag *in addition* to setting the key.
 
@@ -31,7 +31,7 @@ These rules are never optional, never skipped, and must survive context compress
 10. **`main` is boilerplate-only. Never commit application code to `main`.** All application code lives on a named feature branch and reaches `main` only via a reviewed pull request. This rule has no exceptions:
     - Before writing any application code, create a feature branch: `git checkout -b feature/<slug>-v0.1`
     - All phase commits go to the feature branch, never to `main`
-    - Spec/engineering/boilerplate improvements (no app code) are the only commits that may go directly to `main`
+    - Spec, harness, and boilerplate improvements (no app code) are the only commits that may go directly to `main`
     - When the build is complete, open a PR from the feature branch into `main` — do not merge locally
     - If you find yourself on `main` while writing application code, stop immediately, create the feature branch, and continue there
 
@@ -43,7 +43,7 @@ These rules are never optional, never skipped, and must survive context compress
 
 Complete all steps in order before writing any code:
 
-- [ ] Read `spec/product/01-vision.md` — know what you're building
+- [ ] Read `spec/01-vision.md` — know what you're building
 - [ ] Check if the spec is complete (no `<!-- FILL IN -->` markers in product spec files)
   - If incomplete: surface the agent-builder to the user; do not write application code
 - [ ] If spec is complete: read the full spec manifest in `CLAUDE.md`
@@ -51,8 +51,8 @@ Complete all steps in order before writing any code:
 - [ ] **Create and switch to a feature branch**: `git checkout -b feature/<slug>-v0.1` — **never build on `main`**
 - [ ] **Create the project directory** `<agent-slug>/` if it doesn't exist — never write agent code into the boilerplate root
 - [ ] Open a session report: `<agent-slug>/reports/sessions/YYYY-MM-DD-HHMMSS-[branch].md` — **must exist before Phase 1 starts**
-  - Use the template in `spec/engineering/workflows/session-report.md`
-- [ ] Confirm which phase you are implementing (see `spec/engineering/phases.md`)
+  - Use the template in `harness/workflows/session-report.md`
+- [ ] Confirm which phase you are implementing (see `harness/phases.md`)
 
 ## 2. Session Report (Mandatory)
 
@@ -104,7 +104,7 @@ If you are asked to implement something not in the spec:
 3. Propose adding it to the spec first
 4. Wait for approval before writing code
 
-See `spec/engineering/spec-driven.md` for full details.
+See `harness/spec-driven.md` for full details.
 
 ## 5. Phase Discipline
 
@@ -115,7 +115,7 @@ Each phase ends when:
 - All tests for that phase pass
 - The qa-auditor sub-agent has signed off (or you have run the QA checklist manually)
 
-See `spec/engineering/phases.md` for the phase definitions and gates.
+See `harness/phases.md` for the phase definitions and gates.
 
 ## 6. Git Discipline
 

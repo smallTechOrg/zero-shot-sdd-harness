@@ -15,8 +15,8 @@ Per the spec-driven rule, every non-trivial multi-file change gets a written pla
 Write `reports/<YYYY-MM-DD>-<slug>.md` with these sections, in order:
 
 1. **Goal** — one or two sentences. What we're changing, why now.
-2. **Spec impact** — which `spec/product/` files need edits? Draft the deltas inline.
-3. **Engineering impact** — any rule in `spec/engineering/` affected? Usually no. If yes, flag.
+2. **Spec impact** — which `spec/` files need edits? Draft the deltas inline.
+3. **Engineering impact** — any rule in `harness/` affected? Usually no. If yes, flag.
 4. **Phases** — numbered, each phase gated by a verifiable test. Example:
    - Phase 1: add domain model; test: unit tests for new model.
    - Phase 2: add tool; test: tool unit test passes.

@@ -11,7 +11,7 @@ Generate or regenerate the implementation plan from the current spec.
 ## What It Does
 
 Invokes the planner sub-agent (`.claude/agents/planner.md`) which:
-1. Reads the current spec (`spec/product/` and `spec/engineering/`)
+1. Reads the current spec (`spec/` and `harness/`)
 2. Produces a phased implementation plan adapted to this project
 3. The plan-reviewer validates it
 4. Presents the plan to you for approval

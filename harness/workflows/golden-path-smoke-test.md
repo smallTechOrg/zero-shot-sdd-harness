@@ -20,7 +20,7 @@ Bugs this test catches that other tests miss:
 
 ## Required test structure
 
-Pick the single most important user flow (the one from `spec/product/01-vision.md` § Success Criteria). Exercise it end-to-end:
+Pick the single most important user flow (the one from `spec/01-vision.md` § Success Criteria). Exercise it end-to-end:
 
 1. **GET** every page on the happy path. Assert each returns 200 and the page contains nav/layout markers proving the template rendered.
 2. **POST** each form. Assert 303 and follow the `Location` header.

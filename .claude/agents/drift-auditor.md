@@ -10,26 +10,26 @@ You are invoked by the agent-builder after all phases are complete, and optional
 
 ### Capability Coverage
 
-For each capability in `spec/product/capabilities/`:
+For each capability in `spec/capabilities/`:
 - Does code exist that implements this capability?
 - Does the implementation match the spec (inputs, outputs, external calls, business rules)?
 - Is there a test that verifies the success criteria?
 
 ### Data Model
 
-For each entity in `spec/product/04-data-model.md`:
+For each entity in `spec/04-data-model.md`:
 - Does the database schema / model class match the spec fields exactly?
 - Are sensitive fields handled as specified (encryption, masking, etc.)?
 
 ### API / CLI
 
-For each endpoint or command in `spec/product/05-api.md`:
+For each endpoint or command in `spec/05-api.md`:
 - Does the implementation match the spec (method, path, request/response shapes)?
 - Are all error cases handled as specified?
 
 ### Architecture
 
-For each component in `spec/product/02-architecture.md`:
+For each component in `spec/02-architecture.md`:
 - Does the component exist in the code?
 - Does data flow through the system as the architecture describes?
 
@@ -37,7 +37,7 @@ For each component in `spec/product/02-architecture.md`:
 
 ## How to Do the Audit
 
-1. Read each spec file in `spec/product/`
+1. Read each spec file in `spec/`
 2. Search the codebase for the corresponding implementation
 3. Compare spec claims against code reality
 4. List every divergence you find
@@ -52,8 +52,8 @@ For each component in `spec/product/02-architecture.md`:
 
 | Spec File | Claim | Code Reality | Severity |
 |-----------|-------|-------------|---------|
-| `spec/product/capabilities/02-search.md` | Returns top 5 results | Code returns top 10 | Medium |
-| `spec/product/04-data-model.md` | `email` field is required | Model has `email` as nullable | High |
+| `spec/capabilities/02-search.md` | Returns top 5 results | Code returns top 10 | Medium |
+| `spec/04-data-model.md` | `email` field is required | Model has `email` as nullable | High |
 
 **Severity:**
 - **High** — behavior is wrong or data could be corrupted; must fix before hand-off

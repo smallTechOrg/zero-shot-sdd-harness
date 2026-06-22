@@ -6,7 +6,7 @@ set -euo pipefail
 echo "Resetting to clean boilerplate state..."
 
 # Project spec files (keep templates, wipe filled-in content)
-git checkout HEAD -- spec/product/ 2>/dev/null || true
+git checkout HEAD -- spec/ 2>/dev/null || true
 
 # Generated source code and tests
 rm -rf src/ tests/ alembic/ pyproject.toml uv.lock .venv/

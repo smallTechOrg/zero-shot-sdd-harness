@@ -9,9 +9,9 @@ You are invoked by the agent-builder after the tech design is approved.
 ## Your Inputs
 
 You will be given:
-- The approved product spec (`spec/product/`)
-- The approved tech design (`spec/engineering/tech-stack.md`, `spec/engineering/code-style.md`)
-- The default phase model from `spec/engineering/phases.md`
+- The approved product spec (`spec/`)
+- The approved tech design (`spec/tech-stack.md`, `spec/code-style.md`)
+- The default phase model from `harness/phases.md`
 
 ---
 

@@ -19,8 +19,7 @@ Everything before code is collapsed into two steps: one intake round, one approv
 After intake and initial approval, **proceed autonomously** through all workflow phases (spec, tech design, planning, scaffold, build, QA) without pausing for user confirmation between phases.
 
 - All user-facing questions **must use dynamic question UI**. Never ask via plain chat.
-  - **Claude Code:** call `ToolSearch` with `query: "select:AskUserQuestion"` to load the tool schema, then call `AskUserQuestion`. Do this before firing the intake round — if the tool is not loaded, the intake cannot begin.
-  - **Copilot:** use `askQuestions`.
+  - Call `ToolSearch` with `query: "select:AskUserQuestion"` to load the tool schema, then call `AskUserQuestion`. Do this before firing the intake round — if the tool is not loaded, the intake cannot begin.
 - Only pause if a **true blocker** is encountered (missing required API key, ambiguous spec, build gate failure that cannot be self-resolved) or the user **explicitly requests** a pause.
 - Never narrate "I will now do X" and wait. Just do X.
 
@@ -45,7 +44,7 @@ When the user gives you an idea:
 
 1. Acknowledge in one sentence.
 2. **Load the question UI tool first** — in Claude Code, call `ToolSearch` with `query: "select:AskUserQuestion"` before proceeding. Do not skip this step.
-3. Fire **one round** using `AskUserQuestion` (Claude Code) or `askQuestions` (Copilot) — 4 questions. Do not do multiple rounds. The four questions are always:
+3. Fire **one round** using `AskUserQuestion` — 4 questions. Do not do multiple rounds. The four questions are always:
 
    **Q1 — MVP scope**
    "What's the absolute minimum this needs to do for you to call it working?"
@@ -71,13 +70,13 @@ When the user gives you an idea:
 Immediately after intake, produce all three artifacts together:
 
 ### 2a — Spec (invoke spec-writer)
-- Writes all `spec/product/` files from the intake answers
+- Writes all `spec/` files from the intake answers
 - Ruthless MVP scope: 2–4 capabilities maximum for v0.1
 - Everything else goes in `## Future Phases` of `01-vision.md`
 
 ### 2b — Tech Design (invoke tech-designer)
 - Reads the spec + intake answers
-- Fills `spec/engineering/tech-stack.md` and `spec/engineering/code-style.md`
+- Fills `spec/tech-stack.md` and `spec/code-style.md`
 - Honors all user stack preferences as binding constraints
 
 ### 2c — Skeleton Plan (inline)
@@ -114,7 +113,7 @@ Present everything to the user in **one message**:
 - Phase 2: [description] — gate: [specific pytest command]
 ```
 
-Ask one question via `AskUserQuestion` (Claude Code) or `askQuestions` (Copilot):
+Ask one question via `AskUserQuestion`:
 > "Does this look right? I'll start building immediately after you confirm."
 > Options: **Start building** / **Adjust scope** / **Change the stack** / **Show me the full spec first**
 
@@ -130,11 +129,11 @@ Ask one question via `AskUserQuestion` (Claude Code) or `askQuestions` (Copilot)
 
 Immediately after approval, before writing any application code:
 
-1. **Create and switch to the feature branch** — `git checkout -b feature/<agent-slug>-v0.1`. All application code lives here. **Never commit application code to `main`.** This is a Non-Negotiable rule (see `spec/engineering/ai-agents.md` § Rule 10). If you are on `main` when you reach this step, create the branch now before touching any file.
+1. **Create and switch to the feature branch** — `git checkout -b feature/<agent-slug>-v0.1`. All application code lives here. **Never commit application code to `main`.** This is a Non-Negotiable rule (see `harness/ai-agents.md` § Rule 10). If you are on `main` when you reach this step, create the branch now before touching any file.
 2. **Create the project directory** `src/<agent-slug>/` — all code lives here. Never write agent code into the boilerplate root.
 3. **Open a session report** at `reports/sessions/YYYY-MM-DD-HHMMSS-agent-builder.md`. Must exist before Phase 1 begins.
 4. **Create `.env.example`** listing every environment variable with placeholder values.
-5. Fill in the product spec files in `spec/product/` from intake answers.
+5. Fill in the product spec files in `spec/` from intake answers.
 
 Log each step in the session report before moving to Phase 1.
 
@@ -153,11 +152,11 @@ After Phase 2 gate passes (skeleton is running):
 
 Build immediately after scaffold. No gates until QA.
 
-**Follow the standard layout in `spec/engineering/project-layout.md` exactly.**
+**Follow the standard layout in `harness/project-layout.md` exactly.**
 
 ### Phase 1
 1. Implement: `config.py`, `domain/models.py`, `db/models.py`, `db/session.py`, `db/repository.py`
-2. Create `alembic/script.py.mako` — use the verbatim template in `spec/engineering/project-layout.md` § "alembic/script.py.mako". **This file must exist before running any alembic command.**
+2. Create `alembic/script.py.mako` — use the verbatim template in `harness/project-layout.md` § "alembic/script.py.mako". **This file must exist before running any alembic command.**
 3. Create `alembic/env.py` and `alembic.ini` — `env.py` must read `DATABASE_URL` from settings and set `target_metadata = Base.metadata`
 4. Run `uv run alembic revision --autogenerate -m "initial"` — this generates `alembic/versions/0001_initial.py`
 5. Run `uv run alembic upgrade head` — applies the migration; tables now exist in PostgreSQL
@@ -168,11 +167,11 @@ Build immediately after scaffold. No gates until QA.
 
 ### Phase 2
 1. Implement: `tools/*.py` (stubs), `agent/state.py`, `agent/nodes.py`, `agent/graph.py`, `agent/runner.py`, `__main__.py`, `tests/integration/test_pipeline.py`
-2. **LLM provider layer:** `provider=auto` is the default — resolves to the real provider when the API key env var is set, otherwise to the stub (see `spec/engineering/code-style.md` § "LLM provider selection and stubs"). The user must never need to flip a second flag on top of setting the key.
+2. **LLM provider layer:** `provider=auto` is the default — resolves to the real provider when the API key env var is set, otherwise to the stub (see `spec/code-style.md` § "LLM provider selection and stubs"). The user must never need to flip a second flag on top of setting the key.
 3. **Stub correctness:** the stub branches on explicit `<node:plan>` / `<node:draft>` / `<node:title>` tags that the nodes inject into their prompts — never on prose keywords. Stub "draft" output is article-shaped (paragraphs + headings), not a bullet list.
 4. **Stub-mode UI banner:** every rendered page shows a visible banner when the resolved provider is `stub`. Inject `llm_provider` into every template context.
 5. Write `README.md` — setup, how to run, how to run tests. Include `uv run alembic upgrade head` explicitly. Setting the API key is the primary path; stub mode is a fallback clearly labelled in the UI.
-6. **Golden-path UI smoke test** (mandatory if any UI/HTTP surface exists) — walks the full primary user flow via `TestClient` and asserts response **content**, not only status codes. See `spec/engineering/workflows/golden-path-smoke-test.md`.
+6. **Golden-path UI smoke test** (mandatory if any UI/HTTP surface exists) — walks the full primary user flow via `TestClient` and asserts response **content**, not only status codes. See `harness/workflows/golden-path-smoke-test.md`.
 7. **Live-server check:** start the app with `uv run python -m <pkg>`, hit `/health` plus at least one real page via `curl`, both 200. Log curl exit codes in the session report.
 8. Gate: `uv run pytest` passes (DB URL set, LLM API key NOT required). Golden-path smoke + live-server check both green.
 9. Commit: `phase-2: stubbed agent loop + UI + README — gate PASSED (N/N tests)`

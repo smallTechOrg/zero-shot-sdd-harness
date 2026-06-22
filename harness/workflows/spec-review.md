@@ -14,7 +14,7 @@ change, not the whole repo.
 
 1. **Get the diff.** Work from the current working tree diff against `main` (or a named base branch if specified). Focus on `src/` — config, domain, tools, graph, api.
 
-2. **Map to spec.** For each substantial hunk, identify the spec sentence that authorised it. A spec sentence is a numbered step, a table row, an acceptance criterion, or a named invariant in `spec/product/`.
+2. **Map to spec.** For each substantial hunk, identify the spec sentence that authorised it. A spec sentence is a numbered step, a table row, an acceptance criterion, or a named invariant in `spec/`.
 
 3. **Classify each file-level change:**
    - ✅ **Spec'd** — direct implementation of a named spec sentence.

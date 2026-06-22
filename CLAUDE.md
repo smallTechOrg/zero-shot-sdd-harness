@@ -10,8 +10,8 @@ A starting template for building AI agents. The spec in `spec/` is either:
 
 ## Your First Action Every Session
 
-1. Read `spec/engineering/ai-agents.md` — mandatory rules for all AI sessions
-2. Check whether `spec/product/01-vision.md` has been filled in:
+1. Read `harness/ai-agents.md` — mandatory rules for all AI sessions
+2. Check whether `spec/01-vision.md` has been filled in:
    - If it still contains `<!-- FILL IN -->` placeholders → the spec is not ready; do not write application code yet
    - If it is filled in → proceed to read the full spec manifest below before touching any code
 3. Open a session report at `reports/sessions/YYYY-MM-DD-HHMMSS-[branch].md`
@@ -19,19 +19,19 @@ A starting template for building AI agents. The spec in `spec/` is either:
 ## Spec Manifest (read in this order when spec is complete)
 
 ```
-spec/product/01-vision.md
-spec/product/02-architecture.md
-spec/product/capabilities/          ← all files
-spec/product/04-data-model.md
-spec/product/05-api.md
-spec/product/06-ui.md
-spec/product/07-agent-graph.md      ← REQUIRED for any agent framework project
-spec/engineering/ai-agents.md
-spec/engineering/spec-driven.md
-spec/engineering/phases.md
-spec/engineering/project-layout.md
-spec/engineering/tech-stack.md
-spec/engineering/code-style.md
+spec/01-vision.md
+spec/02-architecture.md
+spec/capabilities/          ← all files
+spec/04-data-model.md
+spec/05-api.md
+spec/06-ui.md
+spec/07-agent-graph.md      ← REQUIRED for any agent framework project
+harness/ai-agents.md
+harness/spec-driven.md
+harness/phases.md
+harness/project-layout.md
+spec/tech-stack.md
+spec/code-style.md
 ```
 
 **`07-agent-graph.md` is mandatory** for any project using LangGraph, CrewAI, AutoGen, or any agent orchestration framework. If it does not exist when you reach Phase 2, stop and raise it as a blocker.
@@ -46,7 +46,7 @@ Use the agent-builder sub-agent in .claude/agents/agent-builder.md
 
 Or the user can run the `/build` command with their idea.
 
-## Key Rules (summary — full rules in spec/engineering/ai-agents.md)
+## Key Rules (summary — full rules in harness/ai-agents.md)
 
 - Never write application code before reading the full spec
 - Never skip a phase — complete phase N before starting phase N+1
