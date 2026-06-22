@@ -32,7 +32,7 @@ The tech-architect sub-agent will customize this for your project, but the gener
   2. `pytest` passes against the **production DB driver** (e.g. PostgreSQL via psycopg2) — not SQLite
   3. Tests are fully automated: `conftest.py` creates and tears down the test schema; no manual DB setup steps
   4. No LLM API key required to pass tests
-  5. **Golden-path UI smoke test passes** (if the project has any UI or HTTP surface). Walks the full primary user flow through `TestClient` AND asserts response content (not only status codes). See `harness/workflows/golden-path-smoke-test.md`.
+  5. **Golden-path UI smoke test passes** (if the project has any UI or HTTP surface). Walks the full primary user flow through `TestClient` AND asserts response content (not only status codes).
   6. **Live-server smoke:** the agent starts the app (`uv run python -m <pkg>`) and hits `/health` plus one real page with `curl`. Both return 200. Exit codes logged in the session report.
   7. **Stub mode is visibly labelled:** every rendered page shows a banner when the LLM provider is stubbed, so a human viewer cannot mistake stub output for real AI output.
 

@@ -13,7 +13,7 @@ You have two modes; the caller says which (or you infer from the request).
 
 1. **Run the gate** — the exact command from `reports/implementation-plan.md` / `spec/tech-stack.md`. Report verbatim. Never claim a pass you didn't run.
 2. **Offline check** (Phase 2+) — gate passes with **no LLM API key**, against the **production DB driver** (not SQLite if prod is PostgreSQL). Needs an LLM key to pass → FAIL.
-3. **Golden-path + live-server smoke** (Phase 2+, any UI/HTTP surface) — run the primary user journey via `TestClient` asserting **response content** not just status; then start the app and `curl` `/health` + one real page (both 200). See `harness/workflows/golden-path-smoke-test.md`.
+3. **Golden-path + live-server smoke** (Phase 2+, any UI/HTTP surface) — run the primary user journey via `TestClient` asserting **response content** not just status; then start the app and `curl` `/health` + one real page (both 200).
 4. **Spot-check** (read-only) — working tree state sane, no secrets in code, files match the plan for this phase, no phase N+1 code in phase N, stub banner present if LLM stubbed.
 
 **Output:** `Gate: <cmd>` → PASS/FAIL (with real output tail); Smoke → PASS/FAIL/N/A; **Verdict: VERIFIED / BLOCKED**. If BLOCKED, list exact failures (test names, assertions, missing files) so code-generator fixes without re-discovery.

@@ -30,6 +30,7 @@ harness/ai-agents.md
 harness/spec-driven.md
 harness/phases.md
 harness/project-layout.md
+harness/engineering-practices.md
 spec/tech-stack.md
 spec/code-style.md
 ```
