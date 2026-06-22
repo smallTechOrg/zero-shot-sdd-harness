@@ -11,9 +11,15 @@ class Settings(BaseSettings):
     )
 
     database_url: str = Field(...)
-    anthropic_api_key: str = Field(default="")
-    llm_model: str = Field(default="claude-sonnet-4-6")
     log_level: str = Field(default="INFO")
+
+    # LLM provider — auto-detected from whichever key is set if left blank
+    llm_provider: str = Field(default="")   # "anthropic" | "gemini"
+    llm_model: str = Field(default="")      # uses provider default when blank
+
+    # Provider keys — set exactly one
+    anthropic_api_key: str = Field(default="")
+    gemini_api_key: str = Field(default="")
 
 
 _settings: Settings | None = None
