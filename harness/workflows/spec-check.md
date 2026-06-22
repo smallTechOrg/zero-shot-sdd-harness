@@ -1,6 +1,6 @@
 # Workflow: Spec Drift Check
 
-Audit the repository for divergence between [`../../product/`](../../product/) and [`src/`](../../../src/),
+Audit the repository for divergence between [`spec/`](../../spec/) and the project source tree,
 per the rule in [`../spec-driven.md`](../spec-driven.md). Report findings as a punch list, not a narrative.
 
 ## Procedure

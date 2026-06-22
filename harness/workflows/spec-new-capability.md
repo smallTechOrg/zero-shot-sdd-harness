@@ -5,17 +5,17 @@ This workflow scaffolds a new capability file from the standard template.
 
 ## Trigger
 
-The user names a new capability (by slug or description). The planner or spec-writer invokes this workflow.
+The user names a new capability (by slug or description). The planner or spec-author invokes this workflow.
 
 ## Procedure
 
 1. **Determine the slug.** If the user gave a description rather than a slug, derive a kebab-case slug (≤ 5 words).
 
-2. **Find the next capability file number.** Read `spec/capabilities/00-index.md` for existing entries. The next file is `NN-<slug>.md` where NN is the next unused two-digit number.
+2. **Find the next capability file number.** Read `spec/capabilities/index.md` for existing entries. The next file is `NN-<slug>.md` where NN is the next unused two-digit number.
 
 3. **Write the capability file.** Use the template below.
 
-4. **Register in index.** Append a row to the table in `spec/capabilities/00-index.md`.
+4. **Register in index.** Append a row to the table in `spec/capabilities/index.md`.
 
 5. **Return the path** and a one-sentence summary. Do not implement the capability — that's the planner's job.
 

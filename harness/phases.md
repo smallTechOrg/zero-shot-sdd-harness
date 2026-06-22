@@ -55,7 +55,7 @@ The planner sub-agent will customize this for your project, but the general stru
 - **Gate:** All specified endpoints/commands work correctly
 
 ### Phase 7 — Basic UI (if required)
-- Implement the UI from `spec/06-ui.md`
+- Implement the UI from `spec/ui.md`
 - Functional but not polished
 - **Gate:** All specified screens/views are present and functional
 
@@ -80,7 +80,7 @@ A phase is complete when ALL of the following are true:
 2. All tests for the phase pass
 3. Working tree is clean
 4. Session report reflects phase completion
-5. qa-auditor sub-agent (or manual QA checklist) has signed off
+5. verifier sub-agent (or manual QA checklist) has signed off
 6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
 
 **Never mark a phase complete if any gate is red.**

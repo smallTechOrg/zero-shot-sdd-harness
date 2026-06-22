@@ -9,9 +9,9 @@ This is a boilerplate for building AI agents spec-first. Give it a one-line idea
 A starting point for anyone who wants to build an AI agent without writing boilerplate from scratch. The repo ships with:
 
 - A structured **spec template** covering product vision, architecture, capabilities, data model, API, and UI
-- An **agent-builder** sub-agent that orchestrates the full build lifecycle
-- Sub-agents for spec writing, reviewing, tech design, planning, and auditing
-- Engineering rules baked into the spec so every AI coding session is consistent
+- Three **zero-shot skills** (`/zero-shot-build`, `/zero-shot-fix`, `/zero-shot-sync`) that orchestrate the build, fix, and sync loops
+- Six focused **sub-agents** (spec-author, tech-designer, planner, implementer, auditor, verifier) the skills drive directly
+- Engineering rules in `harness/` so every Claude Code session is consistent
 - Phase-gated implementation — minimal working thing first, then iterative expansion
 
 ---
@@ -32,49 +32,43 @@ cp .env.example .env
 claude
 ```
 
-### Step 3 — Kick off the agent builder with your idea
+### Step 3 — Kick off the build with your idea
 
 ```
-/build I want an agent that monitors my Shopify store for low-inventory products and automatically drafts restock emails to suppliers
+/zero-shot-build An agent that monitors my Shopify store for low-inventory products and automatically drafts restock emails to suppliers
 ```
 
-Or just describe your idea naturally — the agent-builder will take it from there.
+`/zero-shot-build` asks 4 questions up front, then runs autonomously to a working skeleton.
 
 ---
 
-## What Happens Next (Fully Automated)
+## What Happens Next (Intake, Then Automated)
 
-The **agent-builder** orchestrates this sequence:
+`/zero-shot-build` is the orchestrator — it drives the sub-agents directly:
 
 ```
 Your idea
     ↓
-[spec-writer]     → Asks clarifying questions → Drafts product spec
+INTAKE — 4 questions (scope, stack, trigger, constraints)
     ↓
-[spec-reviewer]   → Checks coherence, flags gaps → Requests revisions
+[spec-author]   → Drafts + self-reviews the product spec (ruthless MVP scope)
     ↓
-[spec-writer]     → Iterates until spec is complete
+[tech-designer] → Decides stack, fills tech-stack / code-style / agent-graph
     ↓
-[tech-designer]   → Proposes tech stack, architecture, data model
+[planner]       → Phased plan with exact gate tests; self-reviews
     ↓
-You approve the spec & tech design
+ONE APPROVAL — you see scope + stack + plan; approve once
     ↓
-[planner]         → Breaks work into phases (minimal → complete)
+[implementer]   → Builds Phase 1, then Phase 2 (each: code + tests, commit, push)
     ↓
-[plan-reviewer]   → Validates plan against spec
+[verifier]      → Read-only: runs the gate; BLOCKED → implementer fixes → re-verify
     ↓
-Phase 1: Build the minimal working agent (core loop, no polish)
-    ↓
-[qa-auditor]      → Tests phase 1
-    ↓
-Phase 2, 3, ... : Iterate and expand
-    ↓
-[drift-auditor]   → Ensures code matches spec throughout
+[auditor]       → Read-only: final spec↔code drift check (CLEAN before hand-off)
     ↓
 Hand-off to you
 ```
 
-**Nothing is skipped.** If a phase fails QA, it stays in that phase until it passes.
+**Nothing is skipped.** A phase stays open until the verifier returns VERIFIED. After the build, fix bugs with `/zero-shot-fix` and keep spec and code aligned with `/zero-shot-sync`.
 
 ---
 
@@ -101,9 +95,9 @@ Each phase ends with a commit and passes QA before the next phase begins.
 
 ```
 .claude/
-  agents/           ← Sub-agents (agent-builder, spec-writer, etc.)
-  commands/         ← Slash commands (/build, /spec-check, /plan)
-spec/               ← What your agent does (fill this in or let spec-writer do it)
+  skills/           ← Entry points (/zero-shot-build, /zero-shot-fix, /zero-shot-sync)
+  agents/           ← Sub-agents the skills drive (spec-author, tech-designer, planner, implementer, auditor, verifier)
+spec/               ← What your agent does (fill this in or let /zero-shot-build do it)
   capabilities/     ← One file per discrete capability
   tech-stack.md     ← Language, framework, libraries
   code-style.md     ← Style and structural rules
@@ -121,9 +115,9 @@ CLAUDE.md           ← Entry point for Claude Code
 
 If you prefer to write the spec yourself before involving AI:
 
-1. Open `spec/01-vision.md` and fill in the placeholders
+1. Open `spec/vision.md` and fill in the placeholders
 2. Work through each file in `spec/` in order
-3. Once the spec is complete, run `/plan` to jump straight to the planning phase
+3. Once the spec is complete, run `/zero-shot-build` — it sees the filled-in spec and goes straight to planning and building
 
 ---
 
@@ -146,10 +140,10 @@ Every Claude Code session in this repo follows the rules in `harness/ai-agents.m
 The spec template includes a data model section. The tech-designer sub-agent will recommend the right database for your use case.
 
 **What if I already have a tech stack in mind?**
-Tell the agent-builder upfront: `/build [idea] — use Python + FastAPI + PostgreSQL`. It will skip the tech design Q&A for those decisions.
+Say it in the idea: `/zero-shot-build [idea] — use Python + FastAPI + PostgreSQL`. The tech-designer honors stated stack choices as binding and skips those questions.
 
 **What if something breaks?**
-Each phase is resilient by design. The QA auditor will catch failures before the next phase starts. You can always re-run a phase.
+Run `/zero-shot-fix [what's broken]` — it classifies the problem (bug, error, failing test, or drift), fixes it with spec context, and verifies. The verifier catches phase failures before the next phase starts.
 
 ---
 
@@ -159,7 +153,7 @@ The recommended way to iterate on this boilerplate:
 
 1. Keep `main` as the clean boilerplate — only spec, engineering rules, and agent config.
 2. For each build attempt, create a numbered test branch: `test-1`, `test-2`, etc.
-3. Give the agent-builder a single-line prompt on the test branch. Let it build.
+3. Run `/zero-shot-build` with a single-line idea on the test branch. Let it build.
 4. Review and test the result on that branch.
 5. **Never merge the generated application code back to main.** Test branches are disposable.
 6. If a run surfaces a boilerplate improvement (a clearer spec template, a missing rule), cherry-pick or manually apply that fix to `main`.

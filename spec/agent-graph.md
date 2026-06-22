@@ -4,7 +4,7 @@
 >
 > If your project has no agent framework (e.g., it's a simple script or API), delete this file.
 >
-> The spec-reviewer treats this file as a **CRITICAL BLOCKER** — the tech design will not be approved if this file is absent or incomplete when an agent framework is in use.
+> The tech-designer treats this file as a **CRITICAL BLOCKER** — the tech design will not be approved if this file is absent or incomplete when an agent framework is in use.
 
 ---
 

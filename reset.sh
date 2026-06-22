@@ -20,8 +20,8 @@ git checkout HEAD -- .env.example 2>/dev/null || true
 
 echo ""
 echo "Done. Repo is back to boilerplate state."
-echo "Next: create a new branch and run /build with your idea."
+echo "Next: create a new branch and run /zero-shot-build with your idea."
 echo ""
 echo "  git checkout -b feat/my-new-agent"
 echo "  claude"
-echo "  /build [your idea]"
+echo "  /zero-shot-build [your idea]"

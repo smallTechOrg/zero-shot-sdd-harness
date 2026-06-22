@@ -43,9 +43,9 @@ These rules are never optional, never skipped, and must survive context compress
 
 Complete all steps in order before writing any code:
 
-- [ ] Read `spec/01-vision.md` — know what you're building
+- [ ] Read `spec/vision.md` — know what you're building
 - [ ] Check if the spec is complete (no `<!-- FILL IN -->` markers in product spec files)
-  - If incomplete: surface the agent-builder to the user; do not write application code
+  - If incomplete: tell the user to run `/zero-shot-build`; do not write application code
 - [ ] If spec is complete: read the full spec manifest in `CLAUDE.md`
 - [ ] Run `git status` — working tree must be clean before starting
 - [ ] **Create and switch to a feature branch**: `git checkout -b feature/<slug>-v0.1` — **never build on `main`**
@@ -85,7 +85,7 @@ BUILD (Phase 1 → Phase 2, each gated by passing tests)
 - Stack decisions (database, language, hosting) belong to the user — captured at intake, never chosen autonomously
 - No code is written before the single approval gate is cleared
 - Each build phase must pass its gate test before the next phase starts
-- Reviewers (spec-reviewer, plan-reviewer) run as background validation and surface blockers, but do not add approval rounds for v0.1
+- The spec-author and planner self-review their own artifacts; the verifier gates each phase. None of these add a user approval round for v0.1 — there is exactly one approval gate (after intake)
 
 **After v0.1 is running**, subsequent phases follow the standard gate:
 ```
@@ -113,7 +113,7 @@ See `harness/spec-driven.md` for full details.
 Each phase ends when:
 - All code for that phase is written and committed
 - All tests for that phase pass
-- The qa-auditor sub-agent has signed off (or you have run the QA checklist manually)
+- The verifier sub-agent has returned VERIFIED (or you have run the gate checklist manually)
 
 See `harness/phases.md` for the phase definitions and gates.
 

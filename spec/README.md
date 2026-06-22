@@ -4,18 +4,18 @@ This directory is the authoritative specification for this project. All code mus
 
 ## Status
 
-Check `spec/01-vision.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->` markers, the spec-writer sub-agent needs to complete it before any application code is written.
+Check `spec/vision.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->` markers, the spec-author sub-agent needs to complete it before any application code is written.
 
 ## Structure
 
 ```
 spec/                 ← What the agent does (the product spec)
-  01-vision.md        ← Purpose, goals, success criteria
-  02-architecture.md  ← System design, layers, data flow
-  04-data-model.md    ← Data schema
-  05-api.md           ← API surface (REST/GraphQL/CLI/etc.)
-  06-ui.md            ← UI requirements (if any)
-  07-agent-graph.md   ← Agent orchestration graph
+  vision.md        ← Purpose, goals, success criteria
+  architecture.md  ← System design, layers, data flow
+  data-model.md    ← Data schema
+  api.md           ← API surface (REST/GraphQL/CLI/etc.)
+  ui.md            ← UI requirements (if any)
+  agent-graph.md   ← Agent orchestration graph
   capabilities/       ← One file per discrete capability
   tech-stack.md       ← Language, framework, libraries
   code-style.md       ← Style and structural rules
@@ -39,6 +39,6 @@ harness/              ← How to build it (the engineering harness)
 
 ## Who Updates the Spec
 
-- **New project:** spec-writer sub-agent drafts, spec-reviewer validates, you approve
-- **New capability:** use the `/spec-new-capability` command or ask the spec-writer directly
-- **Bug in spec:** any team member can open a PR; spec-reviewer must approve
+- **New project:** the `/zero-shot-build` skill drives the spec-author sub-agent, which drafts and self-reviews the spec
+- **New capability:** run `/zero-shot-build` on an existing spec — it adds the capability via the spec-author
+- **Drift between spec and code:** run `/zero-shot-sync` to reconcile (spec wins)

@@ -1,6 +1,6 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+> **Boilerplate status:** The spec-author sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
 
 ---
 
@@ -13,19 +13,19 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file. -->
+<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
 
-| # | Capability | File |
-|---|-----------|------|
-| 1 | <!-- name --> | [01-name.md](01-name.md) |
+| Capability | File |
+|-----------|------|
+| <!-- name --> | [name.md](name.md) |
 
 ## How to Add a New Capability
 
-Run `/spec-new-capability [description]` or ask the spec-writer directly. The spec-writer will:
-1. Create a new file in this directory
+Run `/zero-shot-build [description]` on the existing spec. The spec-author sub-agent will:
+1. Create a new file in this directory (`<name>.md`, no number prefix)
 2. Update this index
 3. Flag any dependencies on existing capabilities
-4. The spec-reviewer will validate it fits the architecture
+4. Self-review that it fits the architecture and data model before returning
 
 ## Capability File Template
 

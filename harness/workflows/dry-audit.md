@@ -33,7 +33,7 @@ Audit these trees: `spec/` (all files), `harness/` (all files), root files (`REA
 ```
 | Fact | Canonical home | Violations | Recommendation |
 |---|---|---|---|
-| layered architecture | spec/02-architecture.md | CLAUDE.md:12 (restatement) | Replace with link |
+| layered architecture | spec/architecture.md | CLAUDE.md:12 (restatement) | Replace with link |
 ```
 
 End with a one-line summary: violation count, worst offender file.
