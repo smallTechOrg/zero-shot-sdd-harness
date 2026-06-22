@@ -1,8 +1,11 @@
+import logging
 import re
 
 from analyst.domain.session import DatasetMeta
 from analyst.errors import AnalystError
 from analyst.llm.base import GeminiProvider
+
+log = logging.getLogger(__name__)
 
 _BLOCKLIST_PATTERN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)\b",
@@ -11,19 +14,28 @@ _BLOCKLIST_PATTERN = re.compile(
 
 
 def _extract_sql(response_text: str) -> str:
-    """Strip markdown fences (```sql ... ``` or ``` ... ```) and surrounding whitespace."""
+    """Strip markdown fences and any surrounding explanation text."""
     text = response_text.strip()
-    # Match ```sql...``` or ```...```
-    fenced = re.match(r"^```(?:sql)?\s*\n?(.*?)```$", text, re.DOTALL | re.IGNORECASE)
+    # Pull out content from ```sql...``` or ```...``` anywhere in the response
+    fenced = re.search(r"```(?:sql)?\s*\n?(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if fenced:
         return fenced.group(1).strip()
-    return text
+    # If no fences, take only the first SELECT statement line(s)
+    lines = text.splitlines()
+    sql_lines = []
+    in_sql = False
+    for line in lines:
+        if re.match(r"^\s*SELECT\b", line, re.IGNORECASE):
+            in_sql = True
+        if in_sql:
+            sql_lines.append(line)
+    return "\n".join(sql_lines).strip() if sql_lines else text
 
 
 def _check_keyword_blocklist(sql: str) -> None:
-    """Raise AnalystError if SQL contains any DML/DDL keywords."""
     match = _BLOCKLIST_PATTERN.search(sql)
     if match:
+        log.warning("sql_rejected: keyword=%s sql=%r", match.group(0), sql)
         raise AnalystError(
             "sql_rejected",
             f"SQL contains disallowed keyword: {match.group(0)}",
@@ -58,6 +70,8 @@ def generate_sql_for_question(
     schema_text = build_schema_text(datasets)
     prompt = build_prompt(system_template, schema_text, question)
     raw = provider.generate_sql(prompt)
+    log.info("gemini_raw: %r", raw)
     sql = _extract_sql(raw)
+    log.info("extracted_sql: %r", sql)
     _check_keyword_blocklist(sql)
     return sql

@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv",
     "sqlglot",
     "itsdangerous",
+    "google-genai>=2.9.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

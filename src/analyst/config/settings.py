@@ -1,6 +1,6 @@
 import functools
-import os
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,11 +21,20 @@ class Settings(BaseSettings):
     max_result_rows: int = 1000
     query_timeout_s: int = 30
 
+    # Loaded directly from GEMINI_API_KEY (no ANALYST_ prefix)
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY", env="GEMINI_API_KEY")
+
+    model_config = SettingsConfigDict(
+        env_prefix="ANALYST_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
     @property
     def resolved_llm_provider(self) -> str:
-        # Read GEMINI_API_KEY directly from env; strip inline # comments
-        raw = os.environ.get("GEMINI_API_KEY", "")
-        key = raw.strip().split("#")[0].strip()
+        key = (self.gemini_api_key or "").strip()
         return "gemini" if key else "stub"
 
 

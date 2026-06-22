@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,7 +26,7 @@ async def lifespan(app: FastAPI):
     else:
         app.state.stub_mode = False
         app.state.llm_provider = GeminiClient(
-            os.environ["GEMINI_API_KEY"], settings.llm_model
+            settings.gemini_api_key, settings.llm_model
         )
 
     yield
