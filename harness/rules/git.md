@@ -96,7 +96,7 @@ A phase is not complete until:
 - [ ] All code for the phase is committed
 - [ ] Commit is pushed to the feature branch
 - [ ] Working tree is clean (`git status` shows nothing)
-- [ ] Session report reflects phase completion
+- [ ] Phase test-handoff published; for a build, the human has tested and approved the phase
 
 To see phase history: `git log --oneline | grep "phase-"`
 
@@ -107,4 +107,3 @@ To see phase history: `git log --oneline | grep "phase-"`
 Before ending any session:
 - [ ] Working tree is clean (all changes committed and pushed)
 - [ ] Branch is up to date with remote
-- [ ] Session report notes the current phase and what comes next

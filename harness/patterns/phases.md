@@ -1,26 +1,27 @@
 # Implementation Phases
 
-Agents are built incrementally. This file defines the default phase model. The tech-architect sub-agent adapts it to your specific project.
+Agents are built incrementally. This file defines the default phase model. The spec-writer sub-agent adapts it to your specific project.
 
 ## Core Principle
 
-**Build the minimal working thing first. Then expand.**
+**Ship the smallest user-testable win first. Then expand.**
 
-A "working" agent in Phase 2 should demonstrate the core loop end-to-end against the real LLM/API (keys from `.env`), even if data is thin and UI is minimal. Each subsequent phase makes it more complete.
+Phase 1 is a thin but REAL vertical slice the user can test the first time, with zero rough edges on the tested path — never a models-only layer the user cannot exercise. Backend on the one core path is minimal but real (no fake data on the tested path); the frontend, built in parallel, is visually complete: real UI for the working path PLUS clearly-labelled non-functional stubs for everything coming later, so the user sees the vision. Each subsequent phase wires a stub into real functionality — one user-testable increment at a time.
 
 ## Default Phase Model
 
-The tech-architect sub-agent will customize this for your project, but the general structure is:
+The spec-writer sub-agent will customize this for your project, but the general structure is:
 
-### Phase 1 — Domain Models + Data Layer
-- Define all core data types (Pydantic models, TypeScript interfaces, etc.)
-- Set up the database schema (if applicable)
-- No business logic yet
+### Phase 1 — Smallest User-Testable Win (thin real vertical slice)
+- One core path works end-to-end against the real LLM/API (keys from `.env`): the minimal domain types, data layer, and core logic that path needs — nothing more.
+- Backend is minimal but REAL on that path — no fake data on what the user tests.
+- Frontend (built in parallel) is visually complete: real UI for the one working path, PLUS clearly-labelled non-functional stubs for everything coming later. A stub must be visibly labelled so it is never mistaken for a bug.
 - **Gate (all must pass):**
   1. `pyproject.toml` declares the DB driver in `[project.dependencies]` (e.g. `psycopg2-binary` for PostgreSQL) — never dev-only
   2. `uv run alembic upgrade head` succeeds against the configured database — this must be run and confirmed, not assumed
-  3. Basic CRUD unit tests pass
+  3. The core path runs end-to-end against the real LLM/API; tests for the slice pass
   4. Working tree is clean and committed
+  5. Phase test-handoff published; the human has tested the slice and approved (see Human Testing Gate)
 
 ### Phase 2 — Core Agent Loop (Real Integration)
 - Implement the agent's main loop from start to finish.
@@ -33,7 +34,7 @@ The tech-architect sub-agent will customize this for your project, but the gener
   3. Tests are fully automated: `conftest.py` creates and tears down the test schema; no manual DB setup steps
   4. Real LLM/API keys are present in `.env` and the suite exercises the real provider — no all-stubbed run is accepted as the Phase 2 gate
   5. **Golden-path UI smoke test passes** (if the project has any UI or HTTP surface). Drives the full primary user flow through `TestClient` against the real LLM/API and asserts real response content (not only status codes). Edge-case and end-to-end UI assertions are required, not optional.
-  6. **Live-server smoke:** the agent starts the app (`uv run python -m <pkg>`) and hits `/health` plus one real page with `curl`, exercising the live LLM/API path. Both return 200 and the page shows real AI output. Exit codes logged in the session report.
+  6. **Live-server smoke:** the agent starts the app (`uv run python -m <pkg>`) and hits `/health` plus one real page with `curl`, exercising the live LLM/API path. Both return 200 and the page shows real AI output.
 
 ### Phase 3 — Remaining Integrations
 - Wire up any secondary providers or data sources not covered by the Phase 2 core loop.
@@ -71,13 +72,29 @@ The tech-architect sub-agent will customize this for your project, but the gener
 - README is accurate and up to date
 - **Gate:** Drift audit passes; README reviewed by user; user accepts hand-off
 
+## Human Testing Gate
+
+The build is autonomous WITHIN a phase, with a human testing gate BETWEEN phases — at EVERY phase boundary.
+
+After a phase passes its automated gate and is committed, the build publishes a **test-handoff** and STOPS:
+- The handoff gives exact run commands, what to click/look at, the expected result, and what is a labelled stub vs. real.
+- Only the root session presents it and asks the human.
+- The next phase starts ONLY after the human approves.
+- On a reported issue → qa-auditor diagnoses and routes → the right generator (frontend and/or backend) fixes → re-gate → re-present.
+
+## Parallel Slices Within a Phase
+
+- spec-writer carves each phase into INDEPENDENT SLICES (the parallel units) with explicit dependencies; default to independence so slices build concurrently.
+- agent-builder fans out a generator per slice — multiple backend-code-generator AND frontend-code-generator invocations in a SINGLE message so they run concurrently (disjoint paths: frontend writes the frontend surface, backend writes `src/` — never the same file). Then fans out qa-auditor per slice concurrently and aggregates verdicts.
+- Serialize ONLY across a true declared dependency. On a BLOCKED slice, loop only that slice's generator; other slices are unaffected. For headless/CLI builds, only backend generators run.
+
 ## Phase Gates
 
 A phase is complete when ALL of the following are true:
 1. All code for the phase is committed and pushed
 2. All tests for the phase pass
 3. Working tree is clean
-4. Session report reflects phase completion
+4. Phase test-handoff published; (build) human tested and approved
 5. qa-auditor sub-agent (or manual QA checklist) has signed off
 6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
 
@@ -89,22 +106,22 @@ A phase is complete when ALL of the following are true:
 
 ## Phase Tracking
 
-The current phase is recorded in the active session report and in the git commit messages (`phase-N: [description]`). To see phase history, run `git log --oneline | grep "phase-"`.
+The current phase is recorded in git commit messages (`phase-N: [description]`). To see phase history, run `git log --oneline | grep "phase-"`.
 
 ## Adapting the Phases
 
-The tech-architect sub-agent may merge, split, or reorder phases based on your project's specifics. For example:
+The spec-writer sub-agent may merge, split, or reorder phases based on your project's specifics. For example:
 - A pure CLI tool may skip phases 6 and 7
 - A project with no database may shrink phase 1
 - A project with many integrations may split phase 5 into multiple phases
 
-Whatever the tech-architect decides, the core principle holds: **minimal working thing first**.
+Whatever the spec-writer decides, the core principle holds: **smallest user-testable win first**.
 
 ---
 
 ## Language-Specific Gate Commands
 
-The gate test command depends on the project language. The tech-architect sets the exact command per phase in `reports/implementation-plan.md`, honoring the test rules in `harness/patterns/tech-stack.md`.
+The gate test command depends on the project language. The spec-writer sets the exact command per phase in `spec/roadmap.md` (## Phases of Development), honoring the test rules in `harness/patterns/tech-stack.md`.
 
 | Language | Phase 1 gate | Phase 2 gate |
 |----------|-------------|-------------|

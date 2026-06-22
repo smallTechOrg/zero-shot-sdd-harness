@@ -1,10 +1,10 @@
 # Agent
 
-> **Boilerplate status:** Required when the project uses an agent framework (LangGraph, CrewAI, AutoGen, multi-agent orchestration, etc.). Filled in by the tech-architect sub-agent as part of the tech design stage. This file holds **all agent-related spec for this project** — the architecture pattern, the graph (state, nodes, edges), tools, and concurrency. For the reusable catalogue of agentic-AI design patterns to choose from, see `harness/patterns/agentic-ai.md`.
+> **Boilerplate status:** Required when the project uses an agent framework (LangGraph, CrewAI, AutoGen, multi-agent orchestration, etc.). Filled in by the spec-writer sub-agent as part of the tech design stage. This file holds **all agent-related spec for this project** — the architecture pattern, the graph (state, nodes, edges), tools, and concurrency. For the reusable catalogue of agentic-AI design patterns to choose from, see `harness/patterns/agentic-ai.md`.
 >
 > If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
 >
-> The tech-architect treats this file as a **CRITICAL BLOCKER** — the tech design will not be approved if this file is absent or incomplete when an agent framework is in use.
+> The spec-writer treats this file as a **CRITICAL BLOCKER** — the spec will not be approved if this file is absent or incomplete when an agent framework is in use.
 
 ---
 

@@ -1,6 +1,6 @@
 # Tech-Stack Rules
 
-Generic engineering rules that hold for **every** project, whatever stack is chosen. The project's *chosen* stack (language, framework, LLM provider/model, database, libraries) is recorded in `spec/architecture.md` under `## Stack`. This file is the permanent doctrine the tech-architect and code-generator follow when filling and implementing that stack — it is not edited per project.
+Generic engineering rules that hold for **every** project, whatever stack is chosen. The project's *chosen* stack (language, framework, LLM provider/model, database, libraries) is recorded in `spec/architecture.md` under `## Stack`. This file is the permanent doctrine the spec-writer (filling the `## Stack`) and the frontend/backend-code-generators (implementing against it) follow — it is not edited per project.
 
 ---
 

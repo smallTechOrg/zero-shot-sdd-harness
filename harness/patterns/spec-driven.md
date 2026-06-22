@@ -43,7 +43,7 @@ When spec comes first:
 **Does NOT go in the spec:**
 - Specific line-by-line implementation (that's the code)
 - Temporary workarounds
-- Debug notes or session-specific context (those go in session reports)
+- Debug notes or session-specific context (those belong in commit messages / the PR, not the spec)
 
 ## What to Do When Requirements Change
 

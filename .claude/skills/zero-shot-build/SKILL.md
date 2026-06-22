@@ -1,23 +1,23 @@
 ---
 name: zero-shot-build
-description: Turn a zero-shot idea into a perfectly-working, thoroughly-tested, spec-driven agent. One intake round (which also collects the API keys into .env), then the agent-builder runs the full team autonomously to a thoroughly-tested agent. Also used to add a new capability to an existing agent.
+description: Turn a zero-shot idea into a perfectly-working, thoroughly-tested, spec-driven agent. One intake round (which also collects the API keys into .env), then the agent-builder builds one phase at a time — autonomous within a phase, with a human testing gate between phases. Also used to add a new capability to an existing agent.
 argument-hint: [your idea]
 disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(gh*)
 ---
 
-You run the only interactive step — intake — then hand off to the **agent-builder** orchestrator. The idea is in `$ARGUMENTS` (if empty, ask for it once). Goal: **one prompt → a perfectly-working, thoroughly-tested agent in ~20-30 minutes, with zero user interaction after intake.**
+You run the human channel — intake, then the testing gate at every phase boundary — and hand the building off to the **agent-builder** orchestrator. The idea is in `$ARGUMENTS` (if empty, ask for it once). Goal: **one prompt → a perfectly-working, thoroughly-tested agent, one user-testable phase at a time.**
 
-There is no build/approval gate. **Intake-only autonomy:** ask the upfront questions (and any needed clarifiers), collect the required API keys into `.env`, then let agent-builder run the team — design → scaffold → build → ship — to a thoroughly-tested agent with zero further interaction. Don't pause mid-build; agent-builder pauses only on a hard blocker (e.g. a required key still missing from `.env`).
+**Autonomy model:** autonomous *within* a phase; a **human testing gate between phases**. Intake is the only interactive SETUP step; after it, agent-builder builds a phase end-to-end without pausing, then returns a test-handoff. You present the handoff, handhold the user through testing, and only proceed to the next phase on the user's go. agent-builder pauses mid-phase only on a hard blocker (e.g. a required key still missing from `.env`).
 
-## Stage 1 — Intake (the only interactive step)
+## Stage 1 — Intake (the only interactive setup step)
 
-Intake captures scope, stack, trigger, and constraints, MAY ask additional clarifying questions up front if anything is ambiguous, and asks the user to fill `.env` with the required API keys/secrets.
+Intake captures scope, stack, LLM provider, output/trigger, and constraints, MAY ask additional clarifying questions up front if anything is ambiguous, and asks the user to fill `.env` with the required API keys/secrets. Aim for a **tight scope** — Phase 1 should be the smallest user-testable **quick win**, not "complete".
 
 1. Acknowledge the idea in one sentence.
 2. Load the question tool: `ToolSearch` with query `select:AskUserQuestion` (before asking).
 3. Ask **one round** of questions via `AskUserQuestion` (add clarifiers if underspecified):
-   - **MVP scope** — minimum to call it working?
+   - **MVP scope** — minimum to call it working? Push for the smallest first win.
    - **Stack** — language, database, hosting? ("no preference" → sensible defaults, documented as an assumption; no later user round to confirm).
    - **LLM provider** — offer these options: **OpenRouter**, **Gemini (API key)**, **Anthropic (API key)**, **Other**. (Drives which key the user sets and the default model from `harness/patterns/tech-stack.md`.)
    - **Output/trigger** — how invoked, what produced?
@@ -25,14 +25,41 @@ Intake captures scope, stack, trigger, and constraints, MAY ask additional clari
 4. **API key** (the only manual user step). Based on the chosen provider, tell the user to set the matching key in `.env` (from `.env.example`): `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (for **Other**, ask which env var + base URL). The build and tests load the key programmatically from `.env` (gitignored) and use it for all tests and evals; confirm by presence (bool) only — never echo, print, paste, or commit a secret value.
 5. Synthesize answers into a one-paragraph brief. ("Just build it" → narrow MVP, Python + PostgreSQL defaults, documented as assumptions.)
 
-## Stage 2 — Build (delegate, fully autonomous)
+## Stage 2 — Design + scaffold + build Phase 1 (delegate)
 
-Invoke the **agent-builder** sub-agent once with the brief and the populated `.env`. Tell it to run design → scaffold → build → ship end-to-end, returning only the final report (it may note assumptions made; there is no design summary to approve). Each build phase must pass its gate — real-key tests + golden-path/live-server/UI smoke, plus edge-case and end-to-end coverage, against the production DB driver — before the next phase starts; "perfect, zero errors" before ship. Relay only the hard blockers it escalates (e.g. a required key still missing from `.env`).
+Invoke the **agent-builder** sub-agent once with the brief and the populated `.env`. Tell it to run, in order, and return the **Phase-1 test-handoff**:
 
-## Stage 3 — Report
+- **DESIGN** — spec-writer writes the full spec: vision/capabilities, `spec/architecture.md` (incl. the `## Stack` section), `spec/agent.md` (if a framework is chosen), and the phased plan in `spec/roadmap.md` under "## Phases of Development" (per phase: Goal · independent slices · key surfaces/files · the exact runnable Gate command · how the user tests it).
+- **SCAFFOLD** — branch `feature/<slug>-v0.1`, project dirs, `.env.example`, first commit + push, open the PR.
+- **BUILD PHASE 1** — fan out generators per independent slice in parallel, gate each slice with qa-auditor, then return the Phase-1 test-handoff and STOP.
 
-When agent-builder returns: summarize for the user what was built, how to run it (verified commands), what's deferred, and the PR link.
+Relay only the hard blockers it escalates (e.g. a required key still missing from `.env`).
+
+## Stage 3 — Human testing gate (you own the human channel)
+
+Phase 1 is the smallest working win: real on the one core path, with clearly-labelled non-functional stubs for everything coming later. Handhold the user through testing it:
+
+1. Load the question tool: `ToolSearch` with query `select:AskUserQuestion` (before asking).
+2. Present the test-handoff as concrete steps: the **exact run commands**, **what to click / what to look at**, the **expected result**, and which parts are **labelled stubs vs real** (so a stub is never mistaken for a bug).
+3. Ask via `AskUserQuestion`: **"Does Phase 1 work as you expected?"** → options **"Yes — continue to Phase 2"** / **"I hit an issue"**.
+4. **On "I hit an issue":** capture what the user saw, then invoke **qa-auditor** to diagnose and CLASSIFY the root cause (SPEC vs CODE, and which surface). Route the fix: SPEC → spec-writer rewrites the spec, then the responsible generator(s) redo the code; CODE → the responsible **frontend-code-generator** and/or **backend-code-generator** fixes the surface. Re-gate with qa-auditor, commit + push the fix yourself, then **re-present** the gate. Loop until the user is satisfied.
+5. **On "Yes":** proceed to Stage 4.
+
+## Stage 4 — Per remaining phase (build → gate, repeat)
+
+For EVERY remaining phase boundary:
+
+1. Invoke **agent-builder** again — **one phase per invocation** — passing the user's feedback from the prior gate. It wires the relevant stubs into real functionality, fanning out generators per independent slice in parallel and gating each with qa-auditor, then returns that phase's test-handoff and STOPS.
+2. Run the **Stage 3 human testing gate** again for this phase.
+
+Repeat until no phases remain.
+
+## Stage 5 — Ship + report
+
+1. **qa-auditor** — final whole-tree drift audit (CLEAN). Route any divergence per Stage 3 and re-verify.
+2. **agent-builder** — ensure the final state is pushed and the PR body is current.
+3. Summarize for the user: what was built, the verified run commands, what's deferred, and the PR link.
 
 ## Adding a capability to an existing agent
 
-If the spec is already filled in and the user is adding a capability: skip the scope intake; confirm the existing `.env` already holds the needed keys and ask only if the new capability requires a new provider/key. Tell agent-builder to run spec-writer (add just the new `spec/capabilities/<name>.md` + update `index.md`, self-reviewed) → tech-architect (incremental phase) → the build loop. Same autonomy.
+If the spec is already filled in and the user is adding a capability: skip the scope intake; confirm the existing `.env` already holds the needed keys and ask only if the new capability requires a new provider/key. Tell agent-builder to run **spec-writer** (it owns architecture + roadmap now: add the capability to the spec and append an incremental phase to `spec/roadmap.md`, self-reviewed) → fan out the **frontend/backend generators** per slice → gate with qa-auditor. Then run the **human testing gate** on the new phase, same as any other.

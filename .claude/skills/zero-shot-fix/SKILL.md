@@ -6,11 +6,20 @@ disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a targeted fix by calling worker agents directly — no full agent-builder needed. The target is in `$ARGUMENTS` (if empty, ask what's broken). Run autonomously: classify → locate → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or explicit request.
+You orchestrate a targeted fix by calling worker agents directly — no full agent-builder needed. The target is in `$ARGUMENTS` (if empty, ask what's broken). Run autonomously: diagnose+classify → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or explicit request.
 
-Fixing happens in **code-generator** (it has spec intent); judging happens in read-only **qa-auditor**; you (the skill) own the commit + push.
+**qa-auditor runs FIRST** — it diagnoses, captures the failing signal, and CLASSIFIES the root cause (SPEC vs CODE, and which surface). Its verdict ROUTES the fix and names which generator. Fixing happens in the **frontend-code-generator** and/or **backend-code-generator** (picked by surface); judging happens in read-only **qa-auditor**; you (the skill) own the commit + push.
 
-## Step 1 — Classify
+## Step 1 — Diagnose + classify (qa-auditor first)
+
+Invoke **qa-auditor** with the target. It:
+- captures the current red state — the failing test output, the reproduced error, or the specific drift divergence + file — as your before/after baseline;
+- CLASSIFIES the root cause as **SPEC** (spec wrong/missing) vs **CODE** (code diverges from spec), and names **which surface** (frontend / backend) and file(s);
+- returns a routed verdict. It stays read-only and never spawns agents.
+
+State the classification in one line. If qa-auditor can't reproduce the reported problem, say so and ask for repro steps rather than guessing.
+
+Done-when, by signal:
 
 | Signal in `$ARGUMENTS` | Done when |
 |---|---|
@@ -19,25 +28,17 @@ Fixing happens in **code-generator** (it has spec intent); judging happens in re
 | **Runtime error / stack trace** | the error no longer reproduces when the app runs |
 | **Spec/code drift** | qa-auditor (drift mode) reports CLEAN (see also `/zero-shot-sync`) |
 
-State your classification in one line.
+## Step 2 — Fix (routed by the verdict)
 
-## Step 2 — Locate
+- **SPEC root cause** → invoke **spec-writer** to rewrite the spec section, then invoke the responsible generator(s) to redo the code toward the corrected spec.
+- **CODE root cause** → invoke the responsible generator(s) directly — **backend-code-generator** for `src/` (api, db, graph, llm, tools, prompts, observability), **frontend-code-generator** for the frontend/UI surface. Both can run concurrently if the fix spans both surfaces (disjoint paths).
 
-- **Drift / "where is this":** invoke **qa-auditor** in drift mode → it returns the specific divergence and file.
-- **Bug / error:** use the built-in **Explore** agent (or Grep/Read) to find the responsible code and the repro path, keeping the search out of your context.
+Give the generator the precise target, the responsible files, and the spec sections defining correct behavior. It fixes toward spec intent and adds/updates a regression test (for an LLM/API bug, the regression test uses real keys from `.env`). It must not mute a test or delete an assertion to go green; if spec and test genuinely conflict, it stops and reports (likely a spec bug → re-run Step 1 as SPEC, or suggest `/zero-shot-sync`).
 
-## Step 3 — Capture the failing signal
+## Step 3 — Verify (qa-auditor, gate mode)
 
-Invoke **qa-auditor** (gate mode) to capture the current red state — the failing test output or the reproduced error — as your before/after baseline. If you can't reproduce the reported problem, say so and ask for repro steps rather than guessing.
+Invoke **qa-auditor** in gate mode (real-key tests from `.env`) against the Step 1 signal. Still BLOCKED → re-route per the verdict (re-invoke the responsible generator with the new detail); loop until VERIFIED. For a drift fix, also confirm qa-auditor (drift mode) reports CLEAN.
 
-## Step 4 — Fix
+## Step 4 — Ship + report
 
-Invoke **code-generator** with the precise target, the responsible files, and the spec sections defining correct behavior. It fixes toward spec intent and adds/updates a regression test (for an LLM/API bug, the regression test uses real keys from `.env`). It must not mute a test or delete an assertion to go green; if spec and test genuinely conflict, it stops and reports (likely a spec bug → suggest `/zero-shot-sync` or a spec edit).
-
-## Step 5 — Verify
-
-Invoke **qa-auditor** (gate mode, real-key tests from `.env`) against the Step 3 signal. Still BLOCKED → re-invoke code-generator with the new detail; loop until VERIFIED. For a drift fix, also confirm qa-auditor (drift mode) reports CLEAN.
-
-## Step 6 — Ship + report
-
-Commit + push the fix yourself (atomic `git commit … && git push`, staging only the changed files, per `harness/rules/git.md`). Summarize: classification, root cause (1–2 sentences), files changed, the regression test added, the verified before→after, and the pushed SHA.
+Commit + push the fix yourself (atomic `git commit … && git push`, staging only the changed files, per `harness/rules/git.md`). Summarize: classification (SPEC/CODE + surface), root cause (1–2 sentences), files changed, the regression test added, the verified before→after, and the pushed SHA.

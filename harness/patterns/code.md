@@ -1,6 +1,6 @@
 # Code Style
 
-> Generic code conventions that apply to **every** project — harness doctrine the code-generator follows, not a per-project file. The language-specific sections are reference; this project's chosen language/stack is in `spec/architecture.md` (`## Stack`).
+> Generic code conventions that apply to **every** project — harness doctrine the frontend-code-generator and backend-code-generator follow, not a per-project file. The language-specific sections are reference; this project's chosen language/stack is in `spec/architecture.md` (`## Stack`).
 
 ---
 
@@ -17,27 +17,27 @@ These apply regardless of language or framework:
 
 ## Naming Conventions
 
-<!-- FILL IN: Filled in by tech-architect based on language choice. -->
+<!-- FILL IN: Filled in by spec-writer based on language choice. -->
 
 ## File Organization
 
-<!-- FILL IN: Filled in by tech-architect. How are files grouped — by layer, by feature, by type? -->
+<!-- FILL IN: Filled in by spec-writer. How are files grouped — by layer, by feature, by type? -->
 
 ## Error Handling Pattern
 
-<!-- FILL IN: Filled in by tech-architect. How are errors represented and propagated? -->
+<!-- FILL IN: Filled in by spec-writer. How are errors represented and propagated? -->
 
 ## Logging Pattern
 
-<!-- FILL IN: Filled in by tech-architect. Structured vs. unstructured? What fields are always included? -->
+<!-- FILL IN: Filled in by spec-writer. Structured vs. unstructured? What fields are always included? -->
 
 ## Testing Conventions
 
-<!-- FILL IN: Filled in by tech-architect. Unit test location, naming, runner. -->
+<!-- FILL IN: Filled in by spec-writer. Unit test location, naming, runner. -->
 
 ## What NOT to Do
 
-<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by tech-architect. -->
+<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by spec-writer. -->
 
 ---
 

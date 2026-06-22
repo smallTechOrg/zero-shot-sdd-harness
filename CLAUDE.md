@@ -14,7 +14,6 @@ A starting template for building AI agents. The spec in `spec/` is either:
 2. Check whether `spec/roadmap.md` has been filled in:
    - If it still contains `<!-- FILL IN -->` placeholders → the spec is not ready; do not write application code yet
    - If it is filled in → proceed to read the full spec manifest below before touching any code
-3. Open a session report at `reports/sessions/YYYY-MM-DD-HHMMSS-[branch].md`
 
 ## Spec Manifest (read in this order when spec is complete)
 
@@ -43,7 +42,7 @@ harness/rules/git.md
 
 ## If the Spec Is Not Ready
 
-Tell the user to run **`/zero-shot-build [their idea]`**. That skill runs one intake round — the only interactive step. It may ask additional clarifying questions, and asks the user to fill `.env` with the required API keys/secrets. Once intake completes, the **agent-builder** orchestrator runs design → scaffold → build → ship autonomously to a perfectly-working, thoroughly-tested agent, with zero further user interaction.
+Tell the user to run **`/zero-shot-build [their idea]`**. That skill runs one intake round — the only interactive setup step. It may ask additional clarifying questions, and asks the user to fill `.env` with the required API keys/secrets. Once intake completes, the **agent-builder** orchestrator runs design → scaffold → build, one phase per invocation. It is autonomous *within* a phase and stops at each phase boundary for a **human testing gate** — the user tests the increment before the next phase starts. Each phase delivers the smallest user-testable win, built first-time-right on the tested path.
 
 ## Skills (entry points)
 
@@ -60,9 +59,10 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 - Never write application code before reading the full spec
 - Never skip a phase — complete phase N before starting phase N+1
 - Commit every logical unit of work; never let the working tree stay dirty
-- Update `reports/sessions/` at the start and end of every session
+- Each phase is tested by the human before the next phase starts — stop at the phase boundary, hand off the test instructions, and wait for the user
+- Tight scope, first-time-right — each phase is the smallest user-testable win and must work the first time the user tests it; zero rough edges on the tested path
 - Tests and evals run against the real LLM/API using keys from `.env` — never gate the build on offline/stubbed runs
-- When in doubt, ask at intake — do not guess requirements; once intake completes, build autonomously without further prompts
+- When in doubt, ask at intake — do not guess requirements; once intake completes, build a phase autonomously and stop for the human testing gate
 
 ## Sub-agents (the team)
 
@@ -70,10 +70,10 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 
 | Agent | Role | Tools |
 |-------|------|-------|
-| agent-builder | Orchestrator — coordinates the team and owns the git/PR surface for a build | read/bash/agent |
-| spec-writer | Write the product spec **and** self-review it | read/write |
-| tech-architect | Design **and** review stack/architecture/agent/plan | read/write |
-| code-generator | Write code + tests for one phase / one fix | read/write/bash |
-| qa-auditor | Independent code review **and** run gates/tests/app **and** audit spec↔code drift | read-only (bash) |
+| agent-builder | Orchestrator — fans out the specialists, coordinates the team, and owns the git/PR surface for a build | read/bash/agent |
+| spec-writer | The single design authority — writes the FULL spec (incl. architecture + agent-graph + phased plan) **and** self-reviews it | read/write |
+| frontend-code-generator | Build ONE UI slice — runs in parallel with other slices | read/write/bash |
+| backend-code-generator | Build ONE backend slice in `src/` (api, db, graph, llm, tools, prompts, observability) — runs in parallel | read/write/bash |
+| qa-auditor | Independent review **and** run gates/tests/app **and** audit spec↔code drift; runs FIRST in fix/sync and classifies root cause SPEC-vs-CODE | read-only (bash) |
 
-Pattern: maker → checker on the highest-stakes surface — code-generator writes, **qa-auditor** independently reviews it (logic/security/spec-fidelity) *and* runs the gates. spec-writer and tech-architect each self-review (design altitude is lower-risk). agent-builder orchestrates and owns git; qa-auditor never edits.
+Pattern: **spec-writer** is the single design authority — it writes the whole spec (architecture + agent-graph + phased plan) and self-reviews (design altitude is lower-risk). Once the spec is done, **frontend-code-generator** and **backend-code-generator** build independent slices **in parallel** (disjoint paths — frontend writes the UI surface, backend writes `src/`; never the same file). **qa-auditor** independently gates each slice and audits drift — it never edits. **agent-builder** orchestrates the fan-out and owns git/PR. The **human tests between phases**.

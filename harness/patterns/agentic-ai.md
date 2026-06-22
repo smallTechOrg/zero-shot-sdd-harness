@@ -1,6 +1,6 @@
 # Agentic-AI Patterns
 
-The reusable catalogue of agentic design patterns — generic engineering doctrine, not a project's design. The tech-architect picks the minimal set a project actually needs and records the concrete composition in [`spec/agent.md`](../../spec/agent.md), citing the patterns chosen here. Prefer the simplest pattern that works: do not reach for multi-agent when a single tool-use loop suffices.
+The reusable catalogue of agentic design patterns — generic engineering doctrine, not a project's design. The spec-writer picks the minimal set a project actually needs and records the concrete composition in [`spec/agent.md`](../../spec/agent.md), citing the patterns chosen here. Prefer the simplest pattern that works: do not reach for multi-agent when a single tool-use loop suffices.
 
 ---
 

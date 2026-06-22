@@ -1,6 +1,6 @@
 # Architecture
 
-> **Boilerplate status:** Filled in by the tech-architect sub-agent after the product spec is approved.
+> **Boilerplate status:** Filled in by the spec-writer sub-agent after the product spec is approved.
 
 ---
 
@@ -47,7 +47,7 @@
 
 ## Stack
 
-> This project's concrete technology choices (captured at intake, filled by the tech-architect). The generic, every-project rules — model-naming, DB driver, dev port, test environment — live in `harness/patterns/tech-stack.md`; this section is only what **this** project picked.
+> This project's concrete technology choices (captured at intake, filled by the spec-writer). The generic, every-project rules — model-naming, DB driver, dev port, test environment — live in `harness/patterns/tech-stack.md`; this section is only what **this** project picked.
 
 - **Language:** <!-- FILL IN: e.g., Python 3.12 -->
 - **Agent framework:** <!-- FILL IN: e.g., LangGraph / custom / none -->

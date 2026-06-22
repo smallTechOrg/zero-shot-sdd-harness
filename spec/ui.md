@@ -1,6 +1,6 @@
 # UI
 
-> **Boilerplate status:** Delete this file if the agent has no UI. Otherwise, filled in by the tech-architect sub-agent.
+> **Boilerplate status:** Delete this file if the agent has no UI. Otherwise, filled in by the spec-writer sub-agent.
 
 ---
 
@@ -29,4 +29,4 @@
 
 ## Tech Stack
 
-<!-- FILL IN: Filled in by tech-architect. E.g., Next.js 15 + React 19 + Tailwind -->
+<!-- FILL IN: Filled in by spec-writer. E.g., Next.js 15 + React 19 + Tailwind -->
