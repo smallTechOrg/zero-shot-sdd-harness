@@ -1,6 +1,6 @@
 # Data Model
 
-> **Boilerplate status:** Filled in by the tech-designer sub-agent after architecture is approved.
+> **Boilerplate status:** Filled in by the tech-architect sub-agent after architecture is approved.
 
 ---
 

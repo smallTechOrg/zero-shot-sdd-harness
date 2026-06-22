@@ -4,7 +4,7 @@ This directory is the authoritative specification for this project. All code mus
 
 ## Status
 
-Check `spec/vision.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->` markers, the spec-author sub-agent needs to complete it before any application code is written.
+Check `spec/vision.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->` markers, the spec-writer sub-agent needs to complete it before any application code is written.
 
 ## Structure
 
@@ -39,6 +39,6 @@ harness/              ← How to build it (the engineering harness)
 
 ## Who Updates the Spec
 
-- **New project:** the `/zero-shot-build` skill drives the spec-author sub-agent, which drafts and self-reviews the spec
-- **New capability:** run `/zero-shot-build` on an existing spec — it adds the capability via the spec-author
+- **New project:** the `/zero-shot-build` skill drives the spec-writer sub-agent, which drafts and self-reviews the spec
+- **New capability:** run `/zero-shot-build` on an existing spec — it adds the capability via the spec-writer
 - **Drift between spec and code:** run `/zero-shot-sync` to reconcile (spec wins)

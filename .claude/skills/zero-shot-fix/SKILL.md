@@ -1,45 +1,43 @@
 ---
 name: zero-shot-fix
-description: Diagnose and fix a problem in an existing agent — a bug description, a runtime error/stack trace, failing tests, or spec/code drift — then verify the fix. Runs autonomously to a verified result.
+description: Diagnose and fix a problem in an existing agent — a bug description, a runtime error/stack trace, failing tests, or spec/code drift — then verify the fix. Calls the worker agents directly; runs autonomously to a verified result.
 argument-hint: [bug description / error / "tests" / "drift"]
 disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a zero-shot fix. The target is in `$ARGUMENTS` (if empty, ask what's broken). Run autonomously: classify → reproduce → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or an explicit user request.
+You orchestrate a targeted fix by calling worker agents directly — no full agent-builder needed. The target is in `$ARGUMENTS` (if empty, ask what's broken). Run autonomously: classify → locate → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or explicit request.
 
-You drive subagents directly. Fixing happens in the **implementer** (it has spec/plan context); judging happens in the read-only **verifier** and **auditor**.
+Fixing happens in **code-generator** (it has spec intent); judging happens in read-only **qa-auditor**; pushing in **deployer**.
 
-## Step 1 — Classify the target
-
-Decide which kind of problem this is (it may be more than one):
+## Step 1 — Classify
 
 | Signal in `$ARGUMENTS` | Done when |
 |---|---|
-| **Failing tests** ("tests", a test name) | the gate test is green |
-| **Bug description** (natural language) | the described wrong behavior no longer occurs and a regression test covers it |
-| **Runtime error / stack trace** (a paste) | the error no longer reproduces when the app runs |
-| **Spec/code drift** ("drift", "doesn't match spec") | the auditor reports CLEAN (see also `/zero-shot-sync`) |
+| **Failing tests** | the gate test is green |
+| **Bug description** | the wrong behavior no longer occurs and a regression test covers it |
+| **Runtime error / stack trace** | the error no longer reproduces when the app runs |
+| **Spec/code drift** | qa-auditor (drift mode) reports CLEAN (see also `/zero-shot-sync`) |
 
-State your classification in one line before proceeding.
+State your classification in one line.
 
-## Step 2 — Locate (read-only)
+## Step 2 — Locate
 
-- **Drift / "where is this":** invoke **auditor** → it returns the specific divergence and file.
-- **Bug / error:** use the built-in **Explore** agent (or Grep/Read) to find the responsible code and the reproduction path. Keep this search out of your main context.
+- **Drift / "where is this":** invoke **qa-auditor** in drift mode → it returns the specific divergence and file.
+- **Bug / error:** use the built-in **Explore** agent (or Grep/Read) to find the responsible code and the repro path, keeping the search out of your context.
 
-## Step 3 — Establish the failing signal
+## Step 3 — Capture the failing signal
 
-Invoke **verifier** to capture the current red state: the failing test output, or the reproduction of the error. This is your before/after baseline. If you cannot reproduce the reported problem, say so and ask the user for repro steps rather than guessing.
+Invoke **qa-auditor** (gate mode) to capture the current red state — the failing test output or the reproduced error — as your before/after baseline. If you can't reproduce the reported problem, say so and ask for repro steps rather than guessing.
 
-## Step 4 — Fix (with intent context)
+## Step 4 — Fix
 
-Invoke **implementer** with: the precise target, the responsible files, and the spec sections that define correct behavior. It must fix toward spec intent — never mute a test or delete an assertion to make red go green. If the spec and a test genuinely conflict, stop and surface it (it may be a spec bug → suggest `/zero-shot-sync` or a spec edit). Add or update a regression test that would have caught this.
+Invoke **code-generator** with the precise target, the responsible files, and the spec sections defining correct behavior. It fixes toward spec intent and adds/updates a regression test. It must not mute a test or delete an assertion to go green; if spec and test genuinely conflict, it stops and reports (likely a spec bug → suggest `/zero-shot-sync` or a spec edit).
 
 ## Step 5 — Verify
 
-Invoke **verifier** against the same signal from Step 3. If still BLOCKED, re-invoke implementer with the new failure detail. Loop until VERIFIED. Then, for a drift fix, also confirm **auditor** reports CLEAN.
+Invoke **qa-auditor** against the Step 3 signal. Still BLOCKED → re-invoke code-generator with the new detail; loop until VERIFIED. For a drift fix, also confirm qa-auditor (drift mode) reports CLEAN.
 
-## Step 6 — Report
+## Step 6 — Ship + report
 
-Summarize: classification, root cause in one or two sentences, files changed, the regression test added, and the verified before→after (red → green, or error reproduced → gone). Commit+push are the implementer's responsibility; confirm the SHA is pushed.
+Invoke **deployer** to commit + push the fix. Summarize: classification, root cause (1–2 sentences), files changed, the regression test added, the verified before→after, and the pushed SHA.

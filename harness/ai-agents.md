@@ -85,7 +85,7 @@ BUILD (Phase 1 → Phase 2, each gated by passing tests)
 - Stack decisions (database, language, hosting) belong to the user — captured at intake, never chosen autonomously
 - No code is written before the single approval gate is cleared
 - Each build phase must pass its gate test before the next phase starts
-- The spec-author and planner self-review their own artifacts; the verifier gates each phase. None of these add a user approval round for v0.1 — there is exactly one approval gate (after intake)
+- spec-reviewer reviews the spec and code-reviewer reviews the code; tech-architect self-reviews its design; qa-auditor gates each phase. None of these add a user approval round for v0.1 — there is exactly one approval gate (after intake)
 
 **After v0.1 is running**, subsequent phases follow the standard gate:
 ```
@@ -113,7 +113,7 @@ See `harness/spec-driven.md` for full details.
 Each phase ends when:
 - All code for that phase is written and committed
 - All tests for that phase pass
-- The verifier sub-agent has returned VERIFIED (or you have run the gate checklist manually)
+- The qa-auditor sub-agent has returned VERIFIED (or you have run the gate checklist manually)
 
 See `harness/phases.md` for the phase definitions and gates.
 

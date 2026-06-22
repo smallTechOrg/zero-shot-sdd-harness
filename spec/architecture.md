@@ -1,6 +1,6 @@
 # Architecture
 
-> **Boilerplate status:** Filled in by the tech-designer sub-agent after the product spec is approved.
+> **Boilerplate status:** Filled in by the tech-architect sub-agent after the product spec is approved.
 
 ---
 

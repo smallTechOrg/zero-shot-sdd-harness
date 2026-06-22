@@ -20,7 +20,7 @@ When spec comes first:
 - Every AI session reads the same requirements
 - Tests can be derived mechanically from the spec
 - "Does this match the spec?" is a concrete, answerable question
-- Drift audits (see the `auditor` sub-agent, driven by `/zero-shot-sync`) can catch divergence automatically
+- Drift audits (see the `qa-auditor` sub-agent, driven by `/zero-shot-sync`) can catch divergence automatically
 
 ## What Goes in the Spec
 
@@ -47,9 +47,9 @@ When spec comes first:
 
 ## What to Do When Requirements Change
 
-1. Update the spec first (the spec-author self-reviews its changes)
+1. Update the spec first (the spec-writer self-reviews its changes)
 2. Then update the code
-3. Run `/zero-shot-sync` (the auditor) to confirm code matches the updated spec
+3. Run `/zero-shot-sync` (the qa-auditor) to confirm code matches the updated spec
 
 Never update the code first and "update the spec later" — later never comes.
 
@@ -62,4 +62,4 @@ If the spec says X and the code does Y:
 
 ## Adding a New Capability
 
-Run `/zero-shot-build` on the existing spec — it drives the spec-author to add the capability, then plans, builds, and verifies it. Do not add capabilities by writing code and then describing what you built.
+Run `/zero-shot-build` on the existing spec — it drives the spec-writer to add the capability, then plans, builds, and verifies it. Do not add capabilities by writing code and then describing what you built.

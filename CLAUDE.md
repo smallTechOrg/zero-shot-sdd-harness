@@ -38,15 +38,15 @@ spec/code-style.md
 
 ## If the Spec Is Not Ready
 
-Tell the user to run **`/zero-shot-build [their idea]`**. That skill is the orchestrator: it runs one intake round, drafts the spec/tech/plan, gets a single approval, then builds and verifies autonomously.
+Tell the user to run **`/zero-shot-build [their idea]`**. That skill runs one intake round and a single approval, then hands the build to the **agent-builder** orchestrator, which coordinates the team to a verified skeleton autonomously.
 
 ## Skills (entry points)
 
-These are the only entry points. All are manual (`disable-model-invocation: true`) — invoke with `/<name>`.
+These are the entry points. All are manual (`disable-model-invocation: true`). Each is invocable as a skill **and** as a slash command (`.claude/commands/<name>.md` defers to the skill — the skill is the source of truth, so the two never drift).
 
-| Skill | Purpose |
-|-------|---------|
-| `/zero-shot-build [idea]` | Idea → working, verified skeleton. Also adds a new capability to an existing spec. |
+| Skill / command | Purpose |
+|-----------------|---------|
+| `/zero-shot-build [idea]` | Idea → working, verified skeleton (drives the agent-builder). Also adds a new capability. |
 | `/zero-shot-fix [target]` | Diagnose + fix a bug, error, failing test, or spec/code drift, then verify. |
 | `/zero-shot-sync [scope]` | Reconcile spec ↔ code so they match (spec wins), then verify. |
 
@@ -58,15 +58,19 @@ These are the only entry points. All are manual (`disable-model-invocation: true
 - Update `reports/sessions/` at the start and end of every session
 - When in doubt, ask — do not guess requirements
 
-## Sub-agents (workers the skills drive directly)
+## Sub-agents (the team)
+
+`/zero-shot-build` delegates a full build to **agent-builder**, which coordinates the rest. `/zero-shot-fix` and `/zero-shot-sync` call the workers directly (no agent-builder). Makers are paired with independent checkers.
 
 | Agent | Role | Tools |
 |-------|------|-------|
-| `.claude/agents/spec-author.md` | Draft + self-review the product spec | read/write |
-| `.claude/agents/tech-designer.md` | Decide stack, fill tech-stack/code-style/agent-graph | read/write |
-| `.claude/agents/planner.md` | Phased implementation plan with gate tests | read/write |
-| `.claude/agents/implementer.md` | Write code + tests for one phase / one fix | read/write/bash |
-| `.claude/agents/auditor.md` | Read-only spec↔code drift verdict | read-only |
-| `.claude/agents/verifier.md` | Read-only: run gates/app, return pass/fail | read-only (bash) |
+| `.claude/agents/agent-builder.md` | Orchestrator — coordinates the team for a full build | read/bash/agent |
+| `.claude/agents/spec-writer.md` | Write the product spec | read/write |
+| `.claude/agents/spec-reviewer.md` | Independent spec review | read-only |
+| `.claude/agents/tech-architect.md` | Design **and** review stack/architecture/agent-graph/plan | read/write |
+| `.claude/agents/code-generator.md` | Write code + tests for one phase / one fix | read/write/bash |
+| `.claude/agents/code-reviewer.md` | Independent code review (logic, security, spec-fidelity) | read-only |
+| `.claude/agents/qa-auditor.md` | Run gates/tests/app **and** audit spec↔code drift | read-only (bash) |
+| `.claude/agents/deployer.md` | Branch, commit, push, PR — owns the git surface | read-only (bash) |
 
-There is no master orchestrator agent — the skill body is the orchestrator. The spec-author and planner self-review; the verifier gates each phase; the auditor is the final drift check.
+Pattern: maker → checker. spec-writer↔spec-reviewer, code-generator↔code-reviewer; tech-architect is a combined design+review role; qa-auditor runs (it never edits); deployer owns version control.

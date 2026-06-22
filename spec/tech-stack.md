@@ -1,6 +1,6 @@
 # Tech Stack
 
-> **Boilerplate status:** Filled in by the tech-designer sub-agent after the product spec is approved. The user may override specific choices before the tech-designer is invoked.
+> **Boilerplate status:** Filled in by the tech-architect sub-agent after the product spec is approved. The user may override specific choices before the tech-architect is invoked.
 
 ---
 
@@ -56,7 +56,7 @@
 
 ---
 
-## Permanent Rules (apply to all projects, not filled in by tech-designer)
+## Permanent Rules (apply to all projects, not filled in by tech-architect)
 
 ### Default Dev Port
 

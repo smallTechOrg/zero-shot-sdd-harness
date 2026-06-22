@@ -1,40 +1,40 @@
 ---
 name: zero-shot-sync
-description: Reconcile spec and code so they match. Audits the whole tree for drift, then brings code in line with the spec (spec wins), and verifies. Runs autonomously to a CLEAN audit.
+description: Reconcile spec and code so they match. Audits the whole tree for drift, brings code in line with the spec (spec wins), and verifies. Calls worker agents directly; runs autonomously to a CLEAN audit.
 argument-hint: [optional path or capability to scope to]
 disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a spec↔code sync. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/spec-driven.md). Optional scope in `$ARGUMENTS` (a path or capability); otherwise sync the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (then surface it — don't silently rewrite the spec to match code).
+You orchestrate a spec↔code sync by calling worker agents directly. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/spec-driven.md). Optional scope in `$ARGUMENTS`; otherwise the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (surface it — don't silently rewrite the spec to match code).
 
-You drive subagents directly: read-only **auditor** finds drift, **implementer** fixes code toward spec, read-only **verifier** confirms nothing broke.
+Read-only **qa-auditor** finds and confirms drift; **code-generator** fixes code toward spec; **deployer** pushes.
 
 ## Step 1 — Audit
 
-Invoke **auditor** (read-only, whole-tree). It returns CLEAN or a divergence table with severities. If CLEAN, report that and stop — nothing to sync.
+Invoke **qa-auditor** in drift mode (whole-tree). It returns CLEAN or a divergence table with severities. CLEAN → report and stop.
 
-## Step 2 — Triage divergences
+## Step 2 — Triage
 
-For each divergence decide the direction:
-- **Code is wrong, spec is right** (the common case) → fix the code. This is the default.
-- **Spec is wrong, code is right** (spec is stale/incorrect) → do **not** auto-edit the spec to match code. Surface it to the user with the specific mismatch and a proposed spec change; wait for confirmation. Silently editing the spec to match code defeats spec-driven development.
-- **Undocumented behavior** (code does something not in spec) → either remove it from code or, if intended, surface it as a spec addition for confirmation.
+Per divergence, decide direction:
+- **Code wrong, spec right** (common) → fix the code. Default.
+- **Spec wrong, code right** → do **not** auto-edit the spec to match code. Surface to the user with the specific mismatch and a proposed spec change; wait. (Silently editing the spec defeats spec-driven development.)
+- **Undocumented behavior** → remove from code, or if intended, surface as a spec addition for confirmation.
 
-Handle High severity first, then Medium. Low (naming/style) only if in scope.
+Handle High severity first, then Medium; Low only if in scope.
 
-## Step 3 — Reconcile code (with intent context)
+## Step 3 — Reconcile code
 
-For each "code is wrong" divergence, invoke **implementer** with the spec section and the offending file. It edits code to match the spec and adds/updates a test that asserts the spec'd behavior. Group related divergences into one implementer invocation where they touch the same files.
+For each "code wrong" divergence, invoke **code-generator** with the spec section and the offending file. It edits code to match the spec and adds/updates a test asserting the spec'd behavior. Group divergences that touch the same files into one invocation.
 
 ## Step 4 — Verify
 
-Invoke **verifier** to run the gates and confirm the reconciliation didn't break anything (tests green, offline, smoke if there's a UI). If BLOCKED, re-invoke implementer with the failure detail and loop.
+Invoke **qa-auditor** (gate mode) to confirm the reconciliation didn't break anything (tests green, offline, smoke if there's a UI). BLOCKED → re-invoke code-generator with the detail; loop.
 
 ## Step 5 — Re-audit
 
-Invoke **auditor** again. Repeat Steps 2–4 until it reports CLEAN (modulo any spec-is-wrong items you've surfaced for user decision).
+Invoke **qa-auditor** (drift mode) again. Repeat 2–4 until CLEAN (modulo spec-is-wrong items surfaced for user decision).
 
-## Step 6 — Report
+## Step 6 — Ship + report
 
-Summarize: divergences found by severity, which were fixed in code (with files + regression tests), which were surfaced as possible spec bugs awaiting user decision, and the final audit status. Confirm the implementer pushed its commits.
+Invoke **deployer** to commit + push. Summarize: divergences by severity, which were fixed in code (files + regression tests), which were surfaced as possible spec bugs awaiting decision, and the final audit status.

@@ -1,6 +1,6 @@
 # Code Style
 
-> **Boilerplate status:** The tech-designer sub-agent fills in the language-specific sections. General rules below apply to all projects.
+> **Boilerplate status:** The tech-architect sub-agent fills in the language-specific sections. General rules below apply to all projects.
 
 ---
 
@@ -17,27 +17,27 @@ These apply regardless of language or framework:
 
 ## Naming Conventions
 
-<!-- FILL IN: Filled in by tech-designer based on language choice. -->
+<!-- FILL IN: Filled in by tech-architect based on language choice. -->
 
 ## File Organization
 
-<!-- FILL IN: Filled in by tech-designer. How are files grouped — by layer, by feature, by type? -->
+<!-- FILL IN: Filled in by tech-architect. How are files grouped — by layer, by feature, by type? -->
 
 ## Error Handling Pattern
 
-<!-- FILL IN: Filled in by tech-designer. How are errors represented and propagated? -->
+<!-- FILL IN: Filled in by tech-architect. How are errors represented and propagated? -->
 
 ## Logging Pattern
 
-<!-- FILL IN: Filled in by tech-designer. Structured vs. unstructured? What fields are always included? -->
+<!-- FILL IN: Filled in by tech-architect. Structured vs. unstructured? What fields are always included? -->
 
 ## Testing Conventions
 
-<!-- FILL IN: Filled in by tech-designer. Unit test location, naming, runner. -->
+<!-- FILL IN: Filled in by tech-architect. Unit test location, naming, runner. -->
 
 ## What NOT to Do
 
-<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by tech-designer. -->
+<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by tech-architect. -->
 
 ---
 

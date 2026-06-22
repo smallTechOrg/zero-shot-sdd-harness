@@ -9,8 +9,8 @@ This is a boilerplate for building AI agents spec-first. Give it a one-line idea
 A starting point for anyone who wants to build an AI agent without writing boilerplate from scratch. The repo ships with:
 
 - A structured **spec template** covering product vision, architecture, capabilities, data model, API, and UI
-- Three **zero-shot skills** (`/zero-shot-build`, `/zero-shot-fix`, `/zero-shot-sync`) that orchestrate the build, fix, and sync loops
-- Six focused **sub-agents** (spec-author, tech-designer, planner, implementer, auditor, verifier) the skills drive directly
+- Three **zero-shot skills** (`/zero-shot-build`, `/zero-shot-fix`, `/zero-shot-sync`), each also available as a slash command
+- An eight-agent **team** — agent-builder orchestrates spec-writer, spec-reviewer, tech-architect, code-generator, code-reviewer, qa-auditor, and deployer (makers paired with checkers)
 - Engineering rules in `harness/` so every Claude Code session is consistent
 - Phase-gated implementation — minimal working thing first, then iterative expansion
 
@@ -44,31 +44,32 @@ claude
 
 ## What Happens Next (Intake, Then Automated)
 
-`/zero-shot-build` is the orchestrator — it drives the sub-agents directly:
+`/zero-shot-build` runs intake + approval, then hands off to the **agent-builder**, which coordinates the team:
 
 ```
 Your idea
     ↓
-INTAKE — 4 questions (scope, stack, trigger, constraints)
+INTAKE — 4 questions (scope, stack, trigger, constraints)          [skill]
     ↓
-[spec-author]   → Drafts + self-reviews the product spec (ruthless MVP scope)
+[spec-writer]    → Drafts the product spec (ruthless MVP scope)
+[spec-reviewer]  → Independent review → back to spec-writer on blockers
     ↓
-[tech-designer] → Decides stack, fills tech-stack / code-style / agent-graph
+[tech-architect] → Designs AND reviews stack / architecture / agent-graph / plan
     ↓
-[planner]       → Phased plan with exact gate tests; self-reviews
+ONE APPROVAL — you see scope + stack + plan; approve once          [skill]
     ↓
-ONE APPROVAL — you see scope + stack + plan; approve once
+[deployer]       → Feature branch + PR before the first commit
     ↓
-[implementer]   → Builds Phase 1, then Phase 2 (each: code + tests, commit, push)
+per phase:  [code-generator] → [code-reviewer] → [qa-auditor] → [deployer]
+            write code+tests    critique         run gates       commit+push
+            ↑___________ loop until reviewed clean AND VERIFIED ___________↑
     ↓
-[verifier]      → Read-only: runs the gate; BLOCKED → implementer fixes → re-verify
-    ↓
-[auditor]       → Read-only: final spec↔code drift check (CLEAN before hand-off)
+[qa-auditor]     → Final spec↔code drift audit (CLEAN before hand-off)
     ↓
 Hand-off to you
 ```
 
-**Nothing is skipped.** A phase stays open until the verifier returns VERIFIED. After the build, fix bugs with `/zero-shot-fix` and keep spec and code aligned with `/zero-shot-sync`.
+**Nothing is skipped.** A phase stays open until code-reviewer is clean and qa-auditor returns VERIFIED. After the build, fix bugs with `/zero-shot-fix` and keep spec and code aligned with `/zero-shot-sync`.
 
 ---
 
@@ -95,8 +96,9 @@ Each phase ends with a commit and passes QA before the next phase begins.
 
 ```
 .claude/
-  skills/           ← Entry points (/zero-shot-build, /zero-shot-fix, /zero-shot-sync)
-  agents/           ← Sub-agents the skills drive (spec-author, tech-designer, planner, implementer, auditor, verifier)
+  skills/           ← Entry points (/zero-shot-build, /zero-shot-fix, /zero-shot-sync) — source of truth
+  commands/         ← Thin slash-command aliases that defer to the skills
+  agents/           ← The team (agent-builder, spec-writer, spec-reviewer, tech-architect, code-generator, code-reviewer, qa-auditor, deployer)
 spec/               ← What your agent does (fill this in or let /zero-shot-build do it)
   capabilities/     ← One file per discrete capability
   tech-stack.md     ← Language, framework, libraries
@@ -137,13 +139,13 @@ Every Claude Code session in this repo follows the rules in `harness/ai-agents.m
 ## FAQ
 
 **What if my agent needs a database?**
-The spec template includes a data model section. The tech-designer sub-agent will recommend the right database for your use case.
+The spec template includes a data model section. The tech-architect sub-agent will recommend the right database for your use case.
 
 **What if I already have a tech stack in mind?**
-Say it in the idea: `/zero-shot-build [idea] — use Python + FastAPI + PostgreSQL`. The tech-designer honors stated stack choices as binding and skips those questions.
+Say it in the idea: `/zero-shot-build [idea] — use Python + FastAPI + PostgreSQL`. The tech-architect honors stated stack choices as binding and skips those questions.
 
 **What if something breaks?**
-Run `/zero-shot-fix [what's broken]` — it classifies the problem (bug, error, failing test, or drift), fixes it with spec context, and verifies. The verifier catches phase failures before the next phase starts.
+Run `/zero-shot-fix [what's broken]` — it classifies the problem (bug, error, failing test, or drift), fixes it with spec context, and verifies. The qa-auditor catches phase failures before the next phase starts.
 
 ---
 

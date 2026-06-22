@@ -1,6 +1,6 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-author sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
 
 ---
 
@@ -21,7 +21,7 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## How to Add a New Capability
 
-Run `/zero-shot-build [description]` on the existing spec. The spec-author sub-agent will:
+Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
 1. Create a new file in this directory (`<name>.md`, no number prefix)
 2. Update this index
 3. Flag any dependencies on existing capabilities

@@ -1,6 +1,6 @@
 # Implementation Phases
 
-Agents are built incrementally. This file defines the default phase model. The planner sub-agent adapts it to your specific project.
+Agents are built incrementally. This file defines the default phase model. The tech-architect sub-agent adapts it to your specific project.
 
 ## Core Principle
 
@@ -10,7 +10,7 @@ A "working" agent in Phase 2 should demonstrate the core loop end-to-end — eve
 
 ## Default Phase Model
 
-The planner sub-agent will customize this for your project, but the general structure is:
+The tech-architect sub-agent will customize this for your project, but the general structure is:
 
 ### Phase 1 — Domain Models + Data Layer
 - Define all core data types (Pydantic models, TypeScript interfaces, etc.)
@@ -80,7 +80,7 @@ A phase is complete when ALL of the following are true:
 2. All tests for the phase pass
 3. Working tree is clean
 4. Session report reflects phase completion
-5. verifier sub-agent (or manual QA checklist) has signed off
+5. qa-auditor sub-agent (or manual QA checklist) has signed off
 6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
 
 **Never mark a phase complete if any gate is red.**
@@ -93,18 +93,18 @@ The current phase is recorded in the active session report and in the git commit
 
 ## Adapting the Phases
 
-The planner sub-agent may merge, split, or reorder phases based on your project's specifics. For example:
+The tech-architect sub-agent may merge, split, or reorder phases based on your project's specifics. For example:
 - A pure CLI tool may skip phases 6 and 7
 - A project with no database may shrink phase 1
 - A project with many integrations may split phase 5 into multiple phases
 
-Whatever the planner decides, the core principle holds: **minimal working thing first**.
+Whatever the tech-architect decides, the core principle holds: **minimal working thing first**.
 
 ---
 
 ## Language-Specific Gate Commands
 
-The gate test command depends on the project language. The tech-designer sets this in `spec/tech-stack.md`; the planner uses it in phase definitions.
+The gate test command depends on the project language. The tech-architect sets this in `spec/tech-stack.md`; the tech-architect uses it in phase definitions.
 
 | Language | Phase 1 gate | Phase 2 gate |
 |----------|-------------|-------------|
