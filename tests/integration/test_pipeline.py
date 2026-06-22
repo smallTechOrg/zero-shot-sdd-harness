@@ -56,6 +56,39 @@ def test_pipeline_runs_end_to_end(tmp_path):
         assert any(m.role == "assistant" for m in messages)
 
 
+def test_dataset_with_date_column_is_json_safe(tmp_path):
+    """DuckDB returns date objects; sample rows + results must stay JSON-serializable."""
+    with create_db_session() as session:
+        s = SessionRow(name="dates")
+        session.add(s)
+        session.flush()
+        session_id = s.id
+
+    csv = tmp_path / "matches.csv"
+    csv.write_text("team,score,played_on\nUruguay,4,1930-07-26\nUSA,1,1930-07-26\n")
+    table = duck.sanitize_table_name(f"s{session_id}_matches")
+    row_count, schema = duck.ingest_file(str(csv), table, "csv")
+    samples = duck.get_sample_rows(table, 5)
+    assert isinstance(samples[0]["played_on"], str)  # coerced from date
+
+    with create_db_session() as session:
+        session.add(
+            DatasetRow(
+                session_id=session_id,
+                name="matches",
+                source_filename="matches.csv",
+                file_format="csv",
+                duckdb_table=table,
+                row_count=row_count,
+                schema_json=[c.model_dump() for c in schema],
+                sample_rows_json=samples,
+            )
+        )
+
+    result = run_question(session_id, "how many matches were played?")
+    assert result["status"] == "completed"
+
+
 def test_pipeline_with_no_datasets_is_handled(tmp_path):
     with create_db_session() as session:
         s = SessionRow(name="empty")

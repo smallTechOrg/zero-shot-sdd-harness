@@ -1,6 +1,9 @@
 import re
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import duckdb
 
@@ -11,6 +14,30 @@ _FORBIDDEN = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|copy|pragma|export|install|load)\b",
     re.IGNORECASE,
 )
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce DuckDB native values into JSON-serializable forms.
+
+    DuckDB returns date/datetime/Decimal/bytes/UUID objects that SQLAlchemy's
+    JSON column cannot serialize. These are persisted (sample rows, result
+    tables) so they must be plain JSON types.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).decode("utf-8", errors="replace")
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    return str(value)
 
 
 class SQLNotReadOnlyError(ValueError):
@@ -71,7 +98,10 @@ def get_sample_rows(table_name: str, limit: int) -> list[dict[str, Any]]:
     try:
         cursor = con.execute(f'SELECT * FROM "{table}" LIMIT {int(limit)}')
         columns = [d[0] for d in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return [
+            {col: _json_safe(val) for col, val in zip(columns, row)}
+            for row in cursor.fetchall()
+        ]
     finally:
         con.close()
 
@@ -83,7 +113,7 @@ def run_query(sql: str) -> ResultTable:
     try:
         cursor = con.execute(sql)
         columns = [d[0] for d in cursor.description]
-        rows = [list(r) for r in cursor.fetchall()]
+        rows = [[_json_safe(v) for v in r] for r in cursor.fetchall()]
         return ResultTable(columns=columns, rows=rows)
     finally:
         con.close()
