@@ -125,7 +125,7 @@ If you prefer to write the spec yourself before involving AI:
 
 ## Rules That AI Agents Follow
 
-Every Claude Code session in this repo follows the rules in `harness/ai-agents.md`:
+Every Claude Code session in this repo follows the rules in `harness/rules/ai-agents.md`:
 
 - Read the full spec before writing any code
 - Open a session report at `reports/sessions/`

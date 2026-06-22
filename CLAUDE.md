@@ -10,7 +10,7 @@ A starting template for building AI agents. The spec in `spec/` is either:
 
 ## Your First Action Every Session
 
-1. Read `harness/ai-agents.md` — mandatory rules for all AI sessions
+1. Read `harness/rules/ai-agents.md` — mandatory rules for all AI sessions
 2. Check whether `spec/vision.md` has been filled in:
    - If it still contains `<!-- FILL IN -->` placeholders → the spec is not ready; do not write application code yet
    - If it is filled in → proceed to read the full spec manifest below before touching any code
@@ -26,11 +26,14 @@ spec/data-model.md
 spec/api.md
 spec/ui.md
 spec/agentic-ai.md      ← REQUIRED for any agent framework project
-harness/ai-agents.md
-harness/spec-driven.md
-harness/phases.md
-harness/project-layout.md
-harness/engineering-practices.md
+harness/rules/ai-agents.md
+harness/patterns/spec-driven.md
+harness/patterns/phases.md
+harness/patterns/project-layout.md
+harness/patterns/engineering-practices.md
+harness/patterns/test-driven.md
+harness/patterns/ui-ux.md
+harness/rules/git.md
 spec/tech-stack.md
 spec/code-style.md
 ```
@@ -51,7 +54,7 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 | `/zero-shot-fix [target]` | Diagnose + fix a bug, error, failing test, or spec/code drift, then verify. |
 | `/zero-shot-sync [scope]` | Reconcile spec ↔ code so they match (spec wins), then verify. |
 
-## Key Rules (summary — full rules in harness/ai-agents.md)
+## Key Rules (summary — full rules in harness/rules/ai-agents.md)
 
 - Never write application code before reading the full spec
 - Never skip a phase — complete phase N before starting phase N+1
@@ -63,15 +66,17 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 
 `/zero-shot-build` delegates a full build to **agent-builder**, which coordinates the rest. `/zero-shot-fix` and `/zero-shot-sync` call the workers directly (no agent-builder). Makers are paired with independent checkers.
 
-| Agent | Role | Tools |
-|-------|------|-------|
-| `.claude/agents/agent-builder.md` | Orchestrator — coordinates the team for a full build | read/bash/agent |
-| `.claude/agents/spec-writer.md` | Write the product spec | read/write |
-| `.claude/agents/spec-reviewer.md` | Independent spec review | read-only |
-| `.claude/agents/tech-architect.md` | Design **and** review stack/architecture/agentic-ai/plan | read/write |
-| `.claude/agents/code-generator.md` | Write code + tests for one phase / one fix | read/write/bash |
-| `.claude/agents/code-reviewer.md` | Independent code review (logic, security, spec-fidelity) | read-only |
-| `.claude/agents/qa-auditor.md` | Run gates/tests/app **and** audit spec↔code drift | read-only (bash) |
-| `.claude/agents/deployer.md` | Branch, commit, push, PR — owns the git surface | read-only (bash) |
+**Each agent is defined twice:** a thin registry stub at `.claude/agents/<name>.md` (frontmatter the Agent tool needs + a pointer) and its **detailed, canonical definition** at `harness/agents/<name>.md`. The stub is what gets invoked; the harness file is the source of truth for behaviour — edit there. See `harness/agents/README.md` for the index.
+
+| Agent | Detailed definition | Role | Tools |
+|-------|---------------------|------|-------|
+| agent-builder | `harness/agents/agent-builder.md` | Orchestrator — coordinates the team for a full build | read/bash/agent |
+| spec-writer | `harness/agents/spec-writer.md` | Write the product spec | read/write |
+| spec-reviewer | `harness/agents/spec-reviewer.md` | Independent spec review | read-only |
+| tech-architect | `harness/agents/tech-architect.md` | Design **and** review stack/architecture/agentic-ai/plan | read/write |
+| code-generator | `harness/agents/code-generator.md` | Write code + tests for one phase / one fix | read/write/bash |
+| code-reviewer | `harness/agents/code-reviewer.md` | Independent code review (logic, security, spec-fidelity) | read-only |
+| qa-auditor | `harness/agents/qa-auditor.md` | Run gates/tests/app **and** audit spec↔code drift | read-only (bash) |
+| deployer | `harness/agents/deployer.md` | Branch, commit, push, PR — owns the git surface | read-only (bash) |
 
 Pattern: maker → checker. spec-writer↔spec-reviewer, code-generator↔code-reviewer; tech-architect is a combined design+review role; qa-auditor runs (it never edits); deployer owns version control.

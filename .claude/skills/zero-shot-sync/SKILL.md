@@ -6,7 +6,7 @@ disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a spec↔code sync by calling worker agents directly. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/spec-driven.md). Optional scope in `$ARGUMENTS`; otherwise the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (surface it — don't silently rewrite the spec to match code).
+You orchestrate a spec↔code sync by calling worker agents directly. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/patterns/spec-driven.md). Optional scope in `$ARGUMENTS`; otherwise the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (surface it — don't silently rewrite the spec to match code).
 
 Read-only **qa-auditor** finds and confirms drift; **code-generator** fixes code toward spec; **deployer** pushes.
 

@@ -86,11 +86,13 @@ Rules that apply to every implementation phase, regardless of stack or project t
 
 ## Git and code review
 
+See `harness/git.md` for the full git rules. The quality principles that belong here:
+
 **Commits are logical units.** Each commit should be a self-contained, reviewable change. "Fix bug and refactor and add feature" is three commits.
 
 **Commit messages explain the why.** The diff shows the what. The message answers: why was this change needed, and what is the outcome?
 
-**No commented-out code in commits.** If code is not needed, delete it. If it might be needed later, that's what git history is for.
+**No commented-out code in commits.** If code is not needed, delete it. Git history preserves it.
 
 **PR description is not optional.** Every PR needs: what changed, why, and how to verify. Screenshots or test output for UI/behavioural changes.
 

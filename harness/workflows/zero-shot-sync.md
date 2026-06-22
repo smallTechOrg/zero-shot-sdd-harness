@@ -1,6 +1,6 @@
 # Workflow: Zero-Shot Sync
 
-The procedure behind the `/zero-shot-sync` skill. Reconcile spec and code so they match. **Spec is the source of truth — when spec and code disagree, fix the code** (`harness/spec-driven.md`). The skill calls worker agents directly.
+The procedure behind the `/zero-shot-sync` skill. Reconcile spec and code so they match. **Spec is the source of truth — when spec and code disagree, fix the code** (`harness/patterns/spec-driven.md`). The skill calls worker agents directly.
 
 ## When to use
 

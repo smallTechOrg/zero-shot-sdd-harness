@@ -188,16 +188,17 @@ See `harness/phases.md` for the phase definitions and gates.
 
 ## 6. Git Discipline
 
+See `harness/git.md` for the full rules. Summary:
+
 - Commit every logical unit of work — never let the working tree stay dirty for more than one logical change
-- **Push immediately after every commit** — treat `git commit -m "..." && git push origin <branch>` as a single indivisible command. Never leave a commit unpushed.
-- Commit message format: `phase-N: [what you did]` (e.g., `phase-1: add domain models`)
-- Never commit secrets (API keys, passwords, tokens)
-- Never force-push without user confirmation
-- **Never `git add -A` / `git add .`** — always stage specific files or directories. `-A` sweeps in untracked leftovers from prior build attempts (stray packages, abandoned experiments) and poisons the commit. If a phase needs many files, list them explicitly or stage directories one at a time.
+- **Push immediately after every commit** — `git commit -m "..." && git push origin <branch>` is one indivisible action
+- Commit message format: `phase-N: [what you did]`
+- Never commit secrets; never force-push without user confirmation
+- **Never `git add -A` / `git add .`** — stage specific files only
 
 **Before every reply to the user:**
 1. Run `git status`
-2. If dirty: commit the changes with `git commit -m "..." && git push origin <branch>`
+2. If dirty: commit and push
 3. Confirm the working tree is clean **and** the branch is pushed before replying
 
 ## 7. Test Before Claiming Done
