@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # loads .env into os.environ before settings are constructed
+
 import uvicorn
 from data_analyst.config.settings import get_settings
 

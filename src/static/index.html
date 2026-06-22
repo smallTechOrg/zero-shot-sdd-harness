@@ -1,12 +1,483 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Data Analyst Agent</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Analyst Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+header { background: #1a1a2e; color: white; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+header h1 { font-size: 18px; font-weight: 600; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+#health-label { font-size: 12px; color: #9ca3af; }
+.health-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; }
+.health-dot.red { background: #ef4444; }
+main { flex: 1; display: flex; overflow: hidden; }
+
+/* Sidebar */
+#sidebar { width: 300px; min-width: 220px; background: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
+#sidebar-header { padding: 14px 16px 10px; font-size: 13px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; }
+#upload-area { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+#upload-btn { width: 100%; padding: 8px; background: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+#upload-btn:hover { background: #4338ca; }
+#upload-form { margin-top: 10px; display: none; }
+#upload-form input[type=file] { width: 100%; margin-bottom: 6px; font-size: 12px; }
+#upload-form input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; margin-bottom: 4px; }
+#upload-form textarea { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; resize: vertical; min-height: 50px; }
+.upload-btns { margin-top: 6px; display: flex; gap: 6px; }
+#upload-submit { padding: 6px 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; }
+#upload-submit:disabled { background: #9ca3af; cursor: not-allowed; }
+#upload-cancel { padding: 6px 12px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+#upload-status { margin-top: 6px; font-size: 12px; color: #6b7280; }
+#upload-status.error { color: #dc2626; }
+#upload-status.success { color: #059669; }
+#dataset-list { flex: 1; overflow-y: auto; padding: 8px; }
+.empty-state { padding: 16px 12px; color: #9ca3af; font-size: 13px; text-align: center; line-height: 1.5; }
+.dataset-item { padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+.dataset-item-header { display: flex; align-items: flex-start; justify-content: space-between; cursor: pointer; }
+.dataset-name { font-weight: 600; color: #1f2937; }
+.dataset-meta { color: #6b7280; font-size: 11px; margin-top: 2px; }
+.dataset-desc { color: #6b7280; font-size: 11px; margin-top: 2px; font-style: italic; }
+.btn-delete { padding: 2px 6px; background: #fee2e2; color: #dc2626; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; flex-shrink: 0; margin-left: 4px; }
+.btn-delete:hover { background: #fecaca; }
+.dataset-schema { display: none; margin-top: 8px; font-size: 11px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 6px; max-height: 120px; overflow-y: auto; }
+.dataset-schema.open { display: block; }
+.schema-row { display: flex; gap: 8px; padding: 2px 0; }
+.schema-col-name { font-weight: 500; color: #374151; }
+.schema-col-type { color: #6b7280; }
+
+/* Chat */
+#chat-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+#chat-header { padding: 12px 16px 8px; border-bottom: 1px solid #e5e7eb; background: white; flex-shrink: 0; }
+#chat-header h2 { font-size: 14px; font-weight: 600; color: #374151; }
+#session-id-label { font-size: 11px; color: #9ca3af; margin-top: 2px; font-family: monospace; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.chat-empty-state { text-align: center; color: #9ca3af; font-size: 13px; margin: auto; padding: 40px 20px; line-height: 1.6; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+.msg.user { background: #4f46e5; color: white; align-self: flex-end; border-bottom-right-radius: 4px; white-space: pre-wrap; word-break: break-word; }
+.msg.assistant { background: white; color: #1f2937; border: 1px solid #e5e7eb; align-self: flex-start; border-bottom-left-radius: 4px; overflow-x: auto; max-width: 90%; }
+.msg.assistant table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.msg.assistant th, .msg.assistant td { border: 1px solid #d1d5db; padding: 4px 8px; text-align: left; }
+.msg.assistant th { background: #f9fafb; font-weight: 600; }
+.msg.assistant tr:nth-child(even) td { background: #fafafa; }
+.msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; }
+.msg.assistant p { margin: 4px 0; }
+.msg.assistant ul, .msg.assistant ol { margin: 4px 0 4px 20px; }
+.msg.assistant code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.msg.assistant pre { background: #1e1e2e; color: #cdd6f4; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; }
+.msg.assistant pre code { background: none; padding: 0; color: inherit; }
+.msg-meta { font-size: 11px; color: #9ca3af; margin-top: 6px; padding-top: 6px; border-top: 1px solid #f3f4f6; }
+.msg.error-msg { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+
+.typing-indicator { display: none; align-self: flex-start; padding: 12px 16px; background: white; border: 1px solid #e5e7eb; border-radius: 12px; border-bottom-left-radius: 4px; }
+.typing-indicator.visible { display: flex; gap: 4px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; animation: bounce 1.2s infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+#chat-input-area { padding: 12px 16px; background: white; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; }
+#msg-input { flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; resize: none; height: 44px; max-height: 120px; font-family: inherit; line-height: 1.4; overflow-y: auto; }
+#msg-input:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15); }
+#send-btn { padding: 10px 16px; background: #4f46e5; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; height: 44px; flex-shrink: 0; }
+#send-btn:hover:not(:disabled) { background: #4338ca; }
+#send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  #sidebar { width: 240px; min-width: 180px; }
+  .msg { max-width: 95%; }
+}
+</style>
 </head>
 <body>
+<header>
   <h1>Data Analyst Agent</h1>
-  <p>Backend running. Phase 2 frontend coming.</p>
+  <div class="header-right">
+    <span id="health-label">checking...</span>
+    <span id="health-dot" class="health-dot red"></span>
+  </div>
+</header>
+<main>
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span>Datasets</span>
+    </div>
+    <div id="upload-area">
+      <button id="upload-btn">+ Upload File</button>
+      <div id="upload-form">
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+        <input type="text" id="dataset-name" placeholder="Dataset name (pre-filled from filename)">
+        <textarea id="dataset-desc" placeholder="Description (optional)"></textarea>
+        <div class="upload-btns">
+          <button id="upload-submit">Upload</button>
+          <button id="upload-cancel">Cancel</button>
+        </div>
+        <div id="upload-status"></div>
+      </div>
+    </div>
+    <div id="dataset-list">
+      <div class="empty-state">No datasets yet.<br>Upload a CSV or Excel file to get started.</div>
+    </div>
+  </aside>
+  <section id="chat-panel">
+    <div id="chat-header">
+      <h2>Chat</h2>
+      <div id="session-id-label"></div>
+    </div>
+    <div id="chat-messages">
+      <div class="chat-empty-state">Upload a dataset and ask a question to get started.</div>
+    </div>
+    <div class="typing-indicator" id="typing-indicator">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <div id="chat-input-area">
+      <textarea id="msg-input" placeholder="Ask a question about your data..." rows="1"></textarea>
+      <button id="send-btn">Send</button>
+    </div>
+  </section>
+</main>
+<script>
+'use strict';
+
+// State
+let sessionId = sessionStorage.getItem('sessionId') || null;
+const API = '';
+
+// Utility: escape HTML
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Health check ─────────────────────────────────────────────────────────────
+async function checkHealth() {
+  const dot = document.getElementById('health-dot');
+  const label = document.getElementById('health-label');
+  try {
+    const r = await fetch(`${API}/health`);
+    if (r.ok) {
+      dot.className = 'health-dot';
+      label.textContent = 'healthy';
+    } else {
+      dot.className = 'health-dot red';
+      label.textContent = 'degraded';
+    }
+  } catch {
+    dot.className = 'health-dot red';
+    label.textContent = 'offline';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 30000);
+
+// ── Dataset list ──────────────────────────────────────────────────────────────
+async function loadDatasets() {
+  try {
+    const r = await fetch(`${API}/datasets`);
+    if (!r.ok) return;
+    const body = await r.json();
+    const list = document.getElementById('dataset-list');
+    const datasets = body.datasets || (body.data && body.data.datasets) || [];
+    if (datasets.length === 0) {
+      list.innerHTML = '<div class="empty-state">No datasets yet.<br>Upload a CSV or Excel file to get started.</div>';
+      return;
+    }
+    list.innerHTML = datasets.map(d => {
+      const schema = d.schema || [];
+      const schemaHtml = schema.length
+        ? schema.map(c => `<div class="schema-row"><span class="schema-col-name">${escHtml(c.column || c.name || '')}</span><span class="schema-col-type">${escHtml(c.dtype || '')}</span></div>`).join('')
+        : '<div style="color:#9ca3af;font-size:11px">No schema available</div>';
+      return `
+        <div class="dataset-item" data-id="${escHtml(d.dataset_id)}">
+          <div class="dataset-item-header" onclick="toggleSchema('${escHtml(d.dataset_id)}')">
+            <div>
+              <div class="dataset-name">${escHtml(d.name)}</div>
+              <div class="dataset-meta">${Number(d.row_count).toLocaleString()} rows &middot; ${d.column_count} cols &middot; ${escHtml((d.file_extension || '').toUpperCase().replace('.', ''))}</div>
+              ${d.description ? `<div class="dataset-desc">${escHtml(d.description)}</div>` : ''}
+            </div>
+            <button class="btn-delete" onclick="event.stopPropagation();deleteDataset('${escHtml(d.dataset_id)}','${escHtml(d.name)}')" title="Remove dataset">&times;</button>
+          </div>
+          <div class="dataset-schema" id="schema-${escHtml(d.dataset_id)}">${schemaHtml}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load datasets:', e);
+  }
+}
+loadDatasets();
+
+function toggleSchema(id) {
+  const el = document.getElementById('schema-' + id);
+  if (el) el.classList.toggle('open');
+}
+
+async function deleteDataset(id, name) {
+  if (!confirm(`Remove "${name}" from catalogue? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`${API}/datasets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (r.ok) {
+      loadDatasets();
+    } else {
+      alert('Failed to delete dataset. Please try again.');
+    }
+  } catch {
+    alert('Network error. Please check your connection.');
+  }
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+document.getElementById('upload-btn').addEventListener('click', () => {
+  document.getElementById('upload-form').style.display = 'block';
+  document.getElementById('upload-btn').style.display = 'none';
+  document.getElementById('upload-status').textContent = '';
+  document.getElementById('upload-status').className = '';
+});
+
+document.getElementById('upload-cancel').addEventListener('click', resetUploadForm);
+
+document.getElementById('file-input').addEventListener('change', function() {
+  if (this.files && this.files[0]) {
+    const fname = this.files[0].name;
+    const nameField = document.getElementById('dataset-name');
+    if (!nameField.value) {
+      nameField.value = fname.replace(/\.[^.]+$/, '');
+    }
+  }
+});
+
+function resetUploadForm() {
+  document.getElementById('upload-form').style.display = 'none';
+  document.getElementById('upload-btn').style.display = 'block';
+  document.getElementById('upload-status').textContent = '';
+  document.getElementById('upload-status').className = '';
+  document.getElementById('file-input').value = '';
+  document.getElementById('dataset-name').value = '';
+  document.getElementById('dataset-desc').value = '';
+  document.getElementById('upload-submit').disabled = false;
+}
+
+document.getElementById('upload-submit').addEventListener('click', async () => {
+  const fileEl = document.getElementById('file-input');
+  const file = fileEl.files[0];
+  const statusEl = document.getElementById('upload-status');
+  const submitBtn = document.getElementById('upload-submit');
+
+  if (!file) {
+    statusEl.textContent = 'Please select a file first.';
+    statusEl.className = 'error';
+    return;
+  }
+
+  const name = document.getElementById('dataset-name').value.trim() || file.name.replace(/\.[^.]+$/, '');
+  const desc = document.getElementById('dataset-desc').value.trim();
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('name', name);
+  if (desc) fd.append('description', desc);
+
+  statusEl.textContent = 'Uploading...';
+  statusEl.className = '';
+  submitBtn.disabled = true;
+
+  try {
+    const r = await fetch(`${API}/datasets`, { method: 'POST', body: fd });
+    const body = await r.json();
+
+    if (r.status === 201) {
+      const d = body;
+      statusEl.textContent = `Uploaded: ${d.name} (${Number(d.row_count).toLocaleString()} rows)`;
+      statusEl.className = 'success';
+      fileEl.value = '';
+      document.getElementById('dataset-name').value = '';
+      document.getElementById('dataset-desc').value = '';
+      loadDatasets();
+      setTimeout(resetUploadForm, 2000);
+    } else {
+      const detail = body.detail;
+      let msg = 'Upload failed.';
+      if (typeof detail === 'string') msg = detail;
+      else if (detail && detail.message) msg = detail.message;
+      else if (detail && detail.code) msg = detail.code;
+
+      if (r.status === 413) msg = 'File too large (max 50 MB).';
+      else if (r.status === 415) msg = 'Unsupported file type. Please upload a CSV or Excel file.';
+      else if (r.status === 422) msg = 'Could not read the file. Check that it is a valid CSV or Excel file.';
+
+      statusEl.textContent = `Error: ${msg}`;
+      statusEl.className = 'error';
+    }
+  } catch {
+    statusEl.textContent = 'Network error. Check your connection.';
+    statusEl.className = 'error';
+  }
+
+  submitBtn.disabled = false;
+});
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+function removePlaceholder() {
+  const container = document.getElementById('chat-messages');
+  const placeholder = container.querySelector('.chat-empty-state');
+  if (placeholder) placeholder.remove();
+}
+
+function appendMessage(role, content, meta) {
+  removePlaceholder();
+  const container = document.getElementById('chat-messages');
+
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  if (role === 'assistant') {
+    try {
+      div.innerHTML = marked.parse(content);
+    } catch {
+      div.textContent = content;
+    }
+  } else {
+    div.textContent = content;
+  }
+
+  if (meta) {
+    const m = document.createElement('div');
+    m.className = 'msg-meta';
+    m.textContent = meta;
+    div.appendChild(m);
+  }
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function updateSessionLabel() {
+  const label = document.getElementById('session-id-label');
+  if (sessionId) {
+    label.textContent = `Session: ${sessionId}`;
+  } else {
+    label.textContent = '';
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  input.style.height = '44px';
+  document.getElementById('send-btn').disabled = true;
+  input.disabled = true;
+
+  appendMessage('user', msg);
+
+  const typingEl = document.getElementById('typing-indicator');
+  typingEl.className = 'typing-indicator visible';
+
+  try {
+    const r = await fetch(`${API}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, message: msg }),
+    });
+
+    typingEl.className = 'typing-indicator';
+
+    const body = await r.json();
+
+    if (r.ok) {
+      const d = body;
+      sessionId = d.session_id;
+      sessionStorage.setItem('sessionId', sessionId);
+      updateSessionLabel();
+
+      const parts = [];
+      if (d.latency_ms) parts.push(`${d.latency_ms}ms`);
+      if (d.row_count_returned != null) parts.push(`${d.row_count_returned} rows`);
+      if (d.generated_sql) parts.push('SQL executed');
+      if (d.datasets_touched && d.datasets_touched.length > 0) {
+        parts.push(`tables: ${d.datasets_touched.join(', ')}`);
+      }
+      const meta = parts.join(' · ');
+
+      appendMessage('assistant', d.response_markdown, meta || null);
+    } else if (r.status === 404) {
+      // Session not found
+      sessionId = null;
+      sessionStorage.removeItem('sessionId');
+      updateSessionLabel();
+      const banner = document.createElement('div');
+      banner.className = 'msg assistant error-msg';
+      banner.textContent = 'Session expired or not found. Starting a new session.';
+      const container = document.getElementById('chat-messages');
+      container.appendChild(banner);
+      container.scrollTop = container.scrollHeight;
+    } else {
+      const detail = body.detail;
+      let errMsg = 'Something went wrong. Please try again.';
+      if (typeof detail === 'string') errMsg = detail;
+      else if (detail && detail.message) errMsg = detail.message;
+      if (r.status === 502) errMsg = 'The AI service is unavailable. Please try again shortly.';
+      appendMessage('assistant', `**Error:** ${errMsg}`);
+    }
+  } catch {
+    document.getElementById('typing-indicator').className = 'typing-indicator';
+    appendMessage('assistant', '**Network error.** Check your connection and try again.');
+  }
+
+  document.getElementById('send-btn').disabled = false;
+  input.disabled = false;
+  input.focus();
+}
+
+document.getElementById('send-btn').addEventListener('click', sendMessage);
+document.getElementById('msg-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+document.getElementById('msg-input').addEventListener('input', function() {
+  this.style.height = '44px';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// ── Restore session on page load ─────────────────────────────────────────────
+async function restoreSession() {
+  if (!sessionId) return;
+  updateSessionLabel();
+  try {
+    const r = await fetch(`${API}/sessions/${encodeURIComponent(sessionId)}/history`);
+    if (!r.ok) {
+      sessionId = null;
+      sessionStorage.removeItem('sessionId');
+      updateSessionLabel();
+      return;
+    }
+    const body = await r.json();
+    const turns = body.turns || [];
+    for (const t of turns) {
+      if (t.role === 'user') {
+        appendMessage('user', t.content);
+      } else if (t.role === 'assistant') {
+        appendMessage('assistant', t.content);
+      }
+      // skip 'system' summarisation turns
+    }
+  } catch {
+    // Silently fail — start fresh
+    sessionId = null;
+    sessionStorage.removeItem('sessionId');
+    updateSessionLabel();
+  }
+}
+restoreSession();
+</script>
 </body>
 </html>

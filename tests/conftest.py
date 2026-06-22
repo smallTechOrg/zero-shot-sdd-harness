@@ -1,6 +1,10 @@
 import pytest
 import duckdb
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from repo root so GEMINI_API_KEY is in os.environ for all tests
+load_dotenv(Path(__file__).parent.parent / ".env", override=False)
 
 
 @pytest.fixture(autouse=True)

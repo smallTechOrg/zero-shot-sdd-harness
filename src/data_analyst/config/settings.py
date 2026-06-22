@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     gemini_api_key: str = Field(default="")
-    llm_model: str = Field(default="gemini-2.0-flash")
+    llm_model: str = Field(default="gemini-2.5-flash")
     database_url: str = Field(default="sqlite:///data/data_analyst.db")
     duckdb_path: str = Field(default="data/duckdb.db")
     upload_dir: str = Field(default="data/uploads")
