@@ -189,7 +189,7 @@ def do_run() -> None:
     if (ROOT / "frontend" / "out").exists():
         print(f"  {CYAN}http://localhost:8001/app/{RESET}  (UI)")
     print()
-    os.execvp("uv", ["uv", "run", "python", "-m", "agent"])
+    os.execvp("uv", ["uv", "run", "uvicorn", "agent.api:app", "--host", "0.0.0.0", "--port", "8001"])
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
