@@ -46,6 +46,12 @@ def create_app() -> FastAPI:
     from src.api.health import router as health_router
     app.include_router(health_router)
 
+    from src.api.sessions import router as sessions_router
+    app.include_router(sessions_router)
+
+    from src.api.datasets import router as datasets_router
+    app.include_router(datasets_router)
+
     return app
 
 
