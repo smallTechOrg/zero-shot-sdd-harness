@@ -1,27 +1,37 @@
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="DATA_ANALYST_",
+        env_prefix="ANALYST_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
-    database_url: str = Field(default="sqlite:///./data_analyst.db")
     gemini_api_key: str = Field(default="")
-    llm_model: str = Field(default="gemini-2.5-flash")
-    max_iterations: int = Field(default=10)
-    max_upload_bytes: int = Field(default=52_428_800)
-    log_level: str = Field(default="INFO")
+    data_dir: Path = Field(default=Path("./data"))
+    token_budget_hard_cap: int = Field(default=32000)
+    prompt_caching_enabled: bool = Field(default=True)
+    backend_port: int = Field(default=8001)
+    frontend_port: int = Field(default=3000)
+    gemini_llm_model: str = Field(default="gemini-2.5-flash")
+    database_url: str = Field(default="sqlite:///./data/session.db")
 
     @property
-    def resolved_llm_provider(self) -> str:
-        key = self.gemini_api_key.split("#")[0].strip()
-        return "gemini" if key else "stub"
+    def absolute_database_url(self) -> str:
+        """Return an absolute SQLite URL resolved from current working dir."""
+        if self.database_url.startswith("sqlite:///./"):
+            rel = self.database_url[len("sqlite:///./"):]
+            return f"sqlite:///{Path(rel).resolve()}"
+        return self.database_url
+
+    @property
+    def resolved_data_dir(self) -> Path:
+        return Path(self.data_dir).resolve()
 
 
 _settings: Settings | None = None

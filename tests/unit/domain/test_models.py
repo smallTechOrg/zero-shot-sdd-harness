@@ -1,46 +1,39 @@
-from datetime import datetime, timezone
-
-from data_analyst.domain.models import Session, Message, Run, Role, SessionStatus
-
-
-def _now():
-    return datetime.now(timezone.utc)
+import pytest
+from pydantic import ValidationError
+from data_analyst.domain.session import SessionCreate, SessionListItem
+from data_analyst.domain.query import QueryRequest, QueryResponse
 
 
-def test_session_model():
-    s = Session(
-        id="abc",
-        filename="data.csv",
-        file_path="/tmp/data.csv",
-        file_size_bytes=1024,
-        row_count=10,
-        column_names=["a", "b"],
-        column_dtypes={"a": "int64", "b": "object"},
-        status=SessionStatus.ready,
-        created_at=_now(),
-        last_active_at=_now(),
-    )
-    assert s.status == SessionStatus.ready
-    assert s.error_message is None
+def test_session_create_default():
+    s = SessionCreate()
+    assert s.title == "New Session"
 
 
-def test_message_model():
-    m = Message(
-        id="msg-1",
-        session_id="sess-1",
-        role=Role.user,
-        content="What is the average age?",
-        created_at=_now(),
-    )
-    assert m.role == Role.user
-    assert m.reasoning_trace is None
+def test_session_create_custom():
+    s = SessionCreate(title="My Session")
+    assert s.title == "My Session"
 
 
-def test_run_model():
-    r = Run(
-        id="run-1",
-        session_id="sess-1",
-        created_at=_now(),
-    )
-    assert r.status == "running"
-    assert r.action_history == []
+def test_session_create_title_max_length():
+    with pytest.raises(ValidationError):
+        SessionCreate(title="x" * 201)
+
+
+def test_query_request_required():
+    with pytest.raises(ValidationError):
+        QueryRequest()
+
+
+def test_query_request_min_length():
+    with pytest.raises(ValidationError):
+        QueryRequest(question="")
+
+
+def test_query_request_max_length():
+    with pytest.raises(ValidationError):
+        QueryRequest(question="x" * 4001)
+
+
+def test_query_request_valid():
+    q = QueryRequest(question="how many rows?")
+    assert q.question == "how many rows?"

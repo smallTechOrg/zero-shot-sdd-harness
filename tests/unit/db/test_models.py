@@ -1,9 +1,7 @@
-import json
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-from data_analyst.db.models import Base, SessionRow, MessageRow, RunRow
+from data_analyst.db.models import Base, SessionRow, MessageRow, DatasetRow
 
 
 @pytest.fixture()
@@ -16,61 +14,75 @@ def db_session(tmp_path):
     engine.dispose()
 
 
+def test_session_table_name():
+    assert SessionRow.__tablename__ == "sessions"
+
+
+def test_message_table_name():
+    assert MessageRow.__tablename__ == "messages"
+
+
+def test_dataset_table_name():
+    assert DatasetRow.__tablename__ == "datasets"
+
+
 def test_create_session_row(db_session):
-    row = SessionRow(
-        filename="test.csv",
-        file_path="/tmp/test.csv",
-        file_size_bytes=512,
-        row_count=5,
-        column_names=json.dumps(["x", "y"]),
-        column_dtypes=json.dumps({"x": "int64", "y": "float64"}),
-    )
+    row = SessionRow(title="Test Session")
     db_session.add(row)
     db_session.commit()
-    assert row.id is not None
-    assert row.get_column_names() == ["x", "y"]
-    assert row.get_column_dtypes() == {"x": "int64", "y": "float64"}
+    found = db_session.get(SessionRow, row.id)
+    assert found is not None
+    assert found.title == "Test Session"
+    assert found.id is not None
+    assert found.created_at is not None
 
 
-def test_message_cascade_delete(db_session):
-    session_row = SessionRow(
-        filename="data.csv",
-        file_path="/tmp/data.csv",
-        file_size_bytes=100,
-        row_count=1,
-        column_names="[]",
-        column_dtypes="{}",
-    )
-    db_session.add(session_row)
+def test_message_fk(db_session):
+    session = SessionRow(title="S1")
+    db_session.add(session)
     db_session.flush()
-
-    msg = MessageRow(
-        session_id=session_row.id,
-        role="user",
-        content="Hello",
-    )
+    msg = MessageRow(session_id=session.id, role="user", content="hello")
     db_session.add(msg)
     db_session.commit()
+    assert msg.id is not None
+    assert msg.role == "user"
 
-    db_session.delete(session_row)
+
+def test_dataset_defaults(db_session):
+    session = SessionRow(title="S2")
+    db_session.add(session)
+    db_session.flush()
+    ds = DatasetRow(
+        session_id=session.id,
+        original_filename="test.csv",
+        table_name="test",
+        file_path="/tmp/test.csv",
+        file_format="csv",
+        row_count=10,
+    )
+    db_session.add(ds)
+    db_session.commit()
+    assert ds.id is not None
+    assert ds.row_count == 10
+    assert ds.registered_at is not None
+
+
+def test_cascade_delete(db_session):
+    session = SessionRow(title="S3")
+    db_session.add(session)
+    db_session.flush()
+    msg = MessageRow(session_id=session.id, role="user", content="q")
+    ds = DatasetRow(
+        session_id=session.id,
+        original_filename="f.csv",
+        table_name="f",
+        file_path="/tmp/f.csv",
+        file_format="csv",
+        row_count=0,
+    )
+    db_session.add_all([msg, ds])
+    db_session.commit()
+    db_session.delete(session)
     db_session.commit()
     assert db_session.get(MessageRow, msg.id) is None
-
-
-def test_run_row(db_session):
-    session_row = SessionRow(
-        filename="run_test.csv",
-        file_path="/tmp/run_test.csv",
-        file_size_bytes=200,
-        row_count=3,
-        column_names="[]",
-        column_dtypes="{}",
-    )
-    db_session.add(session_row)
-    db_session.flush()
-
-    run = RunRow(session_id=session_row.id)
-    db_session.add(run)
-    db_session.commit()
-    assert run.status == "running"
-    assert run.get_action_history() == []
+    assert db_session.get(DatasetRow, ds.id) is None
