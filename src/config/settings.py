@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     database_url: str = Field(...)
     log_level: str = Field(default="INFO")
 
+    # DuckDB analytical engine file (blank → default data/analytics.duckdb)
+    duckdb_path: str = Field(default="")
+
     # LLM provider — auto-detected from whichever key is set if left blank
     llm_provider: str = Field(default="")   # "anthropic" | "gemini"
     llm_model: str = Field(default="")      # uses provider default when blank

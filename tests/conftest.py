@@ -26,6 +26,28 @@ def _isolated_db(tmp_path, monkeypatch):
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_duckdb(tmp_path, monkeypatch):
+    """Point the shared DuckDB store at a temp file and reset between tests."""
+    import config.settings as settings_module
+    import analytics.duckdb_store as store_module
+
+    store_module.reset_connection()
+    db_path = str(tmp_path / "analytics.duckdb")
+
+    orig_get = settings_module.get_settings
+
+    def _patched_get():
+        s = orig_get()
+        object.__setattr__(s, "duckdb_path", db_path)
+        return s
+
+    monkeypatch.setattr(settings_module, "get_settings", _patched_get)
+    # duckdb_store imports get_settings lazily inside _db_path, so the patch applies
+    yield db_path
+    store_module.reset_connection()
+
+
 @pytest.fixture
 def _require_llm_key():
     """Skip if no LLM provider key is set — works for Anthropic or Gemini."""
