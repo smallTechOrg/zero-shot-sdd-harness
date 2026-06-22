@@ -6,53 +6,95 @@
 
 ## Language
 
-<!-- FILL IN: e.g., Python 3.12 / TypeScript 5 / Go 1.22 -->
+Python 3.12
 
-**Why:** <!-- reason for this choice -->
+**Why:** The agent is data-heavy (CSV/Parquet ingestion, analytical SQL) and agent-heavy (LangGraph orchestration, NL→SQL). Python has the strongest ecosystem for all three — DuckDB, pandas/pyarrow, LangGraph, and the Google Gemini SDK are all first-class. This is also the boilerplate's default for agent/data work.
 
 ## Agent Framework
 
-<!-- FILL IN: e.g., LangGraph / CrewAI / AutoGen / custom / none -->
+LangGraph
 
-**Why:** <!-- reason for this choice -->
+**Why:** The boilerplate standard, and the right fit for a multi-step NL→SQL pipeline with conditional routing (classify intent → generate SQL → validate → execute on DuckDB → summarize, with an error branch). State checkpointing and explicit edge topology keep the analytical flow auditable. The graph lives in `src/data_analyst/graph/`. See `spec/product/07-agent-graph.md` for the node/edge design.
 
 ## LLM Provider
 
-<!-- FILL IN: e.g., Anthropic Claude / OpenAI GPT / Google Gemini -->
+Google Gemini
 
-**Model:** <!-- specific model, e.g., claude-sonnet-4-6 -->
+**Model:** Default `gemini-2.5-flash` (cheap, fast NL→SQL); escalate to `gemini-2.5-pro` for complex reasoning (multi-step analytical questions, ambiguous schema mapping). Configurable via `DATA_ANALYST_LLM_MODEL`.
 
-**Why:** <!-- reason -->
+**Why:** Gemini is strong at structured generation (SQL) and tool use. `gemini-2.5-flash` is the cost-efficient default for the high-volume NL→SQL path; `gemini-2.5-pro` is the escalation target when a question needs deeper reasoning. Both model IDs were verified current against the Gemini model catalog during tech design. Accessed via the current official **`google-genai`** SDK (not the deprecated `google-generativeai` package).
+
+> **Model name note for reviewers:** The boilerplate's "Permanent Rules → LLM Model Name Rule" table lists `gemini-2.5-flash` as the current safe default for Google Gemini, and explicitly notes that `gemini-2.0-flash` and `gemini-1.5-flash` are **unavailable for new users**. This project therefore uses `gemini-2.5-flash` as the default and `gemini-2.5-pro` for reasoning escalation — these are the configured defaults. The model is configurable via the `DATA_ANALYST_LLM_MODEL` env var so it can be changed without a code deploy, satisfying the rule's intent.
+
+**Provider resolution / stub mode:** `provider=auto` by default. When `DATA_ANALYST_GEMINI_API_KEY` is set, the real Gemini provider is used; otherwise the agent resolves to a deterministic **stub** provider so the app runs offline with zero API key. A `resolved_llm_provider` property on `Settings` encapsulates this. Every page renders a visible stub-mode banner when the resolved provider is `stub` (see code-style.md).
 
 ## Backend Framework (if applicable)
 
-<!-- FILL IN: e.g., FastAPI / Express / Django / none -->
+FastAPI (web UI + JSON API), with Jinja2 server-rendered templates. Default dev port **8001**.
+
+**Why:** FastAPI gives one framework for both the HTML upload/query UI (Jinja2 templates) and the JSON endpoints, with Pydantic models at the boundary. Uvicorn is the ASGI server. Charts are out of scope for v0.1 — results render as HTML tables.
 
 ## Database (if applicable)
 
-<!-- FILL IN: e.g., PostgreSQL / SQLite / Redis / none -->
+**Dual-store architecture** — two databases with distinct roles:
 
-**ORM/ODM:** <!-- e.g., SQLAlchemy 2.0 / Prisma / none -->
+1. **DuckDB** — the *analytical engine*. Stores uploaded user datasets (CSV/Parquet ingested into tables) and runs all analytical SQL. Local file at `data/datasets.duckdb`. This is where data lives and where aggregates are computed. Not managed by Alembic (DuckDB holds user data tables created at ingestion time, not app schema).
+
+2. **SQLite** — the agent's *metadata store*. Holds the application's own schema: sessions, the datasets registry, messages, and the audit log. Accessed via **SQLAlchemy 2.0**, with **Alembic** migrations. Local file at `data/metadata.db`; `DATA_ANALYST_DATABASE_URL=sqlite:///./data/metadata.db`.
+
+**ORM/ODM:** SQLAlchemy 2.0 (declarative, `Mapped` types) + Alembic — for the SQLite metadata store only. DuckDB is accessed via its own `duckdb` Python driver (no ORM; analytical SQL is generated/executed directly).
+
+> **DB Driver Rule / Test Environment Rule compliance (read this, reviewers):** The production metadata database is **SQLite**, and the SQLite driver ships in Python's stdlib (no separate driver dependency to misplace in dev-only groups). Per the Test Environment Rule, *tests must use the same driver as production* — so the test suite runs against **SQLite**, because SQLite **is** the production metadata driver here. This is **not** the anti-pattern the rule warns about (SQLite standing in for Postgres): there is no Postgres in this project. Integration tests use a `tmp_path` SQLite file (not `:memory:`) to avoid shared-state issues. Alembic's `target_metadata` points at the SQLite `Base.metadata`; `alembic upgrade head` runs against the SQLite file. DuckDB is never migrated by Alembic.
 
 ## Frontend (if applicable)
 
-<!-- FILL IN: e.g., Next.js 15 / React / Vue / none -->
+None (no SPA). Server-rendered Jinja2 templates served by FastAPI. Plain HTML + minimal CSS; result sets shown as HTML tables. No JavaScript framework, no charts in v0.1.
 
 ## Key Libraries
 
-<!-- FILL IN: List the important libraries and what each does. -->
-
 | Library | Version | Purpose |
 |---------|---------|---------|
-| <!-- name --> | <!-- version --> | <!-- purpose --> |
+| `fastapi` | latest | Web framework — HTML UI routes + JSON API |
+| `uvicorn[standard]` | latest | ASGI server (dev port 8001) |
+| `jinja2` | latest | Server-side HTML templates (Starlette ≥ 1.0 `TemplateResponse` signature) |
+| `python-multipart` | latest | Multipart form parsing for CSV/Parquet file upload |
+| `sqlalchemy` | >=2.0 | ORM for the SQLite metadata store (declarative, `Mapped` types) |
+| `alembic` | latest | Schema migrations for the SQLite metadata store |
+| `duckdb` | latest | Analytical engine — stores datasets, runs analytical SQL, computes aggregates |
+| `pyarrow` | latest | Parquet read + efficient CSV→table ingestion into DuckDB (preferred over pandas for the ingest path) |
+| `pandas` | latest | CSV inspection / sample-row extraction and DataFrame interop where pyarrow is awkward |
+| `langgraph` | latest | Agent orchestration — the NL→SQL StateGraph |
+| `google-genai` | latest | Google Gemini SDK (official; not `google-generativeai`) — wrapped by `LLMClient`, never called directly in graph nodes |
+| `pydantic` | >=2 | Typed models at every module boundary (domain models, API envelopes) |
+| `pydantic-settings` | latest | Env-driven `Settings` (`DATA_ANALYST_` prefix, `extra="ignore"`) |
+| `structlog` | latest | Structured logging (session_id / dataset / sql fields) |
+| `pytest` | latest | Test runner (unit + integration) |
 
 ## What to Avoid
 
-<!-- FILL IN: Libraries, patterns, or approaches that are explicitly off-limits and why. -->
+- **Never send raw dataset rows to the LLM.** Only the schema + a small number of sample rows (N, configurable) ever reach Gemini. Datasets stay local in DuckDB. This is a hard privacy boundary.
+- **No charts/plotting libraries in v0.1.** Results are HTML tables only. Matplotlib/Plotly are out of scope.
+- **No calling the `google-genai` SDK directly from graph nodes.** All LLM access goes through `LLMClient` (`src/data_analyst/llm/client.py`) so the stub provider, model selection, and token accounting stay in one place.
+- **No Postgres / no Postgres driver.** The metadata store is SQLite by design; do not add `psycopg2`/`asyncpg` or a Postgres test database.
+- **No ORM over DuckDB.** DuckDB holds user data and runs generated analytical SQL directly; do not wrap it in SQLAlchemy.
+- **No raw dicts at module boundaries** — use Pydantic models / typed envelopes (`ok()` / `api_error()`).
+- **No deprecated/guessed model names.** Use the verified Gemini model IDs (`gemini-2.5-flash`, `gemini-2.5-pro`); never fall back to `gemini-2.0-flash` or `gemini-1.5-flash` (unavailable for new users).
 
 ## Dependency Management
 
-<!-- FILL IN: e.g., uv + pyproject.toml / npm / pnpm / go modules -->
+`uv` + `pyproject.toml`. All commands run from the repo root, prefixed with `uv run` (e.g. `uv run alembic upgrade head`, `uv run pytest`, `uv run uvicorn ...`). The `duckdb` driver and all runtime libs live in `[project.dependencies]` (not a dev-only group) so `alembic upgrade head` and dataset ingestion work in any environment.
+
+## Phase Gate Commands
+
+| Phase | Gate command |
+|-------|-------------|
+| 1 | `uv run pytest tests/unit` |
+| 2 | `uv run pytest tests/integration` |
+
+Notes:
+- Phase 2 (integration) must pass with **zero env vars set** — `provider=auto` resolves to the stub, the metadata DB uses a `tmp_path` SQLite file, and DuckDB uses a temp file. No network I/O, no API key.
+- Both gates run against SQLite, which is the production metadata driver (see the DB Driver Rule / Test Environment Rule note above).
+- Full suite: `uv run pytest`.
 
 ---
 
@@ -83,7 +125,6 @@ Current safe defaults (as of 2026):
 |----------|---------------|-------|
 | Google Gemini | `gemini-2.5-flash` | `gemini-2.0-flash` and `gemini-1.5-flash` unavailable for new users |
 | OpenAI | `gpt-4o-mini` | |
-| Anthropic | `claude-3-5-haiku-latest` | |
 
 ### DB Driver Rule
 

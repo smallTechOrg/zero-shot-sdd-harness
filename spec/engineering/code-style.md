@@ -17,27 +17,83 @@ These apply regardless of language or framework:
 
 ## Naming Conventions
 
-<!-- FILL IN: Filled in by tech-designer based on language choice. -->
+Python (PEP 8), with project specifics:
+
+- **Modules / packages:** `snake_case` (`graph/nodes.py`, `llm/client.py`, `tools/ingest_dataset.py`). Package name is `data_analyst` (matches the slug `data-analyst` with the hyphen → underscore).
+- **Classes:** `PascalCase` — Pydantic domain models (`Dataset`, `QueryResult`, `AuditLogEntry`), SQLAlchemy rows (`SessionRow`, `DatasetRow`, `MessageRow`, `AuditLogRow`), and the `LLMClient` wrapper.
+- **Functions / variables:** `snake_case`. Graph node functions are verbs describing the step (`classify_intent`, `generate_sql`, `validate_sql`, `execute_query`, `summarize_result`, `handle_error`, `finalize`).
+- **Constants / module-level config:** `UPPER_SNAKE_CASE` (`DEFAULT_SAMPLE_ROWS`, `MAX_SQL_RESULT_ROWS`).
+- **Pydantic field names and DB columns:** `snake_case` (`session_id`, `dataset_id`, `executed_sql`, `row_count`).
+- **Env vars:** prefixed `DATA_ANALYST_` (`DATA_ANALYST_DATABASE_URL`, `DATA_ANALYST_LLM_MODEL`, `DATA_ANALYST_GEMINI_API_KEY`).
+- **Prompt files:** `<name>.md` in `src/data_analyst/prompts/` with node-tag conventions (e.g. `nl_to_sql.md`), loaded at runtime.
+- **Tests:** files `test_<thing>.py`; functions `test_<behavior>`.
 
 ## File Organization
 
-<!-- FILL IN: Filled in by tech-designer. How are files grouped — by layer, by feature, by type? -->
+By **layer**, following `spec/engineering/project-layout.md` exactly. All application code lives under `src/data_analyst/`:
+
+```
+src/data_analyst/
+├── api/            FastAPI routers (one per resource) + create_app() + _common.py (ok/api_error) + render() helper
+├── config/         settings.py (Pydantic BaseSettings, DATA_ANALYST_ prefix, resolved_llm_provider)
+├── db/             models.py (SQLAlchemy 2.0 metadata-store rows), session.py (engine + init_db)
+├── domain/         Pydantic models per entity (Dataset, QueryResult, AuditLogEntry, ...)
+├── graph/          state.py (AgentState TypedDict), nodes.py, edges.py, agent.py (compiled StateGraph), runner.py
+├── llm/            client.py (LLMClient), providers/ (base.py, factory.py, gemini.py, stub.py)
+├── tools/          pure functions: ingest_dataset.py, run_analytical_sql.py (DuckDB access lives here, not in nodes)
+├── prompts/        *.md prompt templates
+├── duck/           DuckDB connection/engine helper (analytical store) — kept separate from db/ (the SQLite metadata store)
+└── observability/  events.py (structlog config)
+tests/              at repo root (NOT under src/): unit/ and integration/
+alembic/            migrations for the SQLite metadata store only
+```
+
+- One responsibility per file. DuckDB access is confined to `tools/` (and the `duck/` connection helper) — graph nodes call tools, they don't open DuckDB connections themselves.
+- No repository pattern: direct SQLAlchemy queries in API handlers / runner against the metadata store; direct DuckDB SQL in tools against the analytical store.
+- Graph state is a `TypedDict` (not a dataclass or Pydantic model), per the layout rules.
 
 ## Error Handling Pattern
 
-<!-- FILL IN: Filled in by tech-designer. How are errors represented and propagated? -->
+Two boundaries, two patterns:
+
+**1. Pipeline (graph) errors → never raise out of a node.** A node that fails (LLM provider error, invalid generated SQL, DuckDB execution error, timeout) writes a human-readable string into the state's `error` field and returns. Edge functions route to the `handle_error` node, which records the failure (audit log + metadata DB status) and terminates the graph cleanly. **Nodes must never raise `HTTPException`.**
+
+**2. Web routes → render an error template; JSON routes → `api_error()` envelope.**
+   - For HTML routes that run the pipeline: when `final_state["error"]` is set, log it and render `error.html` (which always exists and links back to the upload/start page) via the `render()` helper. Do **not** re-raise as `HTTPException`. (See the boilerplate "Pipeline Errors — Render an Error Template" section below — this is binding.)
+   - For JSON routes: return the `ok(data)` envelope on success, or raise `api_error(code, message, status_code)` for client/validation errors (bad upload, unknown dataset). Never return a raw dict.
+
+Generated SQL is validated before execution (read-only intent; reject DDL/DML that mutates user data) — a validation failure is a pipeline error routed to `handle_error`, not an exception.
 
 ## Logging Pattern
 
-<!-- FILL IN: Filled in by tech-designer. Structured vs. unstructured? What fields are always included? -->
+**structlog**, structured (key-value), configured once in `observability/events.py`. Never use bare `print` or unstructured `logging`.
+
+- **Always include where relevant:** `session_id`, `dataset` (id or name), and `sql` (the executed analytical SQL) on any event in the query path. Add `model` and resolved `provider` on LLM events, `row_count` / `duration_ms` on execution events.
+- **Event naming:** dotted, lowercase, `area.action` (`analyze.pipeline_error`, `ingest.dataset_loaded`, `sql.executed`, `llm.call`).
+- **Never log raw dataset rows or raw cell values** beyond the bounded sample already permitted to the LLM. Logs follow the same local-data-only boundary as the LLM: schema + bounded samples only.
+- **Audit log is separate from app logs:** every DuckDB SQL execution and every data operation also writes a persistent `AuditLogEntry` row to the SQLite metadata store (structured logs are for ops; the audit log is the durable record).
 
 ## Testing Conventions
 
-<!-- FILL IN: Filled in by tech-designer. Unit test location, naming, runner. -->
+- **Runner:** `pytest`. `pyproject.toml` sets `testpaths = ["tests"]`. All commands `uv run pytest ...`.
+- **Location:** `tests/` at the **repo root** (never under `src/`), split into `tests/unit/` and `tests/integration/`. `tests/conftest.py` resets the `Settings` singleton between tests (`m._settings = None`).
+- **Naming:** files `test_*.py`; functions `test_*`.
+- **Same-driver rule (compliant):** tests run against **SQLite**, the production metadata driver — this satisfies the Test Environment Rule because SQLite *is* production here, not a Postgres substitute. Integration tests point the metadata DB at a `tmp_path` SQLite file (not `:memory:`, to avoid cross-test shared state) and create tables via `Base.metadata.create_all`; DuckDB tests use a temp `.duckdb` file. Monkeypatch the session factory and `init_db` per the boilerplate's "Integration Test Patterns".
+- **Coverage targets:** unit — smoke (`import data_analyst; assert __version__`), settings resolution (incl. `resolved_llm_provider` and dirty `.env` values with inline comments), domain models, db models, graph compiles with **zero env vars**, and the **stub provider** outputs. Integration — a full stub pipeline run (upload sample CSV → ingest into DuckDB → NL question → generated SQL → executed → one metadata record with `status=completed` → one `AuditLogEntry` written).
+- **Phase 2 gate runs with no env vars and no network** (`provider=auto` → stub).
 
 ## What NOT to Do
 
-<!-- FILL IN: Anti-patterns specific to this tech stack. Filled in by tech-designer. -->
+- **Never pass raw dicts across module boundaries.** Use Pydantic domain models and the `ok()` / `api_error()` envelope. (`AgentState` is the one allowed `TypedDict`, for graph state only.)
+- **Never send raw dataset rows to the LLM.** Only schema + N sample rows (configurable). Cache dataset schemas so they're computed once. Compute all aggregates in DuckDB and send only the bounded result/summary to the model.
+- **Never call the `google-genai` SDK directly inside a graph node or tool.** Go through `LLMClient`, so provider resolution (auto/real/stub), model selection (`gemini-2.5-flash` default, `gemini-2.5-pro` escalation), and token accounting stay centralized.
+- **No charts / plotting in v0.1.** Results are HTML tables. Don't add matplotlib/plotly.
+- **Never raise `HTTPException` from a graph node.** Pipeline failures flow through the state `error` field and the `handle_error` node; web routes render `error.html`.
+- **Don't let generated SQL mutate user data.** Validate for read-only/analytical intent before execution on DuckDB.
+- **Don't wrap DuckDB in an ORM** or open DuckDB connections inside nodes — DuckDB access lives in `tools/` / `duck/`.
+- **Don't hardcode** the model, sample-row count, result-row cap, ports, or file paths — they come from `Settings` / env (`DATA_ANALYST_` prefix).
+- **Don't trust raw `.env` enum values.** Strip inline `#` comments and whitespace in a `resolved_*` property before comparing (`pydantic-settings` does not strip them). Always set `extra="ignore"` on the settings model.
+- **Don't silently run in stub mode.** Every page must show a visible stub-mode banner when the resolved provider is `stub`; inject `llm_provider` into every template context.
 
 ---
 

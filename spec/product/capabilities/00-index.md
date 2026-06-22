@@ -1,6 +1,6 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+> **Spec status:** Capability list for the **Senior Data Analyst Agent** (`data-analyst`), v0.1. Last updated 2026-06-22. Each file describes exactly one discrete thing the agent can do.
 
 ---
 
@@ -13,11 +13,13 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file. -->
+v0.1 is deliberately a **narrow core loop** — exactly three capabilities. Charts, dashboards, and senior-analyst workflow simulation are deferred (see `01-vision.md` → Future Phases).
 
 | # | Capability | File |
 |---|-----------|------|
-| 1 | <!-- name --> | [01-name.md](01-name.md) |
+| 1 | Dataset Management — upload CSV/Parquet, register in DuckDB + metadata, cache schema/samples, list | [01-dataset-management.md](01-dataset-management.md) |
+| 2 | NL Cross-Dataset Query — NL → read-only SQL over one-or-more datasets, execute in DuckDB, return text + table | [02-nl-cross-dataset-query.md](02-nl-cross-dataset-query.md) |
+| 3 | Audit Logging — persist every SQL/data op (prompt, SQL, row count, duration, timestamp) and view it | [03-audit-logging.md](03-audit-logging.md) |
 
 ## How to Add a New Capability
 
