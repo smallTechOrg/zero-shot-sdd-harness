@@ -1,38 +1,25 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+> One file per capability — one discrete thing the agent can do. No number prefixes.
 
 ---
 
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
-
-## Capabilities in This Project
-
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
+## Capabilities in This Project (Phase 1)
 
 | Capability | File |
 |-----------|------|
-| <!-- name --> | [name.md](name.md) |
+| Upload CSV to Table | [upload-csv-to-table.md](upload-csv-to-table.md) |
+| Natural-Language Query (Text-to-SQL) | [nl-query-text-to-sql.md](nl-query-text-to-sql.md) |
+| Audit Trail | [audit-trail.md](audit-trail.md) |
+| Persistent Session | [persistent-session.md](persistent-session.md) |
+
+## Deferred (later phases — see [`../roadmap.md`](../roadmap.md))
+
+- Multi-dataset management + cross-dataset NL joins (Phase 2)
+- Charts (Phase 3)
+- Dashboards (Phase 4)
+- Senior-analyst workflow / multi-step planning (Phase 5)
 
 ## How to Add a New Capability
 
-Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
-1. Create a new file in this directory (`<name>.md`, no number prefix)
-2. Update this index
-3. Flag any dependencies on existing capabilities
-4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+Run `/zero-shot-build [description]`. The spec-writer creates a new `<name>.md`, updates this index, flags dependencies, and self-reviews fit against the architecture + data model.
