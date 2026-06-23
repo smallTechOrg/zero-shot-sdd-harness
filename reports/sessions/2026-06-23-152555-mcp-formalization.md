@@ -55,6 +55,15 @@ transport; one MCP server per data source; DuckDB over Parquet; official MCP SDK
 - Tests updated (drop tool/cap tests, add description-column test, fixture sets description cols). **`uv run pytest` = 20 passed** (incl. golden path + direct `run_pipeline`). Imports clean.
 - Deferred to Phase 3: dead `{% if tool %}` block in `datasource.html` (confirmed never rendered — no route passes `tool`).
 
+### Phase 2 — MCP server + client pool (DONE, gate green)
+
+- **Important finding (the #1 risk, resolved):** a spike with a real LangGraph async graph proved LangGraph runs **each node in its own asyncio task**. Holding an MCP `ClientSession` (async CM) open across nodes raises `RuntimeError: Attempted to exit cancel scope in a different task`. So the original "AsyncExitStack held across nodes" design is **invalid**.
+- **Design correction (spec updated):** the per-`run_id` pool holds only **plain objects across nodes** (the built `FastMCP` servers + their DuckDB connections); every `ClientSession` is **transient** — opened/closed within a single node. Verified by a second spike (per-node sessions + server reuse + cross-node conn cleanup, 3 repeated runs). Updated `02-architecture.md` + `07-agent-graph.md` accordingly.
+- `graph/mcp/csv_server.py`: `build_server(source, capability_description, max_rows)` → `FastMCP` wrapping one Parquet via a read-only DuckDB view named `sql_table_name(name)`; `run_query` tool; SELECT-only + DuckDB errors raise `RecoverableQueryError` → `isError=True`; missing Parquet raises `FileNotFoundError` (fatal). DuckDB path inlined+escaped (DDL can't bind params).
+- `graph/mcp_pool.py`: the ONLY importer of `mcp.shared.memory`; version guard via `importlib.metadata.version("mcp")` (1.x); `open_pool`/`get_pool`/`close_pool` + `McpPool` (namespaced tool keys `<table>__run_query`, routing, idempotent close, partial-open cleanup).
+- `config/settings.py`: added `mcp_max_result_rows` (default 200).
+- New isolated tests `tests/unit/graph/test_csv_server.py` (7) + `test_mcp_pool.py` (3) via the real in-memory MCP client. **Full suite: 30 passed** (graph still on the Phase-1 shim — no wiring yet).
+
 ---
 
 ## Prompt Log

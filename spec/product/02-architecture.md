@@ -29,14 +29,14 @@ FastAPI (uvicorn, sync endpoints)
 ```
                  graph/mcp_pool.py  (the ONLY importer of mcp.shared.memory)
                  ┌──────────────────────────────────────────────────────┐
- agent (client)  │  per run_id: AsyncExitStack + N ClientSessions        │
-                 │   session_1  ◄── in-memory transport ──►  FastMCP(ds_1)│ → DuckDB → Parquet_1
-                 │   session_2  ◄── in-memory transport ──►  FastMCP(ds_2)│ → DuckDB → Parquet_2
+ agent (client)  │  per run_id (held): N FastMCP servers + DuckDB conns  │
+                 │  per call (transient): ClientSession over in-memory   │
+                 │           transport ──►  FastMCP(ds_i) ─► DuckDB ─► Parquet_i
                  └──────────────────────────────────────────────────────┘
                          build_server() lives in graph/mcp/csv_server.py
 ```
 
-- **Transport:** in-process / in-memory. No subprocess, no ports — `create_connected_server_and_client_session(FastMCP)` yields an already-`initialize()`d `ClientSession`.
+- **Transport:** in-process / in-memory. No subprocess, no ports — `create_connected_server_and_client_session(FastMCP)` yields an already-`initialize()`d `ClientSession`. Sessions are **transient** (opened/closed within a single graph node — see Concurrency below); only the servers + their DuckDB connections persist for the run.
 - **One server per data source.** Each server exposes a single `run_query` tool. The pool surfaces tools to the agent under **namespaced keys** (`<table_name>__run_query`) so N connected servers never collide, and routes each `call_tool` back to the owning session.
 - **Isolation seam:** every MCP import lives in `mcp_pool.py` / `mcp/csv_server.py`. The rest of the code never imports `mcp`. The `mcp` SDK is pinned `==1.28.0` (v2 removes the in-memory helper).
 
@@ -80,8 +80,9 @@ FastAPI (uvicorn, sync endpoints)
 ## Concurrency & Async Model
 
 - FastAPI endpoints stay **sync**; a query runs on a **daemon thread** (`threading.Thread`).
-- `run_pipeline()` is sync and owns the event loop: `asyncio.run(agent_graph.ainvoke(...))`. All MCP work for a run therefore happens on **one task / one loop**, satisfying the MCP/AnyIO rule that an async context manager be entered and exited on the same task (LIFO). The per-`run_id` `AsyncExitStack` lives in the pool, opened in `load_data` and closed in `finalize`/`handle_error`, with a `try/finally` backstop in `run_pipeline`.
-- **Constraint (non-negotiable):** do not wrap the MCP calls in `anyio.to_thread`, and do not add LangGraph parallel fan-out nodes — either moves an MCP session off its owning task and breaks the context manager.
+- `run_pipeline()` is sync and owns the event loop: `asyncio.run(agent_graph.ainvoke(...))`.
+- LangGraph runs **each node in its own asyncio task**. Because AnyIO binds an async context manager to its entering task, MCP `ClientSession`s are **transient** — opened and closed within a single node. The per-`run_id` pool holds only plain, task-safe objects across nodes (the built `FastMCP` servers and their DuckDB connections); these are closed in `finalize`/`handle_error`, with a `try/finally` backstop in `run_pipeline`.
+- **Constraint (non-negotiable):** do not add LangGraph parallel fan-out nodes, and never hold an MCP `ClientSession` open across nodes — that triggers AnyIO's "exit cancel scope in a different task" error.
 - The sync SQLAlchemy and sync LLM `complete()` calls are invoked directly inside the async nodes; the dedicated thread makes blocking harmless.
 
 ## Deployment Model

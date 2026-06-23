@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     log_file: str = Field(default="logs/app.log")
     upload_dir: str = Field(default="uploads")
     max_agent_iterations: int = Field(default=10)
+    mcp_max_result_rows: int = Field(default=200)
 
     @property
     def resolved_llm_provider(self) -> str:
