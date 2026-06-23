@@ -1,131 +1,95 @@
 import json
-import shutil
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from api._common import ok, api_error
 from db.session import get_session
 from db.models import SessionRow, DatasetRow
-from db.duckdb_loader import load_dataset_schema
 
-router = APIRouter(prefix="/datasets", tags=["datasets"])
-
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".json"}
+router = APIRouter()
 
 
-@router.post("/", status_code=201)
-def upload_dataset(
-    session_id: str = Form(...),
+def upsert_session(session_id: str, db_session: Session) -> SessionRow:
+    """Upsert SessionRow by session_id — update last_seen_at if exists, insert if not."""
+    from datetime import datetime, timezone
+
+    row = db_session.get(SessionRow, session_id)
+    if row is None:
+        row = SessionRow(id=session_id)
+        db_session.add(row)
+    else:
+        row.last_seen_at = datetime.now(timezone.utc)
+    db_session.flush()
+    return row
+
+
+@router.post("/datasets/upload")
+async def upload_dataset(
     file: UploadFile = File(...),
+    x_session_id: str | None = Header(default=None),
     session: Session = Depends(get_session),
 ) -> dict:
-    # Validate session exists
-    sess_row = session.get(SessionRow, session_id)
-    if sess_row is None:
-        raise api_error("SESSION_NOT_FOUND", f"Session {session_id!r} not found", 404)
+    if not x_session_id:
+        raise api_error("MISSING_SESSION", "X-Session-ID header is required", 400)
 
-    # Validate file extension
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise api_error(
-            "UNSUPPORTED_FILE_TYPE",
-            f"File type {suffix!r} not supported. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
-            400,
-        )
-    file_type = suffix.lstrip(".")
+    # Upsert session (within the open ORM session)
+    upsert_session(x_session_id, session)
 
-    # Create session upload directory
-    session_upload_dir = UPLOAD_DIR / session_id
-    try:
-        session_upload_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise api_error("FILESYSTEM_ERROR", f"Could not create upload directory: {exc}", 500)
+    # Parse the uploaded file (pure in-memory, no DB writes yet)
+    from ingest.parser import parse_upload
+    df = await parse_upload(file)
 
-    file_path = session_upload_dir / file.filename
+    filename = file.filename or "upload.csv"
 
-    # Write file to disk
-    try:
-        with open(file_path, "wb") as out:
-            shutil.copyfileobj(file.file, out)
-    except OSError as exc:
-        raise api_error("FILESYSTEM_ERROR", f"Could not write uploaded file: {exc}", 500)
-    finally:
-        file.file.close()
+    # Commit + close the ORM session BEFORE loading to SQLite.
+    # This releases the write lock so load_dataset can acquire it.
+    session.commit()
 
-    # Check file size after write
-    size_bytes = file_path.stat().st_size
-    if size_bytes > MAX_FILE_SIZE:
-        file_path.unlink(missing_ok=True)
-        raise api_error(
-            "FILE_TOO_LARGE",
-            f"File size {size_bytes} bytes exceeds limit of {MAX_FILE_SIZE} bytes",
-            400,
-        )
+    # Load into SQLite table — returns a plain dict (detachment-safe)
+    from ingest.loader import load_dataset
+    dataset_data = load_dataset(x_session_id, filename, df)
 
-    # Load schema via DuckDB
-    try:
-        schema = load_dataset_schema(str(file_path), file_type)
-    except (ValueError, RuntimeError) as exc:
-        file_path.unlink(missing_ok=True)
-        raise api_error("PARSE_ERROR", str(exc), 400)
-    except Exception as exc:
-        file_path.unlink(missing_ok=True)
-        raise api_error("PARSE_ERROR", f"Failed to parse file: {exc}", 400)
-
-    # Persist DatasetRow
-    columns_json = json.dumps(schema["columns"])
-    ds = DatasetRow(
-        session_id=session_id,
-        name=file.filename,
-        file_path=str(file_path),
-        file_type=file_type,
-        row_count=schema["row_count"],
-        columns_json=columns_json,
-        size_bytes=size_bytes,
-    )
-    session.add(ds)
-    session.flush()
+    columns = json.loads(dataset_data["column_names"])
 
     return ok({
-        "dataset_id": ds.id,
-        "name": ds.name,
-        "row_count": ds.row_count,
-        "columns": schema["columns"],
-        "uploaded_at": ds.uploaded_at.isoformat(),
+        "dataset_id": dataset_data["id"],
+        "session_id": dataset_data["session_id"],
+        "table_name": dataset_data["table_name"],
+        "original_filename": dataset_data["original_filename"],
+        "row_count": dataset_data["row_count"],
+        "column_names": columns,
+        "created_at": dataset_data["created_at"].isoformat(),
     })
 
 
-@router.get("/", status_code=200)
+@router.get("/datasets")
 def list_datasets(
-    session_id: str,
+    x_session_id: str | None = Header(default=None),
     session: Session = Depends(get_session),
 ) -> dict:
-    # Validate session exists
-    sess_row = session.get(SessionRow, session_id)
-    if sess_row is None:
-        raise api_error("SESSION_NOT_FOUND", f"Session {session_id!r} not found", 404)
+    if not x_session_id:
+        raise api_error("MISSING_SESSION", "X-Session-ID header is required", 400)
 
     rows = session.scalars(
-        select(DatasetRow).where(DatasetRow.session_id == session_id)
+        select(DatasetRow).where(DatasetRow.session_id == x_session_id)
     ).all()
 
     result = []
     for ds in rows:
         try:
-            columns = json.loads(ds.columns_json)
+            columns = json.loads(ds.column_names)
         except Exception:
             columns = []
         result.append({
             "dataset_id": ds.id,
-            "name": ds.name,
+            "session_id": ds.session_id,
+            "table_name": ds.table_name,
+            "original_filename": ds.original_filename,
             "row_count": ds.row_count,
-            "columns": columns,
-            "uploaded_at": ds.uploaded_at.isoformat(),
+            "column_names": columns,
+            "created_at": ds.created_at.isoformat(),
         })
 
     return ok(result)

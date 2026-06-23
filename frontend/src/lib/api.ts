@@ -1,135 +1,65 @@
-export interface Column {
-  name: string
-  type: string
-}
+import type { Dataset, AuditEntry } from '../types'
 
-export interface Dataset {
-  dataset_id: string
-  name: string
-  row_count: number
-  columns: Column[]
-  uploaded_at: string
-}
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
 
-export interface Session {
-  session_id: string
-  name: string
-  created_at: string
-  dataset_count?: number
-  message_count?: number
-}
-
-export interface Message {
-  message_id: string
-  role: 'user' | 'assistant'
-  content: string
-  status: string
-  created_at: string
-}
-
-export interface QueryResult {
-  columns: string[]
-  rows: unknown[][]
-  row_count: number
-}
-
-export interface ChartSpec {
-  type: 'bar' | 'line' | 'pie'
-  labels: string[]
-  datasets: { label: string; data: number[]; backgroundColor?: string | string[] }[]
-}
-
-export interface RichResponse {
-  narrative: string
-  query_result?: QueryResult
-  chart_spec?: ChartSpec
-  sql?: string
-  query_log_id?: string
-}
-
-// SSE event types
-export type SSEEvent =
-  | { type: 'status'; data: { node: string; message: string } }
-  | { type: 'chunk'; data: { text: string } }
-  | { type: 'table'; data: QueryResult }
-  | { type: 'chart'; data: ChartSpec }
-  | { type: 'done'; data: { message_id: string; status: string } }
-  | { type: 'error'; data: { message: string; node: string } }
-
-const API_BASE = '' // same origin
-
-export async function createSession(): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+export async function getDatasets(sessionId: string): Promise<Dataset[]> {
+  const res = await fetch(`${BASE}/datasets`, {
+    headers: { 'X-Session-ID': sessionId },
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.detail?.message ?? `Failed to create session`)
-  return { ...data.data, session_id: data.data.session_id }
-}
-
-export async function listSessions(): Promise<Session[]> {
-  const res = await fetch(`${API_BASE}/sessions`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail?.message ?? `Failed to list sessions`)
-  return data.data
-}
-
-export async function getSession(
-  sessionId: string
-): Promise<{ session: Session; datasets: Dataset[]; messages: Message[] }> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}`)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail?.message ?? `Session not found`)
-  const s = data.data
-  return {
-    session: { session_id: s.session_id, name: s.name, created_at: s.created_at },
-    datasets: s.datasets || [],
-    messages: s.messages || [],
+  if (!res.ok) {
+    throw new Error(data.detail?.message ?? data.detail ?? `Failed to fetch datasets (${res.status})`)
   }
+  return data.data
 }
 
 export async function uploadDataset(sessionId: string, file: File): Promise<Dataset> {
   const formData = new FormData()
-  formData.append('session_id', sessionId)
   formData.append('file', file)
-  const res = await fetch(`${API_BASE}/datasets`, { method: 'POST', body: formData })
+  const res = await fetch(`${BASE}/datasets/upload`, {
+    method: 'POST',
+    headers: { 'X-Session-ID': sessionId },
+    body: formData,
+  })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.detail?.message ?? `Failed to upload dataset`)
+  if (!res.ok) {
+    throw new Error(data.detail?.message ?? data.detail ?? `Upload failed (${res.status})`)
+  }
   return data.data
 }
 
-export function streamChat(
+export async function query(
   sessionId: string,
-  question: string,
-  onEvent: (evt: SSEEvent) => void
-): () => void {
-  const url = `${API_BASE}/chat?session_id=${encodeURIComponent(sessionId)}&q=${encodeURIComponent(question)}`
-  const eventSource = new EventSource(url)
-
-  const handle = (eventType: string) => (e: MessageEvent) => {
-    try {
-      onEvent({ type: eventType as SSEEvent['type'], data: JSON.parse(e.data) } as SSEEvent)
-    } catch {
-      // ignore parse errors
-    }
+  datasetTable: string,
+  question: string
+): Promise<{ answer: string; table: Record<string, unknown>[]; sql: string; audit_id: string }> {
+  const res = await fetch(`${BASE}/query`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-ID': sessionId,
+    },
+    body: JSON.stringify({ question, dataset_table: datasetTable }),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const detail = data.detail
+    const msg =
+      typeof detail === 'object' && detail !== null
+        ? detail.message ?? JSON.stringify(detail)
+        : String(detail ?? `Query failed (${res.status})`)
+    throw new Error(msg)
   }
+  return data.data
+}
 
-  eventSource.addEventListener('status', handle('status'))
-  eventSource.addEventListener('chunk', handle('chunk'))
-  eventSource.addEventListener('table', handle('table'))
-  eventSource.addEventListener('chart', handle('chart'))
-  eventSource.addEventListener('done', (e) => {
-    handle('done')(e as MessageEvent)
-    eventSource.close()
+export async function getAudit(sessionId: string): Promise<AuditEntry[]> {
+  const res = await fetch(`${BASE}/audit`, {
+    headers: { 'X-Session-ID': sessionId },
   })
-  eventSource.addEventListener('error', (e: Event) => {
-    if (e instanceof MessageEvent) {
-      handle('error')(e)
-    }
-    eventSource.close()
-  })
-
-  return () => eventSource.close()
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.detail?.message ?? data.detail ?? `Failed to fetch audit log (${res.status})`)
+  }
+  return data.data
 }

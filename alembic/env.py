@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -20,8 +21,15 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Ensure the data/ directory exists before SQLite tries to open the file
+db_url = get_settings().database_url
+if db_url.startswith("sqlite:///"):
+    db_file = db_url[len("sqlite:///"):]
+    if db_file and not db_file.startswith(":"):
+        os.makedirs(os.path.dirname(os.path.abspath(db_file)) if os.path.dirname(db_file) else ".", exist_ok=True)
+
 # Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:

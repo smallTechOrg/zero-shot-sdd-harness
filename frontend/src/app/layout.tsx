@@ -3,7 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Data Analyst Agent',
-  description: 'Senior Data Analyst AI agent — chat with your datasets',
+  description: 'AI-powered data analyst — chat with your datasets using natural language',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,50 +1,41 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from api._common import ok, api_error
 from db.session import get_session
-from db.models import SessionRow, QueryLogRow
+from db.models import AuditLogRow
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter()
 
 
-@router.get("/", status_code=200)
-def list_audit_log(
-    session_id: str = Query(...),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+@router.get("/audit")
+def list_audit(
+    x_session_id: str | None = Header(default=None),
     session: Session = Depends(get_session),
 ) -> dict:
-    # Validate session exists
-    sess_row = session.get(SessionRow, session_id)
-    if sess_row is None:
-        raise api_error("SESSION_NOT_FOUND", f"Session {session_id!r} not found", 404)
-
-    total = session.scalar(
-        select(func.count()).select_from(QueryLogRow)
-        .where(QueryLogRow.session_id == session_id)
-    ) or 0
+    if not x_session_id:
+        raise api_error("MISSING_SESSION", "X-Session-ID header is required", 400)
 
     rows = session.scalars(
-        select(QueryLogRow)
-        .where(QueryLogRow.session_id == session_id)
-        .order_by(QueryLogRow.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+        select(AuditLogRow)
+        .where(AuditLogRow.session_id == x_session_id)
+        .order_by(AuditLogRow.created_at.desc())
     ).all()
 
     entries = [
         {
-            "query_log_id": ql.id,
-            "dataset_name": ql.dataset_name,
-            "sql": ql.sql,
-            "row_count": ql.row_count,
-            "latency_ms": ql.latency_ms,
-            "error": ql.error,
-            "created_at": ql.created_at.isoformat(),
+            "id": row.id,
+            "session_id": row.session_id,
+            "dataset_table": row.dataset_table,
+            "question": row.question,
+            "sql_generated": row.sql_generated,
+            "row_count": row.row_count,
+            "duration_ms": row.duration_ms,
+            "error": row.error,
+            "created_at": row.created_at.isoformat(),
         }
-        for ql in rows
+        for row in rows
     ]
 
-    return ok({"total": total, "entries": entries})
+    return ok(entries)

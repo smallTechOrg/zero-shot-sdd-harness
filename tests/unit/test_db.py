@@ -1,53 +1,75 @@
-"""DB layer tests — no LLM key required."""
-from sqlalchemy.orm import Session
-from db.models import RunRow
-import db.session as session_module
+"""DB session + model integration tests — no LLM key required."""
 
 
-def test_run_row_roundtrip(_isolated_db):
-    with Session(_isolated_db) as s:
-        run = RunRow(input_text="hello world")
-        s.add(run)
-        s.commit()
-        run_id = run.id
+def test_session_upsert(_isolated_db):
+    """Insert and retrieve a SessionRow."""
+    from db.session import create_db_session
+    from db.models import SessionRow
 
-    with Session(_isolated_db) as s:
-        fetched = s.get(RunRow, run_id)
+    with create_db_session() as session:
+        row = SessionRow(id="test-123")
+        session.add(row)
+
+    with create_db_session() as session:
+        fetched = session.get(SessionRow, "test-123")
         assert fetched is not None
-        assert fetched.input_text == "hello world"
-        assert fetched.status == "pending"
-        assert fetched.output_text is None
+        assert fetched.id == "test-123"
 
 
-def test_run_row_status_update(_isolated_db):
-    with Session(_isolated_db) as s:
-        run = RunRow(input_text="test")
-        s.add(run)
-        s.commit()
-        run_id = run.id
+def test_dataset_row_persists(_isolated_db):
+    """DatasetRow can be written and read back."""
+    from db.session import create_db_session
+    from db.models import SessionRow, DatasetRow
 
-    with Session(_isolated_db) as s:
-        run = s.get(RunRow, run_id)
-        run.status = "completed"
-        run.output_text = "some output"
-        s.commit()
+    with create_db_session() as session:
+        sess = SessionRow(id="sess-1")
+        session.add(sess)
+        ds = DatasetRow(
+            session_id="sess-1",
+            table_name="sess_1_myfile",
+            original_filename="myfile.csv",
+            row_count=42,
+            column_names='["a","b"]',
+        )
+        session.add(ds)
+        session.flush()
+        ds_id = ds.id
 
-    with Session(_isolated_db) as s:
-        run = s.get(RunRow, run_id)
-        assert run.status == "completed"
-        assert run.output_text == "some output"
+    with create_db_session() as session:
+        fetched = session.get(DatasetRow, ds_id)
+        assert fetched is not None
+        assert fetched.row_count == 42
+        assert fetched.table_name == "sess_1_myfile"
 
 
-def test_multiple_runs_independent(_isolated_db):
-    ids = []
-    with Session(_isolated_db) as s:
-        for i in range(3):
-            run = RunRow(input_text=f"input {i}")
-            s.add(run)
-        s.commit()
-        # fetch all
-        runs = s.query(RunRow).all()
-        ids = [r.id for r in runs]
+def test_audit_log_row_persists(_isolated_db):
+    """AuditLogRow can be written and read back."""
+    from db.session import create_db_session
+    from db.models import AuditLogRow
 
-    assert len(ids) == 3
-    assert len(set(ids)) == 3  # all unique
+    with create_db_session() as session:
+        row = AuditLogRow(
+            session_id="sess-1",
+            dataset_table="sess_1_test",
+            question="How many rows?",
+            sql_generated="SELECT COUNT(*) FROM test",
+            row_count=5,
+            duration_ms=42,
+        )
+        session.add(row)
+        session.flush()
+        row_id = row.id
+
+    with create_db_session() as session:
+        fetched = session.get(AuditLogRow, row_id)
+        assert fetched is not None
+        assert fetched.sql_generated == "SELECT COUNT(*) FROM test"
+        assert fetched.error is None
+
+
+def test_reset_engine():
+    """reset_engine() sets singletons to None."""
+    from db import session as session_module
+    session_module.reset_engine()
+    assert session_module._engine is None
+    assert session_module._SessionLocal is None

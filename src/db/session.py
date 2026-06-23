@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 _engine: Engine | None = None
@@ -12,7 +12,15 @@ def _get_engine() -> Engine:
     global _engine
     if _engine is None:
         from config.settings import get_settings
-        _engine = create_engine(get_settings().database_url, echo=False)
+        url = get_settings().database_url
+        _engine = create_engine(url, echo=False, connect_args={"check_same_thread": False})
+
+        @event.listens_for(_engine, "connect")
+        def set_fk(dbapi_conn, _):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     return _engine
 
 
@@ -49,3 +57,10 @@ def create_db_session() -> Generator[Session, None, None]:
 def init_db() -> None:
     from db.models import Base
     Base.metadata.create_all(bind=_get_engine())
+
+
+def reset_engine() -> None:
+    """For tests — resets singletons so monkeypatch takes effect."""
+    global _engine, _SessionLocal
+    _engine = None
+    _SessionLocal = None

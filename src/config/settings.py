@@ -10,16 +10,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = Field(...)
-    log_level: str = Field(default="INFO")
-
-    # LLM provider — auto-detected from whichever key is set if left blank
-    llm_provider: str = Field(default="")   # "anthropic" | "gemini"
-    llm_model: str = Field(default="")      # uses provider default when blank
-
-    # Provider keys — set exactly one
-    anthropic_api_key: str = Field(default="")
+    database_url: str = Field(default="sqlite:///./data/agent.db")
     gemini_api_key: str = Field(default="")
+    llm_model: str = Field(default="gemini-2.5-flash")
+    log_level: str = Field(default="INFO")
 
 
 _settings: Settings | None = None
