@@ -31,6 +31,8 @@ This applies to all project types — Python packages, static web apps, TypeScri
 
 The repo root **is** the agent project. There is no `<agent-slug>/` subdirectory — boilerplate files (`spec/`, `harness/`, `CLAUDE.md`) coexist with project files at the root.
 
+**One package only.** The skeleton ships `src/agent/`. If the spec needs a different package name (e.g. `xyz_agent`), **rename `src/agent/` in place** — never create a second package beside it. `src/xyz/` sitting next to `src/agent/` is always wrong: it duplicates the wired-up baseline instead of extending it, leaving dead code and two sources of truth.
+
 ```
 <repo root>                           ← repo root IS the agent project
 ├── src/

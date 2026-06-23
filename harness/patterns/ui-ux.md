@@ -62,6 +62,7 @@ A view that only handles state 4 is half-built.
 
 - **CLI:** `--help` is complete and accurate; errors go to stderr with a non-zero exit; long operations stream progress; output is greppable (and `--json` where a machine might consume it). Colour degrades gracefully when piped.
 - **Chat:** the agent states what it's doing before a long action and confirms after; it never goes silent mid-task; it surfaces tool failures in plain language; it makes the next step obvious.
+- **Chat responses are markdown:** LLM-generated text must be rendered through a markdown renderer (`react-markdown` + `remark-gfm`, or equivalent) — never as a plain text node. Raw string rendering leaves `**bold**`, bullet lists, and code fences visible as syntax, indistinguishable from a broken LLM. For code returned in structured fields, request formatted output (newlines, indentation) in the system prompt — single-line code is unreadable in any disclosure.
 
 ---
 
