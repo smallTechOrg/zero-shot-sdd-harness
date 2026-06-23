@@ -75,7 +75,7 @@ Defaults when intake is silent:
 Carve the work into phases, **Phase 1 and Phase 2 at minimum**. Per phase write:
 
 - **Goal** — the one user-testable increment this phase delivers.
-- **Independent slices** — the parallel build units. **Default every slice independent** so agent-builder can fan out a generator per slice concurrently; mark any TRUE dependency explicitly (slice B needs slice A's output) so it serializes only where it must. Keep frontend and backend on disjoint paths.
+- **Independent slices** — the parallel build units. **Default every slice independent** so agent-builder can fan out a generator per slice concurrently; mark any TRUE dependency explicitly (slice B needs slice A's output) so it serializes only where it must. **Prefer more, smaller disjoint slices over a few fat ones** — concurrency (and thus phase speed) scales with slice count up to the fan-out cap (~min(16, cores−2)). Split along natural file-path seams rather than bundling: e.g. `db-migration`, `api-routes`, `graph-node`, `frontend-components` as separate slices instead of one "backend" + one "frontend". Keep each slice on disjoint paths, and only collapse slices that genuinely can't be separated without a dependency.
 - **Key surfaces/files** — the files/components each slice owns.
 - **Gate** — an EXACT runnable command (e.g. `uv run pytest tests/phase1 -q`), not "tests pass". It runs against the **real LLM/API via `.env`** and the **production DB driver** — never a stub or SQLite substitute.
 - **How the user tests it** — the test-handoff seed: the run command, what to click/look at, the expected result, and which surfaces are labelled stubs vs real.
