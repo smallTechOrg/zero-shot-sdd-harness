@@ -93,11 +93,12 @@ def query_planner(state: AnalystState) -> AnalystState:
         provider = get_gemini_provider()
         sql, explanation = provider.plan_sql(system_prompt, question)
 
-        # Validate it is a SELECT
-        if not sql.strip().upper().startswith("SELECT"):
+        # Validate it is a read-only statement (SELECT or CTE starting with WITH)
+        normalised = sql.strip().upper()
+        if not (normalised.startswith("SELECT") or normalised.startswith("WITH")):
             return {
                 **state,
-                "error": f"LLM generated a non-SELECT statement: {sql[:80]}",
+                "error": f"LLM generated a non-read statement: {sql[:80]}",
             }
 
         return {
@@ -160,35 +161,17 @@ def _format_answer(
     rows: list[dict],
     row_count: int,
 ) -> str:
-    """Build a markdown answer string from rows."""
+    """Build a plain-text explanation — the frontend renders the table separately."""
     parts: list[str] = [sql_explanation]
 
     if not rows:
-        parts.append("\nNo results found for that query.")
-        return "\n".join(parts)
+        parts.append("No results found for that query.")
+    else:
+        shown = len(rows)
+        if row_count > shown:
+            parts.append(f"Showing {shown} of {row_count} rows.")
 
-    shown = len(rows)
-    if row_count > shown:
-        parts.append(f"\nShowing {shown} of {row_count} rows.")
-
-    # Build markdown table
-    columns = list(rows[0].keys())
-    header = "| " + " | ".join(columns) + " |"
-    separator = "| " + " | ".join("---" for _ in columns) + " |"
-    table_lines = [header, separator]
-    for row in rows:
-        cells = []
-        for col in columns:
-            val = row.get(col)
-            if val is None:
-                cell = "—"
-            else:
-                cell = str(val)[:50]
-            cells.append(cell)
-        table_lines.append("| " + " | ".join(cells) + " |")
-
-    parts.append("\n" + "\n".join(table_lines))
-    return "\n".join(parts)
+    return "\n\n".join(p for p in parts if p)
 
 
 def response_formatter(state: AnalystState) -> AnalystState:
