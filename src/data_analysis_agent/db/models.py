@@ -32,6 +32,8 @@ class DataSourceRow(Base):
     row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     column_names_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     schema_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    capability_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, default=_now
     )
@@ -54,45 +56,6 @@ class DataSourceRow(Base):
         if self.schema_json:
             return json.loads(self.schema_json)
         return []
-
-
-class ToolRow(Base):
-    __tablename__ = "tools"
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    data_source_id: Mapped[str] = mapped_column(Text, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=_now
-    )
-
-    @property
-    def config(self) -> dict:
-        """Decode the tool's JSON config blob into a dict (empty dict if unset)."""
-        if self.config_json:
-            return json.loads(self.config_json)
-        return {}
-
-
-class ToolCapabilityRow(Base):
-    __tablename__ = "tool_capabilities"
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    tool_id: Mapped[str] = mapped_column(Text, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    parameter_schema_json: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, default=_now
-    )
-
-    @property
-    def parameter_schema(self) -> dict:
-        """Decode the capability's JSON parameter schema into a dict."""
-        return json.loads(self.parameter_schema_json)
 
 
 class SessionRow(Base):

@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from data_analysis_agent.db.models import (
-    Base, DataSourceRow, ToolRow, ToolCapabilityRow,
+    Base, DataSourceRow,
     SessionRow, SessionDataSourceRow, QueryRecordRow, AgentRunRow,
 )
 
@@ -34,31 +34,18 @@ def test_datasource_column_names(db):
     assert ds.column_names == ["a", "b", "c"]
 
 
-def test_create_tool_and_capability(db):
-    ds = DataSourceRow(name="data.csv", type="csv")
+def test_datasource_description_columns(db):
+    ds = DataSourceRow(
+        name="data.csv",
+        type="csv",
+        tool_description="A dataset about X.",
+        capability_description="Run SQL SELECT against table data.",
+    )
     db.add(ds)
-    db.flush()
-
-    tool = ToolRow(
-        data_source_id=ds.id,
-        name="csv_query",
-        type="csv_query",
-        description="Run SQL queries",
-    )
-    db.add(tool)
-    db.flush()
-
-    cap = ToolCapabilityRow(
-        tool_id=tool.id,
-        name="run_query",
-        description="Execute SQL SELECT",
-        parameter_schema_json='{"query": {"type": "string"}}',
-    )
-    db.add(cap)
     db.commit()
-
-    assert cap.id is not None
-    assert cap.parameter_schema["query"]["type"] == "string"
+    db.refresh(ds)
+    assert ds.tool_description == "A dataset about X."
+    assert ds.capability_description == "Run SQL SELECT against table data."
 
 
 def test_create_session_and_query_record(db):

@@ -46,6 +46,15 @@ transport; one MCP server per data source; DuckDB over Parquet; official MCP SDK
 - Bad SQL → DuckDB binder error → `isError=True` (recoverable, with candidate-binding hints).
 - **Impl notes for later phases:** (1) version guard must use `importlib.metadata.version("mcp")` — there is no `mcp.__version__`; (2) DuckDB DDL rejects bind params — inline the (escaped) Parquet path in `CREATE VIEW ... read_parquet('...')`; (3) `structuredContent` auto-populates as `{"result": <csv str>}`; we read `content[0].text`.
 
+### Phase 1 — Data model + migration + registration (DONE, gate green)
+
+- Dropped `ToolRow`/`ToolCapabilityRow` (db) and `Tool`/`ToolCapability` (domain); added `tool_description`/`capability_description` columns to `DataSourceRow`.
+- Alembic migration `b8e1f0a2c3d4` (down_revision `57cfed820d74`): add cols → back-fill from old tables → drop `tool_capabilities` + `tools`. Reversible downgrade recreates + restores. **Round-trip verified** (upgrade head / downgrade -1 / upgrade head on a temp DB).
+- `api/datasources.py`: upload/sync now write the two description columns; delete no longer touches tool tables; removed `_register_tool`/`_build_capability`/`_apply_descriptions`/`_delete_tools` + unused imports.
+- `graph/tool_registry.py`: Phase-1 **shim** — synthesises the legacy nested tool dict from the description columns so the existing sync SQLite pipeline still answers queries unchanged (removed in Phase 3).
+- Tests updated (drop tool/cap tests, add description-column test, fixture sets description cols). **`uv run pytest` = 20 passed** (incl. golden path + direct `run_pipeline`). Imports clean.
+- Deferred to Phase 3: dead `{% if tool %}` block in `datasource.html` (confirmed never rendered — no route passes `tool`).
+
 ---
 
 ## Prompt Log

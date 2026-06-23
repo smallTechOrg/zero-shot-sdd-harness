@@ -19,24 +19,6 @@ class DataSource(BaseModel):
     created_at: datetime | None = None
 
 
-class Tool(BaseModel):
-    id: str = Field(default_factory=_uid)
-    data_source_id: str
-    name: str
-    type: str
-    description: str
-    config: dict = Field(default_factory=dict)
-    created_at: datetime | None = None
-
-
-class ToolCapability(BaseModel):
-    id: str = Field(default_factory=_uid)
-    tool_id: str
-    name: str
-    description: str
-    parameter_schema: dict = Field(default_factory=dict)
-
-
 class Session(BaseModel):
     id: str = Field(default_factory=_uid)
     name: str | None = None

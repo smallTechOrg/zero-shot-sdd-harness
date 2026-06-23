@@ -1,4 +1,4 @@
-from data_analysis_agent.domain.models import DataSource, Tool, ToolCapability, Session, QueryRecord, AgentRunRecord
+from data_analysis_agent.domain.models import DataSource, Session, QueryRecord, AgentRunRecord
 
 
 def test_datasource_defaults():
@@ -7,18 +7,6 @@ def test_datasource_defaults():
     assert ds.type == "csv"
     assert ds.column_names == []
     assert ds.row_count is None
-
-
-def test_tool_fields():
-    t = Tool(data_source_id="abc", name="csv_query", type="csv_query", description="Run SQL queries")
-    assert t.id is not None
-    assert t.config == {}
-
-
-def test_tool_capability_fields():
-    cap = ToolCapability(tool_id="t1", name="run_query", description="Execute SQL", parameter_schema={"query": {"type": "string"}})
-    assert cap.id is not None
-    assert cap.parameter_schema["query"]["type"] == "string"
 
 
 def test_session_defaults():

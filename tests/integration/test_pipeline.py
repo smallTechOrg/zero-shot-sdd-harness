@@ -1,13 +1,12 @@
 """Integration test: stubbed pipeline runs end-to-end with no OpenRouter key."""
 import csv
-import json
 
 import pytest
 
 import data_analysis_agent.db.session as session_module
 from data_analysis_agent.db.database import Database
 from data_analysis_agent.db.models import (
-    DataSourceRow, SessionDataSourceRow, ToolRow, ToolCapabilityRow,
+    DataSourceRow, SessionDataSourceRow,
     SessionRow, QueryRecordRow, AgentRunRow,
 )
 
@@ -47,27 +46,14 @@ def csv_file(tmp_path):
 @pytest.fixture
 def session_and_query(csv_file):
     with session_module.create_db_session() as db:
-        ds = DataSourceRow(name="sample.csv", type="csv", file_path=csv_file)
+        ds = DataSourceRow(
+            name="sample.csv",
+            type="csv",
+            file_path=csv_file,
+            tool_description="Execute SQL SELECT queries against the dataset.",
+            capability_description="Execute a SQL SELECT statement. Table name is 'sample'.",
+        )
         db.add(ds)
-        db.flush()
-
-        tool = ToolRow(
-            data_source_id=ds.id,
-            name="csv_query",
-            type="csv_query",
-            description="Execute SQL SELECT queries against the dataset.",
-            config_json=json.dumps({"table_name": "sample"}),
-        )
-        db.add(tool)
-        db.flush()
-
-        cap = ToolCapabilityRow(
-            tool_id=tool.id,
-            name="run_query",
-            description="Execute a SQL SELECT statement. Table name is 'sample'.",
-            parameter_schema_json=json.dumps({"query": {"type": "string"}}),
-        )
-        db.add(cap)
         db.flush()
 
         sess = SessionRow(name="Test session")
