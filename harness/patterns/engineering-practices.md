@@ -60,7 +60,7 @@ Rules that apply to every implementation phase, regardless of stack or project t
 
 ## Security
 
-**Never trust input.** Validate everything that crosses a trust boundary: HTTP requests, CLI arguments, file uploads, database values, environment variables.
+**Never trust input.** Validate everything that crosses a trust boundary: HTTP requests, CLI arguments, file uploads, database values, environment variables, and LLM-generated content. LLM output is untrusted input — validate it at the execution boundary before acting on it (e.g. confirm generated SQL is read-only before running it).
 
 **Principle of least privilege.** Each component, service account, and API token should have only the permissions it needs — nothing more.
 

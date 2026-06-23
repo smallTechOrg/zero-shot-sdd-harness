@@ -69,6 +69,8 @@ The reusable catalogue of agentic design patterns — generic engineering doctri
 **When** — Choose for irreversible, costly, or sensitive actions, and below a confidence threshold; avoid where it would bottleneck high-volume routine work.
 **Example** — Pause for human sign-off before sending a refund over $500.
 
+**Data/database default: read-only.** Any agent that works with data or a database must default to read-only operations. Write, update, delete, truncate, drop, or any other destructive or irreversible data operation requires explicit human consent before execution — never inferred from context, never batched silently with reads. Validate at the execution boundary, not only in the prompt.
+
 ### 14. Knowledge Retrieval (RAG)
 **What** — Retrieve relevant external knowledge and ground the LLM's response in it.
 **When** — Choose when answers depend on a corpus larger than the context window or on fresh/proprietary facts; avoid when knowledge is small enough to keep in-prompt.
