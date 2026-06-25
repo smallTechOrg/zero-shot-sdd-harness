@@ -14,12 +14,16 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
 
     # LLM provider — auto-detected from whichever key is set if left blank
-    llm_provider: str = Field(default="")   # "anthropic" | "gemini"
+    llm_provider: str = Field(default="")   # auto | gemini | openrouter | stub
     llm_model: str = Field(default="")      # uses provider default when blank
 
     # Provider keys — set exactly one
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
+    openrouter_api_key: str = Field(default="")
+
+    # ReAct loop cap — max plan/execute iterations per run
+    max_iterations: int = Field(default=6)
 
 
 _settings: Settings | None = None

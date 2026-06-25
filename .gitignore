@@ -20,3 +20,7 @@ data/
 # Data Analysis Agent runtime artifacts (uploaded + derived data — never commit)
 uploads/
 *.parquet
+
+# Next.js incremental type-check cache
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo

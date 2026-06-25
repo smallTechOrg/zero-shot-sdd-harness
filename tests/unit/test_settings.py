@@ -52,3 +52,39 @@ def test_explicit_provider_wins(monkeypatch, tmp_path):
     m._settings = None
     s = m.get_settings()
     assert s.llm_provider == "gemini"
+
+
+def test_new_settings_defaults(monkeypatch, tmp_path):
+    """openrouter_api_key and max_iterations have correct defaults."""
+    monkeypatch.setenv("AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    # ensure no override leaks in
+    monkeypatch.delenv("AGENT_OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("AGENT_MAX_ITERATIONS", raising=False)
+
+    import config.settings as m
+    m._settings = None
+    s = m.get_settings()
+    assert s.openrouter_api_key == ""
+    assert s.max_iterations == 6
+    assert isinstance(s.max_iterations, int)
+
+
+def test_openrouter_api_key_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    monkeypatch.setenv("AGENT_OPENROUTER_API_KEY", "or-fake-key")
+
+    import config.settings as m
+    m._settings = None
+    s = m.get_settings()
+    assert s.openrouter_api_key == "or-fake-key"
+
+
+def test_max_iterations_override_coerces_to_int(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    monkeypatch.setenv("AGENT_MAX_ITERATIONS", "9")
+
+    import config.settings as m
+    m._settings = None
+    s = m.get_settings()
+    assert s.max_iterations == 9
+    assert isinstance(s.max_iterations, int)
