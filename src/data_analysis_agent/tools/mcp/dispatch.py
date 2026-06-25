@@ -15,6 +15,7 @@ import structlog
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+import data_analysis_agent.tools.sync as sync
 from data_analysis_agent.config.settings import get_settings
 from data_analysis_agent.db.models import (
     McpPromptRow,
@@ -23,13 +24,17 @@ from data_analysis_agent.db.models import (
     McpToolRow,
 )
 from data_analysis_agent.tools.connectors.base import DatasetConnectionError, get_connector
-from data_analysis_agent.tools.mcp.server import RecoverableQueryError, _run_select_params
+from data_analysis_agent.tools.mcp.server import RecoverableQueryError, _run_select_params, bind_params
 
 log = structlog.get_logger()
 
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
-_PARAM_PREFIX = "$"  # DuckDB named-parameter prefix used in sql_template
+
+# Non-standard Phase-B write methods (the route invalidates pools after these succeed).
+MUTATION_METHODS = frozenset({
+    "tools/add", "tools/update", "prompts/add", "prompts/update", "resources/add", "resources/update",
+})
 
 
 def handle_jsonrpc(db: Session, server: McpServerRow, payload: dict) -> dict:
@@ -125,6 +130,52 @@ def _prompts_get(db, server, params):
     return {"description": row.description or "", "messages": row.template or []}
 
 
+# --- mutation methods (Phase B) ---------------------------------------------
+
+def _need_name(definition):
+    if not definition.get("name"):
+        raise _RpcError(INVALID_PARAMS, "definition.name is required.")
+
+
+def _need_uri(definition):
+    if not definition.get("uri"):
+        raise _RpcError(INVALID_PARAMS, "definition.uri is required.")
+
+
+def _mutate(db, server, params, op_fn, need_key):
+    """Apply a client-supplied capability + its additive cascade; roll back on ANY failure."""
+    definition = params.get("definition")
+    if not isinstance(definition, dict):
+        raise _RpcError(INVALID_PARAMS, "params.definition (an object) is required.")
+    need_key(definition)
+    try:
+        result = op_fn(db, server, definition)
+    except sync.ValidationError as exc:
+        db.rollback()
+        raise _RpcError(INVALID_PARAMS, str(exc))
+    except _RpcError:
+        db.rollback()
+        raise
+    except Exception as exc:  # IntegrityError, etc. — never half-commit a mutation
+        db.rollback()
+        raise _RpcError(INVALID_PARAMS, str(exc))
+    return {
+        "ok": True,
+        "version": server.version,
+        "applied": {"child": result.child, "op": result.op, "key": result.key},
+        "cascade": {"tools": result.tools_changed, "prompts": result.prompts_changed},
+        "status": result.status,
+    }
+
+
+def _tools_add(db, server, params):       return _mutate(db, server, params, sync.add_tool, _need_name)
+def _tools_update(db, server, params):    return _mutate(db, server, params, sync.update_tool, _need_name)
+def _prompts_add(db, server, params):     return _mutate(db, server, params, sync.add_prompt, _need_name)
+def _prompts_update(db, server, params):  return _mutate(db, server, params, sync.update_prompt, _need_name)
+def _resources_add(db, server, params):   return _mutate(db, server, params, sync.add_resource, _need_uri)
+def _resources_update(db, server, params): return _mutate(db, server, params, sync.update_resource, _need_uri)
+
+
 _METHODS = {
     "tools/list": _tools_list,
     "tools/call": _tools_call,
@@ -132,6 +183,12 @@ _METHODS = {
     "resources/read": _resources_read,
     "prompts/list": _prompts_list,
     "prompts/get": _prompts_get,
+    "tools/add": _tools_add,
+    "tools/update": _tools_update,
+    "prompts/add": _prompts_add,
+    "prompts/update": _prompts_update,
+    "resources/add": _resources_add,
+    "resources/update": _resources_update,
 }
 
 
@@ -142,20 +199,12 @@ def _execute_canned(server: McpServerRow, tool: McpToolRow, arguments: dict) -> 
     fast = get_connector(_server_dict(server), server.physical_tables).build_server()
     conn = getattr(fast, "_duckdb_conn", None)
     try:
-        params = _bind_params(tool, arguments)
+        params = bind_params(tool.input_schema, arguments)
         max_rows = get_settings().mcp_max_result_rows
         return _run_select_params(conn, tool.sql_template, params, max_rows)
     finally:
         if conn is not None:
             conn.close()
-
-
-def _bind_params(tool: McpToolRow, arguments: dict) -> dict | None:
-    """Filter arguments to the tool's declared params (named ``$param`` in the SQL)."""
-    props = (tool.input_schema or {}).get("properties") or {}
-    if not props:
-        return None
-    return {k: arguments.get(k) for k in props}
 
 
 def _server_dict(server: McpServerRow) -> dict:

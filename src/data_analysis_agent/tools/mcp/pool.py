@@ -26,9 +26,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from data_analysis_agent.config.settings import get_settings
-from data_analysis_agent.db.models import McpServerRow, SessionMcpServerRow
+from data_analysis_agent.db.models import McpServerRow, McpToolRow, SessionMcpServerRow
 from data_analysis_agent.db.session import create_db_session
 from data_analysis_agent.tools.connectors.base import get_connector
+from data_analysis_agent.tools.mcp.server import RecoverableQueryError, _run_select_params, bind_params
 
 log = structlog.get_logger()
 
@@ -48,6 +49,16 @@ class NoServersError(Exception):
 
 
 @dataclass
+class _GenTool:
+    """A server's generated GET-API tool, executed directly on the shared DuckDB connection."""
+
+    name: str
+    description: str
+    input_schema: dict
+    sql_template: str
+
+
+@dataclass
 class _Server:
     """One attached MCP-server entity and its in-process FastMCP server (generic SQL tool)."""
 
@@ -55,37 +66,62 @@ class _Server:
     server: FastMCP
     description: str
     tables: list[dict]  # [{"table": str, "columns": list[str]}]
+    gen_tools: dict[str, _GenTool]  # name -> generated GET-API tool (active rows only)
 
 
 @dataclass
 class SessionPool:
-    """A session's MCP servers, addressed single-level by server ``name``."""
+    """A session's MCP servers, addressed single-level by server ``name`` (+ optional capability)."""
 
     session_id: str
     servers: dict[str, _Server]
     last_used: float
 
     def snapshot(self) -> list[dict]:
-        """Flat, agent-facing tool list for the planning prompt (one tool per server)."""
+        """Flat, agent-facing tool list for the planning prompt (one entry per server)."""
         return [
             {
                 "tool": s.name,
                 "description": s.description,
                 "tables": s.tables,
+                "capabilities": [
+                    {"name": g.name, "description": g.description,
+                     "params": list(((g.input_schema or {}).get("properties") or {}).keys())}
+                    for g in s.gen_tools.values()
+                ],
             }
             for s in self.servers.values()
         ]
 
-    async def call_tool(self, tool: str, arguments: dict) -> tuple[str, bool]:
-        """Route a single-level call to the server's generic ``query`` tool."""
+    async def call_tool(self, tool: str, arguments: dict, capability: str | None = None) -> tuple[str, bool]:
+        """Route a call to a generated GET-API tool (when ``capability`` is given) or generic SQL."""
         s = self.servers.get(tool)
         if s is None:
             valid = ", ".join(self.servers) or "(none)"
             return f"Unknown tool '{tool}'. Valid tools: {valid}.", True
+        if capability:
+            return self._call_gen_tool(s, capability, arguments)
         async with create_connected_server_and_client_session(s.server) as session:
             result = await session.call_tool(_GENERIC_TOOL, arguments)
         text = result.content[0].text if result.content else ""
         return text, bool(result.isError)
+
+    def _call_gen_tool(self, s: "_Server", capability: str, arguments: dict) -> tuple[str, bool]:
+        """Execute a generated tool's SQL with bound params on the server's DuckDB conn (read-only guard)."""
+        g = s.gen_tools.get(capability)
+        if g is None:
+            valid = ", ".join(s.gen_tools) or "(none)"
+            return (f"Unknown capability '{capability}' on '{s.name}'. Valid: {valid}. "
+                    f"Omit 'capability' to run free SQL."), True
+        conn = getattr(s.server, "_duckdb_conn", None)
+        if conn is None:
+            return f"Server '{s.name}' has no connection.", True
+        params = bind_params(g.input_schema, arguments)
+        try:
+            text = _run_select_params(conn, g.sql_template, params, get_settings().mcp_max_result_rows)
+            return text, False
+        except RecoverableQueryError as exc:
+            return f"Tool error: {exc}", True
 
     def aclose(self) -> None:
         """Close every server's DuckDB connection (plain, task-safe)."""
@@ -151,15 +187,16 @@ class SessionPoolManager:
             pool.last_used = time.monotonic()
             return pool.snapshot()
 
-    async def call_tool(self, session_id: str, tool: str, arguments: dict) -> tuple[str, bool]:
-        """Route a single-level tool call to the session's pool (must be acquired first)."""
+    async def call_tool(self, session_id: str, tool: str, arguments: dict,
+                        capability: str | None = None) -> tuple[str, bool]:
+        """Route a tool call to the session's pool (must be acquired first)."""
         with self._registry:
             pool = self._pools.get(session_id)
             if pool is not None:
                 pool.last_used = time.monotonic()
         if pool is None:
             return f"No MCP pool for session '{session_id}'.", True
-        return await pool.call_tool(tool, arguments)
+        return await pool.call_tool(tool, arguments, capability)
 
     def close(self, session_id: str) -> None:
         """Close a session's pool, waiting for any in-flight query first. Idempotent.
@@ -203,7 +240,7 @@ class SessionPoolManager:
             raise NoServersError("No MCP servers attached to this session")
         max_rows = get_settings().mcp_max_result_rows
         servers: dict[str, _Server] = {}
-        for server_dict, tables in loaded:
+        for server_dict, tables, gen_tools in loaded:
             connector = get_connector(server_dict, tables)
             fast = connector.build_server(max_rows)
             await _verify_server(fast)
@@ -212,6 +249,10 @@ class SessionPoolManager:
                 server=fast,
                 description=server_dict.get("description") or "",
                 tables=[{"table": t["table_name"], "columns": t.get("column_names") or []} for t in tables],
+                gen_tools={
+                    g["name"]: _GenTool(g["name"], g["description"], g["input_schema"], g["sql_template"])
+                    for g in gen_tools
+                },
             )
         return SessionPool(session_id, servers, time.monotonic())
 
@@ -251,15 +292,15 @@ async def _verify_server(server: FastMCP) -> None:
         raise RuntimeError(f"MCP server is missing the '{_GENERIC_TOOL}' tool (has: {sorted(names)})")
 
 
-def _load_servers(session_id: str) -> list[tuple[dict, list[dict]]]:
-    """Load a session's MCP servers + their physical tables as serialisable ``(server, tables)`` dicts."""
+def _load_servers(session_id: str) -> list[tuple[dict, list[dict], list[dict]]]:
+    """Load a session's MCP servers + physical tables + active generated tools as plain dicts."""
     with create_db_session() as db:
         links = (
             db.query(SessionMcpServerRow)
             .filter(SessionMcpServerRow.session_id == session_id)
             .all()
         )
-        loaded: list[tuple[dict, list[dict]]] = []
+        loaded: list[tuple[dict, list[dict], list[dict]]] = []
         for link in links:
             srv = db.get(McpServerRow, link.mcp_server_id)
             if srv is None:
@@ -267,8 +308,23 @@ def _load_servers(session_id: str) -> list[tuple[dict, list[dict]]]:
             tables = srv.physical_tables
             if not tables:
                 continue
-            loaded.append((_serialize_server(srv), tables))
+            loaded.append((_serialize_server(srv), tables, _load_gen_tools(db, srv.id)))
         return loaded
+
+
+def _load_gen_tools(db, server_id: str) -> list[dict]:
+    """Active generated GET-API tools for a server, projected to plain dicts (no detached ORM rows)."""
+    rows = (
+        db.query(McpToolRow)
+        .filter(McpToolRow.server_id == server_id, McpToolRow.deleted_at.is_(None))
+        .order_by(McpToolRow.created_at, McpToolRow.id)
+        .all()
+    )
+    return [
+        {"name": r.name, "description": r.description or "",
+         "input_schema": r.input_schema, "sql_template": r.sql_template}
+        for r in rows
+    ]
 
 
 def _serialize_server(srv: McpServerRow) -> dict:

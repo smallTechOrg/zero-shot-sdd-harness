@@ -237,7 +237,7 @@ class QueryRecordRow(Base):
 
     @property
     def query_history(self) -> list[dict]:
-        """Decode the single-level tool-call trace: [{tool, arguments, result, is_error}]."""
+        """Decode the tool-call trace: [{tool, arguments, result, is_error, capability?}]."""
         return _loads(self.query_history_json, [])
 
 

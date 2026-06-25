@@ -155,6 +155,68 @@ def test_add_csv_adds_table(client):
     assert n_after == n_before + 1
 
 
+def _rpc(client, server_id, method, params=None, rpc_id=1):
+    body = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
+    if params is not None:
+        body["params"] = params
+    return client.post(f"/mcpserver/{server_id}", json=body).json()
+
+
+_GOOD_TOOL = {"name": "recent_orders", "description": "Recent orders",
+              "sql_template": "SELECT * FROM orders LIMIT 3",
+              "input_schema": {"type": "object", "properties": {}}}
+
+
+def test_tools_add_succeeds_and_cascades_prompts(client):
+    _create(client, "MutDB")
+    server_id, v_before, _ = _only_server()
+    res = _rpc(client, server_id, "tools/add", {"definition": _GOOD_TOOL})["result"]
+    assert res["ok"] is True and res["applied"]["key"] == "recent_orders"
+    _, v_after, _ = _only_server()
+    assert v_after == v_before + 1
+    tools = _rpc(client, server_id, "tools/list")["result"]["tools"]
+    assert any(t["name"] == "recent_orders" for t in tools)
+    prompts = _rpc(client, server_id, "prompts/list")["result"]["prompts"]
+    assert any(p["name"] == "explore_recent_orders" for p in prompts)   # additive cascade
+
+
+def test_tools_add_duplicate_is_invalid_params(client):
+    _create(client, "DupTool")
+    server_id, _, _ = _only_server()
+    _rpc(client, server_id, "tools/add", {"definition": _GOOD_TOOL})
+    dup = _rpc(client, server_id, "tools/add", {"definition": _GOOD_TOOL})
+    assert dup["error"]["code"] == -32602
+
+
+def test_tools_add_bad_sql_is_invalid_params_and_not_persisted(client):
+    _create(client, "BadSql")
+    server_id, _, n0 = _only_server()
+    before = len(_rpc(client, server_id, "tools/list")["result"]["tools"])
+    bad = {"definition": {"name": "evil", "sql_template": "DELETE FROM orders",
+                          "input_schema": {"type": "object", "properties": {}}}}
+    resp = _rpc(client, server_id, "tools/add", bad)
+    assert resp["error"]["code"] == -32602
+    after = len(_rpc(client, server_id, "tools/list")["result"]["tools"])
+    assert after == before                                              # nothing persisted
+
+
+def test_prompts_add_succeeds(client):
+    _create(client, "PromptDB")
+    server_id, _, _ = _only_server()
+    res = _rpc(client, server_id, "prompts/add",
+               {"definition": {"name": "my_prompt", "description": "mine"}})["result"]
+    assert res["ok"] is True
+    prompts = _rpc(client, server_id, "prompts/list")["result"]["prompts"]
+    assert any(p["name"] == "my_prompt" for p in prompts)
+
+
+def test_unknown_mutation_method_is_method_not_found(client):
+    _create(client, "NoDelete")
+    server_id, _, _ = _only_server()
+    resp = _rpc(client, server_id, "tools/delete", {"definition": {"name": "x"}})
+    assert resp["error"]["code"] == -32601                             # not implemented → -32601
+
+
 def test_delete_removes_dir_and_rows(client):
     _create(client, "ToDelete")
     server_id, _, _ = _only_server()

@@ -8,7 +8,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from data_analysis_agent.db.models import Base, McpPromptRow, McpResourceRow, McpServerRow, McpToolRow
-from data_analysis_agent.tools.sync import apply_sync_result, run_sync
+from data_analysis_agent.tools.sync import (
+    ValidationError,
+    add_prompt,
+    add_resource,
+    add_tool,
+    apply_sync_result,
+    run_sync,
+    update_tool,
+)
 
 
 @pytest.fixture
@@ -75,6 +83,108 @@ def test_resync_soft_deletes_dropped_tool(db, tmp_path):
     refreshed = db.get(McpToolRow, orphan.id)
     assert refreshed.deleted_at is not None        # soft-deleted (never hard-deleted)
     assert db.get(McpToolRow, orphan.id) is not None  # row still exists
+
+
+def _synced(db, tmp_path):
+    srv = _server(db, tmp_path)
+    apply_sync_result(db, srv, run_sync(db, srv))
+    db.commit()
+    return srv
+
+
+def _tombstoned(db, model, server_id):
+    return db.query(model).filter(model.server_id == server_id, model.deleted_at.isnot(None)).count()
+
+
+_OK_TOOL = {"name": "top_orders", "description": "top",
+            "sql_template": "SELECT * FROM orders LIMIT 5",
+            "input_schema": {"type": "object", "properties": {}}}
+
+
+def test_add_tool_cascades_prompts_additively(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    v0 = srv.version
+    add_tool(db, srv, _OK_TOOL)
+    db.commit()
+    assert srv.version == v0 + 1
+    tools = {t.name for t in _active(db, McpToolRow, srv.id)}
+    assert "top_orders" in tools and "list_orders" in tools          # additive: old tool kept
+    prompts = {p.name for p in _active(db, McpPromptRow, srv.id)}
+    assert "explore_top_orders" in prompts                            # cascaded prompt for the new tool
+    assert _tombstoned(db, McpToolRow, srv.id) == 0                   # cascade never soft-deletes
+    assert _tombstoned(db, McpPromptRow, srv.id) == 0
+
+
+def test_add_tool_single_version_bump(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    v0 = srv.version
+    add_tool(db, srv, _OK_TOOL)
+    db.commit()
+    assert srv.version == v0 + 1
+    tool = next(t for t in _active(db, McpToolRow, srv.id) if t.name == "top_orders")
+    prompt = next(p for p in _active(db, McpPromptRow, srv.id) if p.name == "explore_top_orders")
+    assert tool.created_version == srv.version == prompt.created_version  # one version across add+cascade
+
+
+def test_add_tool_rejects_active_duplicate(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    add_tool(db, srv, _OK_TOOL)
+    db.commit()
+    with pytest.raises(ValidationError):
+        add_tool(db, srv, _OK_TOOL)        # duplicate active name
+    db.rollback()
+
+
+def test_update_tool_requires_existing(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    with pytest.raises(ValidationError):
+        update_tool(db, srv, {"name": "does_not_exist", "sql_template": "SELECT 1"})
+    db.rollback()
+
+
+def test_add_tool_rejects_bad_sql(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    for bad in (
+        {"name": "a", "sql_template": "DELETE FROM orders"},                    # non-SELECT
+        {"name": "b", "sql_template": "SELECT 1; DROP TABLE orders"},           # multi-statement
+        {"name": "c", "sql_template": "SELECT * FROM orders WHERE id > $x"},    # undeclared $param
+    ):
+        with pytest.raises(ValidationError):
+            add_tool(db, srv, bad)
+        db.rollback()
+
+
+def test_add_prompt_has_no_cascade(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    tools_before = {t.name for t in _active(db, McpToolRow, srv.id)}
+    add_prompt(db, srv, {"name": "my_custom", "description": "mine"})
+    db.commit()
+    assert "my_custom" in {p.name for p in _active(db, McpPromptRow, srv.id)}
+    assert {t.name for t in _active(db, McpToolRow, srv.id)} == tools_before  # tools untouched
+
+
+def test_cascade_preserves_manually_added_prompt(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    add_prompt(db, srv, {"name": "my_custom", "description": "mine"})
+    db.commit()
+    add_tool(db, srv, _OK_TOOL)            # cascades prompts (additively)
+    db.commit()
+    prompts = {p.name for p in _active(db, McpPromptRow, srv.id)}
+    assert "my_custom" in prompts          # additive cascade must NOT soft-delete a manual prompt
+    assert "explore_top_orders" in prompts
+
+
+def test_add_resource_bumps_version_and_keeps_siblings(db, tmp_path):
+    srv = _synced(db, tmp_path)
+    v0 = srv.version
+    tools_before = {t.name for t in _active(db, McpToolRow, srv.id)}
+    add_resource(db, srv, {"uri": "entity://sales/foo", "name": "foo", "kind": "primary_entity"})
+    db.commit()
+    assert srv.version == v0 + 1
+    assert "entity://sales/foo" in {r.uri for r in _active(db, McpResourceRow, srv.id)}
+    # a pure entity (no physical table) adds no tool, and the cascade never drops existing tools
+    assert {t.name for t in _active(db, McpToolRow, srv.id)} == tools_before
+    assert _tombstoned(db, McpToolRow, srv.id) == 0
 
 
 def test_stub_handles_all_node_tags():

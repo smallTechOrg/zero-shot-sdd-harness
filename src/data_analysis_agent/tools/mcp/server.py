@@ -59,6 +59,18 @@ def _run_select(conn: duckdb.DuckDBPyConnection, query: str, max_rows: int) -> s
     return _to_csv(cursor, max_rows)
 
 
+def bind_params(input_schema: dict | None, arguments: dict) -> dict | None:
+    """Filter call arguments to a tool's declared params (named ``$param`` in its SQL).
+
+    Returns ``None`` when the tool declares no params (so ``execute`` runs without binding). Shared by
+    the JSON-RPC dispatcher and the agent pool so both bind identically.
+    """
+    props = (input_schema or {}).get("properties") or {}
+    if not props:
+        return None
+    return {k: arguments.get(k) for k in props}
+
+
 def _run_select_params(
     conn: duckdb.DuckDBPyConnection, query: str, params: dict | list | None, max_rows: int
 ) -> str:

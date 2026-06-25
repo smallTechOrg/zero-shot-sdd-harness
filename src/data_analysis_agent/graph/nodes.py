@@ -65,10 +65,11 @@ async def execute_action(state: AgentState) -> AgentState:
         if call is None:
             log.warning("execute_action.bad_json", run_id=run_id, error=str(parse_error))
             return loop_back(state, invalid_call_entry(parse_error), max_iterations)
+        capability = call.get("capability")
         result_text, is_error = await get_manager().call_tool(
-            session_id, call["tool"], call["arguments"]
+            session_id, call["tool"], call["arguments"], capability
         )
-        entry = observation(call["tool"], call["arguments"], result_text, is_error)
+        entry = observation(call["tool"], call["arguments"], result_text, is_error, capability)
         return loop_back(state, entry, max_iterations)
     except Exception as exc:
         log.error("execute_action.failed", run_id=run_id, error=str(exc))

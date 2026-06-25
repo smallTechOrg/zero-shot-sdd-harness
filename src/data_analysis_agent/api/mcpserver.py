@@ -21,11 +21,11 @@ from data_analysis_agent.db.models import (
     McpToolRow,
     SessionMcpServerRow,
 )
-from data_analysis_agent.db.session import get_session
+from data_analysis_agent.db.session import create_db_session, get_session
 from data_analysis_agent.tools.connectors.base import DatasetConnectionError, get_connector
 from data_analysis_agent.tools.connectors.uri import DatasetURI
 from data_analysis_agent.tools.ingester import FileIngester
-from data_analysis_agent.tools.mcp.dispatch import handle_jsonrpc
+from data_analysis_agent.tools.mcp.dispatch import MUTATION_METHODS, handle_jsonrpc
 from data_analysis_agent.tools.mcp.pool import get_manager
 from data_analysis_agent.tools.sync import apply_sync_result, run_sync
 from data_analysis_agent.tools.table_naming import sql_table_name
@@ -171,14 +171,20 @@ def add_csv(
 # --- MCP JSON-RPC dispatch --------------------------------------------------
 
 @router.post("/mcpserver/{server_id}")
-def mcp_dispatch(
-    server_id: str,
-    payload: Annotated[dict, Body(...)],
-    session: Session = Depends(get_session),
-):
-    """Single MCP JSON-RPC 2.0 endpoint over the server's stored tools/resources/prompts."""
-    server = get_mcp_server_or_404(session, server_id)
-    return JSONResponse(handle_jsonrpc(session, server, payload))
+def mcp_dispatch(server_id: str, payload: Annotated[dict, Body(...)]):
+    """Single MCP JSON-RPC 2.0 endpoint over the server's stored tools/resources/prompts.
+
+    Manages its own session so a failed mutation persists nothing (handlers roll back) and a successful
+    mutation refreshes the agent's pools **after** the commit (avoids holding the txn while taking the
+    per-session lock).
+    """
+    method = payload.get("method", "") if isinstance(payload, dict) else ""
+    with create_db_session() as session:
+        server = get_mcp_server_or_404(session, server_id)
+        response = handle_jsonrpc(session, server, payload)
+    if method in MUTATION_METHODS and isinstance(response, dict) and "error" not in response:
+        get_manager().close_sessions_for_server(server_id)
+    return JSONResponse(response)
 
 
 # --- Detail + delete --------------------------------------------------------

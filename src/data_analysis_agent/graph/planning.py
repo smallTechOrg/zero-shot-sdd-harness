@@ -66,8 +66,9 @@ def _tools_lines(servers: list[dict]) -> list[str]:
     if not servers:
         return []
     lines = [
-        "Available tools. Each tool is an MCP server backed by a dataset; pick one and write SQL.",
-        "A query may JOIN any of that server's tables (they share one connection).",
+        "Available tools. Each tool is an MCP server backed by a dataset. You may run free SQL over its",
+        "tables, OR call one of its pre-built tools by name when one matches. Prefer a pre-built tool when",
+        "it fits; otherwise write SQL. A query may JOIN any of that server's tables (one connection).",
         "",
     ]
     for srv in servers:
@@ -80,6 +81,12 @@ def _tools_lines(servers: list[dict]) -> list[str]:
             for t in tables:
                 cols = ", ".join(t.get("columns") or [])
                 lines.append(f"    {t['table']}({cols})")
+        caps = srv.get("capabilities", [])
+        if caps:
+            lines.append("  Pre-built tools (call by 'capability'):")
+            for c in caps:
+                params = ", ".join(c.get("params") or []) or "no params"
+                lines.append(f"    - {c['name']}({params}): {c.get('description', '')}")
         lines.append("")
     return lines
 
@@ -90,7 +97,8 @@ def _history_lines(history: list[dict]) -> list[str]:
         return []
     lines = ["", "Previous tool calls and results:"]
     for i, entry in enumerate(history, 1):
-        lines.append(f'[{i}] tool: {entry["tool"]}')
+        cap = entry.get("capability")
+        lines.append(f'[{i}] tool: {entry["tool"]}' + (f' capability: {cap}' if cap else ""))
         lines.append(f'    arguments: {json.dumps(entry["arguments"])}')
         if entry.get("is_error"):
             lines.append(f'    result: Error: {entry["result"]}')
@@ -107,10 +115,12 @@ def _response_format_lines() -> list[str]:
         "Decide your next step. Respond with EXACTLY ONE of the following, and nothing else",
         "(no explanations, no markdown, no backticks):",
         "",
-        "1. A JSON tool call to gather more data:",
+        "1. Free SQL over a server's tables:",
         '   {"tool": "<server>", "arguments": {"query": "SELECT ..."}}',
-        "   ('tool' is one of the server names listed above.)",
         "",
-        "2. The final answer, when you have enough information:",
+        "2. A pre-built tool, when one matches (pass its params in arguments):",
+        '   {"tool": "<server>", "capability": "<tool name>", "arguments": {"<param>": <value>}}',
+        "",
+        "3. The final answer, when you have enough information:",
         "   FINAL ANSWER: <your complete answer here>",
     ]

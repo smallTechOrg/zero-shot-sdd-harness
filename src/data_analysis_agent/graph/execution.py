@@ -20,27 +20,31 @@ def strip_json_fences(text: str) -> str:
 
 
 def parse_tool_call(raw: str) -> tuple[dict | None, Exception | None]:
-    """Parse a raw LLM reply into a single-level ``{tool, arguments}`` dict.
+    """Parse a raw LLM reply into a ``{tool, arguments}`` dict (with optional ``capability``).
 
     Args:
         raw: The fence-stripped LLM response expected to be a JSON tool call.
 
     Returns:
         ``(call, None)`` on success, or ``(None, exc)`` if it is not a valid call (missing ``tool``).
+        A truthy ``capability`` selects a generated GET-API tool; absent ⇒ free SQL.
     """
     try:
         call = json.loads(raw)
-        return {
-            "tool": call["tool"],
-            "arguments": call.get("arguments", {}),
-        }, None
+        parsed = {"tool": call["tool"], "arguments": call.get("arguments", {})}
+        if call.get("capability"):
+            parsed["capability"] = call["capability"]
+        return parsed, None
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return None, exc
 
 
-def observation(tool: str, arguments: dict, result: str, is_error: bool) -> dict:
-    """Construct a single ``action_history`` entry."""
-    return {"tool": tool, "arguments": arguments, "result": result, "is_error": is_error}
+def observation(tool: str, arguments: dict, result: str, is_error: bool, capability: str | None = None) -> dict:
+    """Construct a single ``action_history`` entry (``capability`` only on generated-tool calls)."""
+    entry = {"tool": tool, "arguments": arguments, "result": result, "is_error": is_error}
+    if capability:
+        entry["capability"] = capability
+    return entry
 
 
 def invalid_call_entry(exc: Exception | None) -> dict:

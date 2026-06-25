@@ -105,6 +105,24 @@ resource needs explicit confirmation).
   `alembic upgrade head` → `alembic current` = `835cdb8ae996 (head)` on SQLite. Ops files
   (`.env.example`/`Dockerfile`/`render.yaml`) already SQLite + `DATASETS_DIR` — no change needed.
 
+- [x] Phase B (granular mutations + hybrid agent) — design panel (3 agents) → spec → impl → live smoke:
+  - **Mutation methods** on `POST /mcpserver/{id}`: `tools|prompts|resources add/update`. Client passes a
+    stage-shaped `definition`; `pipeline.apply_partial` applies it + an **ADDITIVE** downstream cascade
+    (resource→tools→prompts; tool→prompts; prompt→none) — insert/update only, **never** soft-deletes a
+    sibling (the two-tier semantic vs the full `/sync` which prunes). One transaction, **one version
+    bump**. `add` rejects an active key / `update` requires one (`-32602`); `tools/add|update` guard the
+    `sql_template` at write time (SELECT-only + compile-check + `$param`↔schema), reject → `-32602`,
+    persist nothing; success → post-commit `close_sessions_for_server`. Unknown method → `-32601`.
+  - **Hybrid agent:** pool loads active generated tools; `snapshot` advertises them; addressing stays
+    single-level with an **optional `capability`** (absent ⇒ free SQL — golden path unchanged; present ⇒
+    run that tool's SQL with bound params via `_run_select_params` on the shared conn, same read-only
+    guard). `bind_params` factored into `server.py` (shared by pool + dispatch). Stub unchanged.
+  - Tests: +24 (pool hybrid routing, partial-sync additive cascade / single-bump / dup / bad-sql,
+    execution parse, JSON-RPC mutation integration). **`uv run pytest` = 78 passed, 1 skipped.**
+  - Live: `tools/add` → version bump + additive cascade (tools kept, prompt added) + `tools/call` returns
+    rows; write-time compile-check rejected a bad table ref (`-32602`); dup/bad-sql `-32602`, `tools/delete`
+    `-32601`; agent still answers after a mutation invalidates pools; 0 tracebacks.
+
 ## Session End State
 
 - Branch `feature/data-analysis-agent-v0.1` (PR #57). Phase 0 (spec) + Phase A (full clean-rebuild
