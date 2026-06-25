@@ -48,6 +48,10 @@ services:
       - key: DATAANALYSIS_UPLOAD_DIR
         value: /data/uploads
 
+      # Internal parquet datasets (one subdir per dataset) — must be on the persistent disk
+      - key: DATAANALYSIS_DATASETS_DIR
+        value: /data/datasets
+
       # ── Logging ────────────────────────────────────────────────────────
       - key: DATAANALYSIS_LOG_FILE
         value: /data/logs/app.log

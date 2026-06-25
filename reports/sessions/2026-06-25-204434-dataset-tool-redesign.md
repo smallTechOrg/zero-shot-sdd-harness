@@ -51,10 +51,12 @@ Verified env facts: DuckDB postgres_scanner installed + loads offline; psycopg2-
 |------|-------------|--------------|
 | ~20:3x | "Tool = dataset (dir of parquet OR external DB by URI); name on upload; add more CSVs; sync over all tables; connection-check on create; UI for types; tool name=dataset, one capability per table." | Ran design workflow, planned 6 phases, started Phase 0. |
 
-## Next steps
-
-Phases 0→6 per the plan; commit+push each; live smoke (named dataset + add CSV + JOIN + memory) at the end.
+- [x] README + ops: README (features/structure/stack) for datasets; `.env.example`/`Dockerfile`/`render.yaml` add `DATAANALYSIS_DATASETS_DIR` (on the persistent `/data` disk) + `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS`.
 
 ## Session End State
 
-- (to be filled at close)
+- Branch: feature/data-analysis-agent-v0.1 (PR #57 → main). All 6 phases + spec + README/ops committed and pushed; each phase green at its gate.
+- A **tool is now a named, URI-addressed Dataset** (internal `parquet:///{name}` = a directory of Parquet files, one CSV→one table; external `postgresql://…` BETA, flag-gated). Tool canonical name = dataset name; one capability per table; two-level addressing `{"tool","capability","arguments"}`; within-dataset JOINs. Upload names the dataset; add-csv appends tables; sync re-describes over all tables; connection-checked before commit; delete removes the whole dataset dir.
+- New: `tools/connectors/{uri,base,parquet,postgres}.py`; `DatasetTableRow`; Alembic `c3d4e5f6a7b8`; settings `datasets_dir` + `enable_external_datasets`. AI-agent core (LLM module, ReAct loop, per-session SqliteSaver memory, SessionPoolManager) unchanged.
+- Tests: `uv run pytest` = **49 passed, 1 skipped** (live Postgres, BETA). Migration round-trips; live smoke (named dataset + add-CSV → 2 tables + session + memory) passed.
+- Out of scope (unchanged): Gemini-vs-OpenRouter drift; vestigial `dataset.html`/`answer.html`/`history.html` templates; MySQL/DocumentDB deferred (Mongo is non-SQL, not a drop-in); credentials stored plaintext for v0.1 BETA (never logged/displayed).

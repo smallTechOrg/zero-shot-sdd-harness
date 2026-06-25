@@ -25,6 +25,7 @@ RUN uv sync --frozen --no-dev
 # Runtime defaults — override these with Render env vars or docker run -e
 ENV DATAANALYSIS_DATABASE_URL=sqlite:////data/app.db
 ENV DATAANALYSIS_CHECKPOINT_DB=/data/checkpoints.db
+ENV DATAANALYSIS_DATASETS_DIR=/data/datasets
 ENV DATAANALYSIS_UPLOAD_DIR=/data/uploads
 ENV DATAANALYSIS_LOG_FILE=/data/logs/app.log
 ENV DATAANALYSIS_LOG_LEVEL=INFO
