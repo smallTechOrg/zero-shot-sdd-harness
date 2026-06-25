@@ -44,6 +44,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "external_db: live external-database tests (skipped unless DATAANALYSIS_TEST_PG_URI is set)",
+]
 
 [dependency-groups]
 dev = [
