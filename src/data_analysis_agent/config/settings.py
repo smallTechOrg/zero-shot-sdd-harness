@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     max_session_pools: int = Field(default=8)
     session_pool_idle_seconds: int = Field(default=1800)
     checkpoint_db: str = Field(default="checkpoints.db")  # separate from the metadata DB; *.db is gitignored
+    datasets_dir: str = Field(default="uploads/datasets")  # internal parquet datasets: {datasets_dir}/{dataset_id}/{table}.parquet
+    enable_external_datasets: bool = Field(default=False)  # gates external DB datasets (Postgres BETA)
 
     @property
     def resolved_llm_provider(self) -> str:

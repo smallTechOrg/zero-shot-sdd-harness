@@ -38,7 +38,7 @@ Verified env facts: DuckDB postgres_scanner installed + loads offline; psycopg2-
 
 - [x] Ran design workflow; approved 6-phase plan; opened this report
 - [x] Phase 0: spec rewrite (13 files via a parallel workflow against a shared contract; consistency-checked: two-level `{tool,capability,arguments}` format, `parquet:///` URI, `dataset_tables`/`DatasetTableRow`, add-csv, connection_check, datasets_dir + external flag all present; polished a few "data source"→"dataset" spots)
-- [ ] Phase 1: data model + migration
+- [x] Phase 1: `DataSourceRow` += uri/last_synced_at/connection_error + `dataset_uri` derive; new `DatasetTableRow` child (UNIQUE(dataset_id,table_name), JSON accessors); settings datasets_dir + enable_external_datasets; Alembic `c3d4e5f6a7b8` (down_revision b8e1f0a2c3d4) with Python backfill (one child/legacy row, parquet_path preserved, uri+type set). Gate: migration round-trips; model + backfill tests; **39 passed** (old pipeline still green via deprecated cols).
 - [ ] Phase 2: connector seam
 - [ ] Phase 3: pool + addressing cutover
 - [ ] Phase 4: API
