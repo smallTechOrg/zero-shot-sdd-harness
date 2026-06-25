@@ -1,34 +1,117 @@
 # Data Model
 
-> Fill in this section — see comments below.
-
 ---
 
 ## Storage Technology
 
-<!-- FILL IN: What database/storage does this project use and why? -->
+SQLite via SQLAlchemy 2.0 declarative ORM (`DeclarativeBase`, `Mapped` columns), schema managed by Alembic. SQLite is the **production** database for this single-user local app. The four new models EXTEND the existing `Base` in `src/db/models.py` (alongside the boilerplate `RunRow`, which stays). `init_db()` builds all of `Base.metadata`, and the conftest `_isolated_db` fixture builds the same metadata into a temp SQLite copy — so the new models flow into tests automatically. UUID string PKs via the existing `_uuid()` helper; timestamps via `_now()` with `TIMESTAMP(timezone=True)`. JSON columns use SQLAlchemy `JSON`. Uploaded files live on disk at `uploads/{dataset_id}.csv` (+ `.parquet`), not in the DB.
+
+> The 4 tables below are the source DATA MODEL verbatim. Relationships are **enforced in code, no FK constraints** (no `ForeignKey` in the migration), matching the skeleton's constraint-light style.
 
 ## Entities
 
-<!-- FILL IN: One section per major entity. -->
+### Entity: `datasets` (`DatasetRow`)
 
-### Entity: <!-- Name -->
-
-<!-- FILL IN: What does this entity represent? -->
+A registered data file (uploaded or derived) the agent can query.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| id | <!-- type --> | yes | Primary key |
-| <!-- field --> | <!-- type --> | <!-- yes/no --> | <!-- description --> |
+| id | Text (uuid) | yes | Primary key (`_uuid`) |
+| filename | Text | yes | Original/display filename |
+| file_path | Text | yes | On-disk CSV path (`uploads/{id}.csv`) |
+| row_count | Integer | yes | Number of rows |
+| col_count | Integer | yes | Number of columns |
+| columns_json | JSON | yes | Column names + inferred dtypes |
+| content_hash | Text | yes | sha256 of file bytes (duplicate detection, C10) |
+| format | Text | yes | `csv` \| `tsv` \| `txt` \| `json` \| `excel` |
+| context | Text | no | User/auto notes, ≤ 4000 chars (C12) |
+| origin | Text | yes | `uploaded` \| `derived` |
+| derived_from_run_id | Text | no | The `query_runs.id` that produced this derived dataset |
+| derived_from_dataset_ids | JSON | no | Parent dataset IDs (lineage, C25) |
+| derivation_code | Text | no | The pandas code that produced it (re-derive, C25) |
+| parquet_path | Text | no | On-disk Parquet path (`uploads/{id}.parquet`) |
+| auto_notes_status | Text | no | `pending` \| `done` \| `failed` \| null (C30) |
+| context_facts | JSON | no | Compressed ≤20 facts (C31) |
+| created_at | TIMESTAMP(tz) | yes | `_now` default |
+| updated_at | TIMESTAMP(tz) | yes | `_now` default + onupdate |
+
+### Entity: `query_runs` (`QueryRunRow`)
+
+One analysis run (one question → one answer), with its full step history.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| id | Text (uuid) | yes | Primary key |
+| dataset_id | Text | no | Primary dataset (back-compat single ref) |
+| session_id | Text | no | Owning conversation session (nullable for single-turn) |
+| question | Text | yes | The user's question |
+| answer | Text | no | Final Markdown answer |
+| status | Text | yes | `pending` \| `running` \| `completed` \| `failed` \| `clarification` |
+| error_message | Text | no | Failure reason, or `max_iterations` / `consecutive_errors` (informational on completed force-finalize) |
+| action_history | JSON | no | `[{action, result, is_error}]` (C23 steps) |
+| iteration_count | Integer | yes | Steps taken (live-polled, C22) |
+| tokens_input | Integer | yes | Accumulated prompt tokens (C7) |
+| tokens_output | Integer | yes | Accumulated completion tokens (C7) |
+| prompt_breakdown | JSON | no | C29 per-component token estimate |
+| dataset_ids_json | JSON | no | All datasets loaded for this run (C14) |
+| selector_reasoning | Text | no | C19 selector rationale |
+| created_at | TIMESTAMP(tz) | yes | `_now` default |
+| updated_at | TIMESTAMP(tz) | yes | `_now` default + onupdate |
+
+### Entity: `conversation_sessions` (`ConversationSessionRow`)
+
+A named multi-turn conversation scoped to a set of datasets.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| id | Text (uuid) | yes | Primary key |
+| dataset_id | Text | no | Primary dataset (back-compat single ref) |
+| dataset_ids_json | JSON | no | Datasets the session is scoped to (C14) |
+| name | Text | no | Display name (rename via PATCH) |
+| created_at | TIMESTAMP(tz) | yes | `_now` default |
+| updated_at | TIMESTAMP(tz) | yes | `_now` default + onupdate (most-recently-updated ordering) |
+
+### Entity: `settings` (`SettingRow`)
+
+Key/value app settings and persistent memory.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| key | Text | yes | Primary key |
+| value | Text | no | Stored value (text or JSON-as-text) |
+| updated_at | TIMESTAMP(tz) | yes | `_now` default + onupdate |
+
+**Reserved keys:** `global_memory` (authoritative memory text, injected into every `plan_action` prompt), `global_memory_facts` (C31 compressed facts JSON), `llm_model`, `max_iterations`.
 
 ### Relationships
 
-<!-- FILL IN: How do entities relate to each other? -->
+Enforced in code only (no FK constraints):
+
+- `query_runs.dataset_id` → `datasets.id`
+- `query_runs.session_id` → `conversation_sessions.id`
+- `conversation_sessions.dataset_id` → `datasets.id`
+- `datasets.derived_from_run_id` → `query_runs.id`; `datasets.derived_from_dataset_ids[]` → `datasets.id` (lineage)
+
+**Cascade delete (C15):** deleting a dataset cascades to its sessions, runs, and on-disk files (CSV + Parquet) **and recursively deletes derived datasets whose `derived_from_dataset_ids` include it** (and their children, transitively). `DELETE /datasets` deletes all with the same cascade.
+
+## dtype-alias table (for `columns_schema` in `GET /datasets/{id}`)
+
+| pandas dtype | alias |
+|--------------|-------|
+| object / string | text |
+| int* | integer |
+| float* | float |
+| datetime* | datetime |
+| bool | boolean |
+| timedelta | duration |
+| category | category |
 
 ## Data Lifecycle
 
-<!-- FILL IN: When is data created, updated, and deleted? Is anything time-boxed or archived? -->
+- **Created:** a `datasets` row on upload (origin=uploaded) or on `save_dataset` (origin=derived). A `query_runs` row per `/ask` (or a thin row for a clarification). A `conversation_sessions` row when a session is started. `settings` rows on first write of a key.
+- **Updated:** `datasets.context`/`context_facts`/`auto_notes_status` via describe/compress/PATCH; counts on clean/apply and re-derive; `query_runs.iteration_count` per step (live); `updated_at` on touch.
+- **Deleted:** only on explicit user action (DELETE dataset/session/all). **No TTL / no auto-expiry** — datasets persist indefinitely.
 
 ## Sensitive Data
 
-<!-- FILL IN: What fields contain PII or secrets? How are they protected? -->
+No auth, no PII handling by design — single local user. Uploaded data may contain anything the user uploads; it stays on local disk and SQLite and is sent to the configured LLM provider (Gemini/OpenRouter) only as needed for analysis (or never, in stub mode). API keys live in `.env` (git-ignored), never in the DB or logs. The `settings` table stores app config + user memory text, not secrets.
