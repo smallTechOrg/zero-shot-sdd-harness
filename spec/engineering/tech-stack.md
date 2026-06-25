@@ -16,13 +16,15 @@
 
 **Model Context Protocol (MCP)** via the **official `mcp` SDK, pinned `==1.28.0`**
 
-**Why:** The agent's tools are formalized as MCP. Each **dataset** is wrapped by an in-process `FastMCP` server exposing one tool per table (`query_{table}`); the agent is an MCP **client** that discovers tools with `list_tools()` and invokes them with `call_tool()`. The LLM↔agent ReAct protocol stays hand-rolled and uses a two-level call shape, `{"tool":"<dataset>","capability":"<table>","arguments":{"query":"SELECT …"}}` — MCP is only the agent↔tool transport.
+**Why:** The primary entity is an **MCP server** (1:1 with a dataset). Per the MCP 2025-06-18 spec it has three kinds of children — **tools, resources, prompts** — which are **LLM-generated** (the sync pipeline) and **stored as rows**, served over a standards-compliant **JSON-RPC endpoint** (`POST /mcpserver/{id}`) for the UI and external MCP clients. Separately, the LangGraph agent acts as an in-process MCP **client**: the per-session pool wraps each attached server in a `FastMCP` server exposing a **generic read-only `query` tool** over its tables; the agent invokes it with `call_tool()`. The LLM↔agent ReAct protocol stays hand-rolled and uses a **single-level** call shape, `{"tool":"<server>","arguments":{"query":"SELECT …"}}`. *(Phase B also surfaces the server's generated GET-API tools to the agent — hybrid.)*
 
-**Transport:** in-process / in-memory (`mcp.shared.memory.create_connected_server_and_client_session`). No subprocess, no ports. This helper is semi-public and touches a private attribute, so it is isolated to the MCP package under **`tools/mcp/`** (`server.py` builds a server, `pool.py` is the `SessionPoolManager`) — swapping to stdio / Streamable-HTTP / the v2 `mcp.client.Client` is then a localized change. The exact `==1.28.0` pin is deliberate: the SDK's v2 line renames the high-level server and removes the in-memory helper.
+**Two surfaces, kept separate:** the agent pool (`tools/mcp/pool.py` + `server.py`, generic SQL) and the public DB-backed JSON-RPC dispatcher (`tools/mcp/dispatch.py`, reads the stored capability rows). The dispatcher does **not** use FastMCP (which cannot represent custom `inputSchema`/resources/prompts).
+
+**Transport (agent pool):** in-process / in-memory (`mcp.shared.memory.create_connected_server_and_client_session`). No subprocess, no ports. This helper is semi-public and touches a private attribute, so it is isolated to the MCP package under **`tools/mcp/`** (`server.py` builds a server, `pool.py` is the `SessionPoolManager`, `dispatch.py` is the public JSON-RPC surface) — swapping to stdio / Streamable-HTTP / the v2 `mcp.client.Client` is then a localized change. The exact `==1.28.0` pin is deliberate: the SDK's v2 line renames the high-level server and removes the in-memory helper.
 
 **All MCP/tool code lives under `tools/`** (ingestion, descriptions, table-naming, MCP servers, the pool manager).
 
-**Pooling:** one MCP pool **per session** (not per query), holding one server **per attached dataset** — built lazily on first query, reused, idle/LRU-evicted, closed on session delete + shutdown (and on add-csv/sync/delete of an attached dataset). Queries on a session are serialized by a per-session lock (the DuckDB connection is not concurrency-safe); `close()` acquires that lock before teardown so a dataset change never closes a connection mid-query.
+**Pooling:** one MCP pool **per session** (not per query), holding one server **per attached MCP-server entity** — built lazily on first query, reused, idle/LRU-evicted, closed on session delete + shutdown (and on sync/delete of an attached server). Queries on a session are serialized by a per-session lock (the DuckDB connection is not concurrency-safe); `close()` acquires that lock before teardown so a server change never closes a connection mid-query.
 
 **Use the official `mcp` SDK only** — do **not** add `langchain-mcp-adapters` or any third-party MCP wrapper.
 
@@ -30,7 +32,7 @@
 
 **DuckDB** queries each dataset, read-only.
 
-**Why:** A "tool" is now a **named dataset** addressed by a URI, and each dataset is wrapped by one MCP server exposing **one capability per table**. A dataset is either an internal **directory of Parquet files** (one CSV → one Parquet → one table) or, in BETA, an external **PostgreSQL** database. One DuckDB connection backs each dataset, with one **view per table**, so any capability may `JOIN` the other tables in the **same** dataset; cross-dataset joins are not possible (separate servers) and are composed by the agent across ReAct iterations.
+**Why:** Each **MCP server** is backed 1:1 by a dataset addressed by a URI. The agent pool exposes a **generic read-only `query` tool** per server; the public JSON-RPC surface exposes the LLM-**generated** GET-API tools (canned, parameterized SELECTs). A dataset is either an internal **directory of Parquet files** (one CSV → one Parquet → one table) or, in BETA, an external **PostgreSQL** database. One DuckDB connection backs each server, with one **view per table**, so a query may `JOIN` the server's other tables; cross-server joins are not possible (separate servers) and are composed by the agent across ReAct iterations.
 
 - **Internal (parquet):** DuckDB reads the dataset's Parquet files natively via `read_parquet(...)` (no load step) and ships native `STDDEV`/`VARIANCE`, so the old pandas→in-memory-SQLite copy and the custom SQLite aggregate functions are removed.
 - **External (postgresql, BETA, flag-gated):** DuckDB's **postgres extension** (`postgres_scanner`) attaches the database with `ATTACH … (TYPE postgres, READ_ONLY)` and creates one view per introspected table. The `READ_ONLY` attach means the agent cannot mutate, but it can read **any** table the credentials can reach (not only the introspected ones) — scope the DB user accordingly. Gated by `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS` (default off).
@@ -41,9 +43,9 @@ SQLite remains the **application metadata** store (below); DuckDB is only the **
 
 **`tools/connectors/` package** abstracts dataset access behind a `DatasetConnector` Protocol.
 
-**Why:** The query path must not branch on dataset type inline. A connector exposes `connection_check()`, `discover_tables()`, and `build_server(max_rows)`; `get_connector(dataset_row, table_rows)` dispatches on `type`. `ParquetConnector` is fully implemented; `PostgresConnector` (BETA, flag-gated) is the only place psycopg2 is used. `DatasetURI` (in `uri.py`, built on `urllib.parse`) parses the URI and exposes a `display()` that **strips credentials** — every log line, stored `connection_error`, template field, and surfaced exception uses `display()` only. Shared SQL helpers (`_run_select` SELECT-only guard + row cap, `build_dataset_server`, `DEFAULT_MAX_ROWS`) stay in `tools/mcp/server.py`.
+**Why:** The query path must not branch on dataset type inline. A connector exposes `connection_check()`, `discover_tables()`, and `build_server(max_rows)`; `get_connector(server_row, tables)` dispatches on `type`. `ParquetConnector` is fully implemented; `PostgresConnector` (BETA, flag-gated) is the only place psycopg2 is used. `DatasetURI` (in `uri.py`, built on `urllib.parse`) parses the URI and exposes a `display()` that **strips credentials** — every log line, stored `connection_error`, template field, and surfaced exception uses `display()` only. Shared SQL helpers (`_run_select` SELECT-only guard + row cap, `_run_select_params` for parameter-bound canned queries, `build_server`, `DEFAULT_MAX_ROWS`) stay in `tools/mcp/server.py`. The SELECT guard rejects `;` stacking and `ATTACH`/`COPY`/`PRAGMA`/`INSTALL`/`LOAD`, and allows a leading `WITH`.
 
-**External connection-check / introspection:** **`psycopg2`** performs the real `connect` + `SELECT 1` + `information_schema` introspection for external datasets (with a hard timeout). This is independent of DuckDB's attach-based query path. Internal datasets are checked by confirming the directory and each Parquet file are readable. A broken dataset is **never persisted** — the check runs before commit on create, add-csv, and sync.
+**External connection-check / introspection:** **`psycopg2`** performs the real `connect` + `SELECT 1` + `information_schema` introspection for external datasets (with a hard timeout). This is independent of DuckDB's attach-based query path. Internal datasets are checked by confirming the directory and each Parquet file are readable. A broken server is **never persisted** — the check runs before commit on create and sync.
 
 **Deferred database types:** **MySQL** (DuckDB extension not installed here) and **DocumentDB/Mongo** (non-SQL — does not fit the table/`SELECT` model, so not a drop-in) are explicitly deferred and are **not** trivial additions.
 
@@ -138,8 +140,9 @@ SQLite driver (`sqlite3`) is part of the Python standard library — no extra pa
 
 Two settings drive the dataset layer (via `pydantic-settings`, `DATAANALYSIS_` prefix):
 
-- `DATAANALYSIS_DATASETS_DIR` — root for internal Parquet datasets; physical files live at `{datasets_dir}/{dataset_id}/{table}.parquet` (keyed by dataset_id so renames never move files). On Render this **must** point at the persistent `/data` disk, or new datasets are lost on redeploy. Lifespan ensures the directory exists.
+- `DATAANALYSIS_DATASETS_DIR` — root for internal Parquet datasets; physical files live at `{datasets_dir}/{slug(name)}/{table}.parquet` (keyed by the dataset name, which is unique). On Render this **must** point at the persistent `/data` disk, or new datasets are lost on redeploy. Lifespan ensures the directory exists.
 - `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS` — default **off**; when off, the external-dataset create path returns HTTP 501 and the UI hides the external option. External Postgres is BETA.
+- `DATAANALYSIS_MCP_LIST_PAGE_SIZE` — page size for the JSON-RPC `*/list` cursor pagination (default 50).
 
 ### Test Environment Rule
 

@@ -2,135 +2,154 @@
 
 ## API Style
 
-REST (FastAPI) + Server-rendered HTML (Jinja2). Browser UI is the primary surface.
+REST (FastAPI) + server-rendered HTML (Jinja2) for the browser UI, **plus** an MCP **JSON-RPC 2.0**
+endpoint (`POST /mcpserver/{id}`) implementing the MCP 2025-06-18 tools/resources/prompts protocol.
+
+The three primary entities each own an `api/` module: `mcpserver.py`, `sessions.py`, `queries.py`
+(`home.py` + `health.py` are support routes).
 
 ## Endpoints
 
 ### `GET /`
 
-**Purpose:** Datasets home page — lists all Datasets with their type, table count, credential-free URI, last sync, and session counts.
-
+**Purpose:** Home page — lists all MCP servers (name, title, type, table count, version, last-sync
+status, credential-free URI) and all sessions, side by side.
 **Response:** HTML
 
 ---
 
-### `POST /datasources/upload`
+### `POST /mcpserver/upload`  (auxiliary)
 
-**Purpose:** Create a Dataset. A dataset is a named, URI-addressed collection of tables; the canonical tool name is the dataset name. Two modes:
+**Purpose:** Convert a CSV to Parquet under a named dataset directory and return its data URI. Creates the
+directory if absent. **Creates no entity** — it is the file-staging step the UI calls before
+`POST /mcpserver` (new dataset) or, in Phase B, `resources/add` (existing dataset).
 
-- **Internal (parquet, default):** accept a CSV `file`, convert it to a Parquet file under the dataset directory, and create a `DataSource` (Dataset) row plus its first `DatasetTableRow` (one CSV → one Parquet → one table) with LLM-generated `tool_description` and a per-table `capability_description`.
-- **External (database, BETA):** accept a `dataset_uri` (e.g. `postgresql://user:pass@host:port/db`) instead of a file; introspect the database into one `DatasetTableRow` per table. Gated by `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS` (default off).
+**Request:** `multipart/form-data` — `dataset_name` (required), `file` (CSV/XLSX/JSON, required)
+**Response:** JSON `{"uri": "parquet:///{name}", "table": "<table_name>"}`
 
-No tool rows are written — the dataset's MCP server (one server per dataset, one capability per table) is materialized at query time. Creation runs `connection_check()` (parquet: directory + each Parquet readable; external: a real connect + `SELECT 1` + introspection) **before commit**; a broken dataset is never persisted.
-
-**Request:** `multipart/form-data` — fields: `dataset_name` (required), `dataset_type` (`parquet` (default) | `postgresql`), and either `file` (parquet) or `dataset_uri` (external)
-
-**Response:** Redirect to `GET /`
-
-**Error cases:**
 | Status | Condition |
 |--------|-----------|
-| 400 | Missing/duplicate `dataset_name`; no file or no `dataset_uri` for the chosen type; unsupported file type; parse/convert failed; or `connection_check()` failed (credential-free message) |
-| 501 | External `dataset_type` requested while `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS` is off |
+| 400 | Missing `dataset_name` or `file`; unsupported type; parse/convert failed |
 | 500 | Disk write failed |
 
 ---
 
-### `POST /datasources/{datasource_id}/add-csv`
+### `POST /mcpserver`
 
-**Purpose:** Append a table to an existing parquet dataset. Accept a CSV `file`, derive a table name (auto-suffix `_2`, `_3` on collision within the dataset), convert it to a Parquet file under the dataset directory, and insert a new `DatasetTableRow`. Re-generates the dataset `tool_description` and per-table `capability_description`s over **all** tables. Runs `connection_check()` before commit; closes the pools of sessions attached to this dataset so the new table becomes visible.
+**Purpose:** Create an MCP server from a dataset URI + type. Enforces **1:1 dataset↔server** (rejects a
+duplicate `uri` or `name`). Reads the dataset (parquet: the directory; external: introspection) to build
+`physical_tables_json`, runs **`connection_check()` before commit** (a broken server is never persisted),
+inserts the `McpServer` row (version 1), then runs the **sync pipeline** to generate its
+tools/resources/prompts.
 
-**Request:** `multipart/form-data` with field `file`
+- **Internal (parquet, default):** `dataset_uri = parquet:///{name}` (from a prior `/upload`). The
+  dataset directory's Parquet files become the physical tables.
+- **External (postgresql, BETA):** `dataset_uri = postgresql://…`. Gated by
+  `DATAANALYSIS_ENABLE_EXTERNAL_DATASETS` (default off → 501).
 
-**Response:** Redirect to `GET /`
+**Request:** `application/x-www-form-urlencoded` or JSON — `dataset_uri` (required), `dataset_type`
+(`parquet` (default) | `postgresql`), `name` (optional; defaults to the URI's database name)
+**Response:** Redirect to `GET /` (form) or JSON `{server}` (API)
 
-**Error cases:**
 | Status | Condition |
 |--------|-----------|
-| 404 | Dataset not found |
-| 400 | No file provided, unsupported type, parse/convert failed, not a parquet dataset, or `connection_check()` failed (credential-free message) |
-| 500 | Disk write failed |
+| 400 | Missing/duplicate `name`/`uri`; dataset dir empty/unreadable; `connection_check()` failed (credential-free message) |
+| 501 | External `dataset_type` while the flag is off |
+| 500 | Unexpected error |
 
 ---
 
-### `POST /datasources/{datasource_id}/sync`
+### `POST /mcpserver/{id}/sync`
 
-**Purpose:** Re-generate the dataset's `tool_description` and every per-table `capability_description` from the schema of **all** tables (e.g. after an upload-time LLM failure) and write them back, setting `last_synced_at`. Runs `connection_check()` before commit and closes the pools of sessions attached to this dataset.
+**Purpose:** Re-run the 5-stage LLM sync pipeline against the dataset and the **existing** capabilities,
+then **transactionally apply** the result: match→update, new→insert, missing→**soft-delete** (never hard
+delete); bump `version`; set title/description/`dataset_schema_json`/`last_synced_at`/`last_sync_status`.
+Closes the pools of sessions attached to this server. *(The user originally specified `GET`; this is a
+mutation that bumps version, so it is `POST`.)*
 
-**Response:** Redirect to `GET /`
+**Response:** Redirect to `GET /` (form) or JSON `{server, version}` (API)
 
-**Error cases:**
 | Status | Condition |
 |--------|-----------|
-| 404 | Dataset not found |
-| 400 | `connection_check()` failed — parquet file missing (re-upload required) or external connect failed (credential-free message) |
+| 404 | Server not found |
+| 400 | `connection_check()` failed (parquet file missing / external connect failed — credential-free) |
 
 ---
 
-### `GET /datasources/{datasource_id}`
+### `POST /mcpserver/{id}`  — MCP JSON-RPC 2.0 dispatch
 
-**Purpose:** Show a Dataset's detail page: metadata, type, credential-free URI, its tables/schema, and list of sessions.
+**Purpose:** The standards-compliant MCP surface over the server's stored capability rows. A single
+endpoint dispatching on `method`. Request: `{"jsonrpc":"2.0","id":…,"method":"…","params":{…}}`.
 
-**Response:** HTML
+**Read methods (Phase A):**
 
-**Error cases:**
-| Status | Condition |
-|--------|-----------|
-| 404 | Dataset not found |
+| Method | Params | Result |
+|--------|--------|--------|
+| `tools/list` | `{cursor?}` | `{tools:[{name,title?,description,inputSchema,outputSchema?,annotations?}], nextCursor?}` |
+| `tools/call` | `{name, arguments}` | `CallToolResult {content:[{type:"text",text}], structuredContent?, isError}` |
+| `resources/list` | `{cursor?}` | `{resources:[{uri,name,title?,description,mimeType}], nextCursor?}` |
+| `resources/read` | `{uri}` | `{contents:[{uri,mimeType,text}]}` |
+| `prompts/list` | `{cursor?}` | `{prompts:[{name,title?,description,arguments}], nextCursor?}` |
+| `prompts/get` | `{name, arguments?}` | `{description, messages:[…]}` |
+
+- **`tools/call`** binds `arguments` into the tool's `sql_template` via DuckDB **parameter binding** and
+  runs it through the read-only SELECT guard. Query/SQL failures → `isError:true` in the **result**
+  (not a JSON-RPC error). Unknown tool `name` → JSON-RPC error `-32602`.
+- **Pagination:** opaque keyset `cursor` (base64 of the last `(created_at, id)`); `nextCursor` is omitted
+  on the last page; a malformed/forged cursor → `-32602`. Page size = `mcp_list_page_size` (default 50).
+- **Errors:** unknown `method` → `-32601`; invalid params/cursor → `-32602`; tool-execution failures use
+  `isError:true`. Capabilities are filtered to **active** rows (`deleted_at IS NULL`).
+
+**Mutation methods (Phase B — specced in capability 4, not implemented yet):** `tools/add`,
+`tools/update`, `prompts/add`, `prompts/update`, `resources/add`, `resources/update`. Adding/updating a
+**resource** triggers a partial sync of **tools + prompts**; adding/updating a **tool** triggers a partial
+sync of **prompts**; prompt changes have no cascade. Until implemented, these return `-32601`.
 
 ---
 
-### `POST /datasources/{datasource_id}/delete`
+### `GET /mcpserver/{id}`
 
-**Purpose:** Delete the Dataset (unlinking it from sessions and deleting its child `DatasetTableRow`s) and remove the whole dataset directory on disk.
+**Purpose:** Server detail page — metadata (title, type, credential-free URI, version, last-sync status),
+the dataset's physical tables/schema, and the active tools/resources/prompts lists, with a **Sync** button.
+**Response:** HTML — 404 if not found.
 
-**Response:** Redirect to `GET /`
+---
 
-**Error cases:**
-| Status | Condition |
-|--------|-----------|
-| 404 | Dataset not found |
+### `POST /mcpserver/{id}/delete`
+
+**Purpose:** Delete the server (unlinking sessions, cascading capability rows) and remove the dataset
+directory on disk.
+**Response:** Redirect to `GET /` — 404 if not found.
 
 ---
 
 ### `POST /sessions`
 
-**Purpose:** Create a new Session spanning one or more Datasets.
-
-**Request:** `application/x-www-form-urlencoded` — fields: `name` (optional), `data_source_ids` (one or more values, at least one required)
-
+**Purpose:** Create a session over one or more MCP servers.
+**Request:** `application/x-www-form-urlencoded` — `name` (optional), `mcp_server_ids` (≥1 required)
 **Response:** Redirect to `GET /sessions/{session_id}`
 
-**Error cases:**
 | Status | Condition |
 |--------|-----------|
-| 400 | No dataset selected |
-| 404 | Any referenced Dataset not found |
+| 400 | No server selected |
+| 404 | A referenced server not found |
 
 ---
 
 ### `GET /sessions/{session_id}`
 
-**Purpose:** Show the session page: Dataset metadata, all past Q&A for this session (newest first), and the "Ask a question" form. Accepts `?new={query_record_id}` to highlight/scroll to a newly added answer.
-
-**Response:** HTML
-
-**Error cases:**
-| Status | Condition |
-|--------|-----------|
-| 404 | Session not found |
+**Purpose:** Session page — attached servers (name + table count), all past Q&A (newest first), the
+"Ask a question" form. Accepts `?new={query_record_id}` to highlight a new answer.
+**Response:** HTML — 404 if not found.
 
 ---
 
 ### `POST /sessions/{session_id}/query`
 
-**Purpose:** Submit a natural language question. Creates the QueryRecord + AgentRun and runs the LangGraph MCP pipeline on a background daemon thread (which owns its own `asyncio` loop). Redirects to `GET /sessions/{session_id}?new={query_record_id}`.
+**Purpose:** Submit an NL question. Creates the QueryRecord + AgentRun and runs the LangGraph MCP pipeline
+on a background daemon thread. Redirects to `GET /sessions/{session_id}?new={query_record_id}`.
+**Request:** `application/x-www-form-urlencoded` — `question`
 
-**Request:** `application/x-www-form-urlencoded` with field `question`
-
-**Response:** Redirect on success; renders `error.html` on pipeline failure
-
-**Error cases:**
 | Status | Condition |
 |--------|-----------|
 | 400 | Empty question |
@@ -141,25 +160,14 @@ No tool rows are written — the dataset's MCP server (one server per dataset, o
 
 ### `POST /sessions/{session_id}/delete`
 
-**Purpose:** Delete a Session and all its QueryRecords and AgentRuns.
-
-**Response:** Redirect to `GET /datasources/{datasource_id}`
-
-**Error cases:**
-| Status | Condition |
-|--------|-----------|
-| 404 | Session not found |
+**Purpose:** Close the session's pool, then delete the Session + its QueryRecords + AgentRuns.
+**Response:** Redirect to `GET /` — 404 if not found.
 
 ---
 
 ### `GET /health`
 
-**Purpose:** Health check — returns 200 with `{"status": "ok"}`.
-
-**Response:**
-```json
-{"status": "ok"}
-```
+**Purpose:** Health check — 200 `{"status": "ok"}`.
 
 ## Authentication
 
