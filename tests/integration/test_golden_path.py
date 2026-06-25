@@ -23,6 +23,7 @@ def _use_sqlite(tmp_path, monkeypatch):
     monkeypatch.setattr(session_module, "_db", db)
     monkeypatch.setattr(session_module, "init_db", lambda: None)
     monkeypatch.setenv("DATAANALYSIS_CHECKPOINT_DB", str(tmp_path / "ckpt.db"))
+    monkeypatch.setenv("DATAANALYSIS_DATASETS_DIR", str(tmp_path / "datasets"))
 
     yield
 
@@ -67,11 +68,12 @@ def test_upload_csv_returns_to_home(client):
     csv_bytes = _make_csv()
     r = client.post(
         "/datasources/upload",
+        data={"dataset_name": "Sales DB"},
         files={"file": ("sales.csv", csv_bytes, "text/csv")},
         follow_redirects=True,
     )
     assert r.status_code == 200
-    assert "sales.csv" in r.text
+    assert "Sales DB" in r.text
 
 
 def test_golden_path_end_to_end(client):
@@ -79,6 +81,7 @@ def test_golden_path_end_to_end(client):
     csv_bytes = _make_csv()
     r1 = client.post(
         "/datasources/upload",
+        data={"dataset_name": "Test DB"},
         files={"file": ("test_data.csv", csv_bytes, "text/csv")},
         follow_redirects=True,
     )

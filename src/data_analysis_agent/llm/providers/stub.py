@@ -27,14 +27,13 @@ class StubLLMProvider(LLMProvider):
 
 
 def _describe_tool_reply(prompt: str) -> str:
-    """Build a stub JSON description response for the describe_tool prompt."""
-    name_match = re.search(r"File name: (.+)", prompt)
-    table_match = re.search(r"SQL table name: (\w+)", prompt)
+    """Build a stub dataset-description response: one tool_description + a per-table capability map."""
+    name_match = re.search(r"Dataset name:\s+(.+)", prompt)
     name = name_match.group(1).strip() if name_match else "dataset"
-    table = table_match.group(1) if table_match else "data"
+    tables = re.findall(r"Table:\s+(\w+)", prompt)
     return json.dumps({
         "tool_description": f"(stub) Dataset '{name}' available for SQL analysis.",
-        "capability_description": f"(stub) Execute SQL SELECT queries against the '{table}' table.",
+        "capabilities": {t: f"(stub) Query the '{t}' table." for t in tables},
     })
 
 
