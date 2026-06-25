@@ -28,21 +28,21 @@ class DatasetConnector(Protocol):
         ...
 
     def build_server(self, max_rows: int) -> FastMCP:
-        """Build the dataset's in-process MCP server (one ``query_{table}`` capability per table)."""
+        """Build the server's in-process MCP server (one generic ``query`` tool over its tables)."""
         ...
 
 
-def get_connector(dataset: dict, tables: list[dict]) -> DatasetConnector:
-    """Return the connector for a dataset dict (``type`` + ``uri`` + ``name``) and its table dicts.
+def get_connector(server: dict, tables: list[dict]) -> DatasetConnector:
+    """Return the connector for a server dict (``type`` + ``uri`` + ``name``) and its table dicts.
 
     Raises:
         DatasetConnectionError: for an unknown type, or an external type while external datasets
             are disabled (the import of the external connector is lazy so its driver is optional).
     """
-    dtype = (dataset.get("type") or "parquet").lower()
-    if dtype in ("parquet", "csv"):  # "csv" is the legacy alias for an internal parquet dataset
+    dtype = (server.get("type") or "parquet").lower()
+    if dtype == "parquet":
         from data_analysis_agent.tools.connectors.parquet import ParquetConnector
-        return ParquetConnector(dataset, tables)
+        return ParquetConnector(server, tables)
     if dtype in ("postgresql", "postgres"):
         from data_analysis_agent.config.settings import get_settings
         if not get_settings().enable_external_datasets:
@@ -50,5 +50,5 @@ def get_connector(dataset: dict, tables: list[dict]) -> DatasetConnector:
                 "External database datasets are disabled. Set DATAANALYSIS_ENABLE_EXTERNAL_DATASETS to enable (BETA)."
             )
         from data_analysis_agent.tools.connectors.postgres import PostgresConnector
-        return PostgresConnector(dataset, tables)
+        return PostgresConnector(server, tables)
     raise DatasetConnectionError(f"Unsupported dataset type: {dtype!r}")

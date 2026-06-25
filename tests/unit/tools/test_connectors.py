@@ -1,6 +1,6 @@
-"""Unit tests for the connector seam: DatasetURI (credential-free display) and the
-ParquetConnector (connection-check + build a multi-table dataset server with within-dataset JOINs),
-exercised through the real in-memory MCP client."""
+"""Unit tests for the connector seam: DatasetURI (credential-free display) and the ParquetConnector
+(connection-check + build a server with a generic ``query`` tool and within-server JOINs), exercised
+through the real in-memory MCP client."""
 import asyncio
 
 import pandas as pd
@@ -32,51 +32,56 @@ def test_uri_external_strips_credentials():
     assert "secret" not in shown and "analyst" not in shown  # credentials never displayed
 
 
-def _two_table_dataset(tmp_path):
+def _two_table_server(tmp_path):
     (tmp_path / "d").mkdir()
     orders = tmp_path / "d" / "orders.parquet"
     customers = tmp_path / "d" / "customers.parquet"
     pd.DataFrame({"id": [1, 2, 3], "cust": [10, 10, 20], "amount": [5, 7, 3]}).to_parquet(orders)
     pd.DataFrame({"id": [10, 20], "region": ["N", "S"]}).to_parquet(customers)
-    dataset = {"name": "sales_db", "type": "parquet"}
+    server = {"name": "sales_db", "type": "parquet", "uri": "parquet:///sales_db"}
     tables = [
         {"table_name": "orders", "parquet_path": str(orders)},
         {"table_name": "customers", "parquet_path": str(customers)},
     ]
-    return dataset, tables
+    return server, tables
 
 
 def test_parquet_connection_check_ok_and_missing(tmp_path):
-    dataset, tables = _two_table_dataset(tmp_path)
-    ParquetConnector(dataset, tables).connection_check()  # no raise
+    server, tables = _two_table_server(tmp_path)
+    ParquetConnector(server, tables).connection_check()  # no raise
 
     broken = [{"table_name": "x", "parquet_path": str(tmp_path / "nope.parquet")}]
     with pytest.raises(DatasetConnectionError):
-        ParquetConnector(dataset, broken).connection_check()
+        ParquetConnector(server, broken).connection_check()
 
 
 def test_get_connector_dispatches_to_parquet(tmp_path):
-    dataset, tables = _two_table_dataset(tmp_path)
-    assert isinstance(get_connector(dataset, tables), ParquetConnector)
+    server, tables = _two_table_server(tmp_path)
+    assert isinstance(get_connector(server, tables), ParquetConnector)
 
 
-def test_parquet_build_server_one_tool_per_table_with_join(tmp_path):
-    dataset, tables = _two_table_dataset(tmp_path)
-    server = ParquetConnector(dataset, tables).build_server()
+def test_get_connector_rejects_external_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATAANALYSIS_ENABLE_EXTERNAL_DATASETS", "false")
+    with pytest.raises(DatasetConnectionError):
+        get_connector({"name": "x", "type": "postgresql", "uri": "postgresql://h/db"}, [])
+
+
+def test_parquet_build_server_generic_query_with_join(tmp_path):
+    server, tables = _two_table_server(tmp_path)
+    fast = ParquetConnector(server, tables).build_server()
 
     async def body():
-        async with create_connected_server_and_client_session(server) as s:
+        async with create_connected_server_and_client_session(fast) as s:
             listed = await s.list_tools()
             names = sorted(t.name for t in listed.tools)
-            # cross-table JOIN within the dataset (orders.cust -> customers.id)
-            res = await s.call_tool("query_orders", {
+            res = await s.call_tool("query", {
                 "query": "SELECT c.region, SUM(o.amount) AS total FROM orders o "
                          "JOIN customers c ON o.cust = c.id GROUP BY c.region ORDER BY c.region"
             })
             return names, res.content[0].text, res.isError
 
     names, text, is_error = asyncio.run(body())
-    server._duckdb_conn.close()
-    assert names == ["query_customers", "query_orders"]   # one capability per table
+    fast._duckdb_conn.close()
+    assert names == ["query"]   # one generic tool per server
     assert is_error is False
     assert text.strip() == "region,total\nN,12\nS,3"

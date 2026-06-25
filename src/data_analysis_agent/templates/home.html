@@ -23,13 +23,13 @@
 
 <div class="two-col">
 
-  <!-- ── LEFT: Datasets ──────────────────────────────── -->
+  <!-- ── LEFT: MCP servers ──────────────────────────────── -->
   <div>
-    <div class="section-header"><h2>Datasets</h2></div>
+    <div class="section-header"><h2>MCP Servers</h2></div>
 
-    <!-- Add-a-dataset form -->
+    <!-- Add-a-dataset form (uploads CSV → creates the MCP server, which auto-syncs) -->
     <div class="card card-sm" style="margin-bottom:1rem;">
-      <form method="post" action="/datasources/upload" enctype="multipart/form-data">
+      <form id="create-form" onsubmit="submitCreate(event); return false;">
         <div class="field">
           <label>Dataset name <span style="color:var(--err);">*</span></label>
           <input type="text" name="dataset_name" id="dataset-name" placeholder="e.g. Q2 Sales">
@@ -42,8 +42,6 @@
             <option value="postgresql">Connect a database (Postgres, BETA)</option>
           </select>
         </div>
-        {% else %}
-        <input type="hidden" name="dataset_type" value="parquet">
         {% endif %}
 
         <div id="csv-fields">
@@ -62,37 +60,33 @@
         {% endif %}
 
         <div id="upload-err" style="color:var(--err);font-size:.82rem;margin-bottom:.5rem;display:none;"></div>
-        <button class="btn" type="submit" onclick="return validateUpload()" style="width:100%;">Create dataset</button>
+        <button class="btn" type="submit" id="create-btn" style="width:100%;">Create MCP server</button>
       </form>
     </div>
 
-    <!-- Dataset cards -->
-    {% if datasets %}
-    {% for ds in datasets %}
+    <!-- Server cards -->
+    {% if servers %}
+    {% for s in servers %}
     <div class="card card-sm" style="margin-bottom:.75rem;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;">
         <div style="min-width:0;">
           <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem;flex-wrap:wrap;">
-            <span style="font-weight:700;font-size:.95rem;">{{ ds.name }}</span>
-            <span class="tag" style="font-size:.7rem;">{{ ds.type | upper }}</span>
-            {% if ds.connection_error %}<span class="err-badge" title="{{ ds.connection_error }}">⚠ error</span>{% endif %}
+            <a href="/mcpserver/{{ s.id }}" style="font-weight:700;font-size:.95rem;">{{ s.name }}</a>
+            <span class="tag" style="font-size:.7rem;">{{ s.type | upper }}</span>
+            <span class="tag" style="font-size:.7rem;background:#f1f5f9;color:var(--muted);">v{{ s.version }}</span>
+            {% if s.connection_error %}<span class="err-badge" title="{{ s.connection_error }}">⚠ error</span>{% endif %}
           </div>
+          {% if s.title %}<div class="muted" style="font-size:.82rem;margin-bottom:.2rem;">{{ s.title }}</div>{% endif %}
           <div class="muted" style="font-size:.82rem;">
-            {{ ds.table_count }} table{% if ds.table_count != 1 %}s{% endif %}
-            {% if ds.total_rows %}· {{ "{:,}".format(ds.total_rows) }} rows{% endif %}
-            {% if ds.columns %}· {{ ds.columns|length }} cols{% endif %}
+            {{ s.table_count }} table{% if s.table_count != 1 %}s{% endif %}
+            {% if s.total_rows %}· {{ "{:,}".format(s.total_rows) }} rows{% endif %}
+            · {{ s.tool_count }} tools · {{ s.resource_count }} resources · {{ s.prompt_count }} prompts
           </div>
-          <div class="muted" style="font-size:.74rem;margin-top:.2rem;font-family:monospace;word-break:break-all;">{{ ds.uri_display }}</div>
-          {% if ds.columns %}
-          <div class="tags" style="margin-top:.4rem;">
-            {% for col in ds.columns[:4] %}<span class="tag" style="font-size:.72rem;">{{ col }}</span>{% endfor %}
-            {% if ds.columns|length > 4 %}<span class="tag" style="background:#f1f5f9;color:var(--muted);font-size:.72rem;">+{{ ds.columns|length - 4 }}</span>{% endif %}
-          </div>
-          {% endif %}
-          {% if ds.last_synced_at %}<div class="muted" style="font-size:.72rem;margin-top:.25rem;">synced {{ ds.last_synced_at.strftime('%b %d, %Y') }}</div>{% endif %}
-          {% if ds.is_parquet %}
-          <div id="ac-{{ ds.id }}" style="display:none;margin-top:.5rem;">
-            <form method="post" action="/datasources/{{ ds.id }}/add-csv" enctype="multipart/form-data">
+          <div class="muted" style="font-size:.74rem;margin-top:.2rem;font-family:monospace;word-break:break-all;">{{ s.uri_display }}</div>
+          {% if s.last_sync_status %}<div class="muted" style="font-size:.72rem;margin-top:.25rem;">last sync: {{ s.last_sync_status }}{% if s.last_synced_at %} · {{ s.last_synced_at.strftime('%b %d, %Y') }}{% endif %}</div>{% endif %}
+          {% if s.is_parquet %}
+          <div id="ac-{{ s.id }}" style="display:none;margin-top:.5rem;">
+            <form method="post" action="/mcpserver/{{ s.id }}/add-csv" enctype="multipart/form-data">
               <input type="file" name="file" accept=".csv,.xlsx,.xls,.json" required style="font-size:.8rem;">
               <button class="btn" type="submit" style="font-size:.78rem;padding:.25rem .6rem;margin-top:.3rem;">Add table</button>
             </form>
@@ -100,22 +94,23 @@
           {% endif %}
         </div>
         <div style="flex-shrink:0;display:flex;flex-direction:column;gap:.4rem;align-items:flex-end;">
-          {% if ds.is_parquet %}
-          <button class="btn btn-ghost" style="font-size:.82rem;padding:.35rem .75rem;" onclick="toggleAddCsv('{{ ds.id }}')">+ CSV</button>
+          <a href="/mcpserver/{{ s.id }}" class="btn btn-ghost" style="font-size:.82rem;padding:.35rem .75rem;">Open</a>
+          {% if s.is_parquet %}
+          <button class="btn btn-ghost" style="font-size:.82rem;padding:.35rem .75rem;" onclick="toggleAddCsv('{{ s.id }}')">+ CSV</button>
           {% endif %}
-          <form method="post" action="/datasources/{{ ds.id }}/sync"
+          <form method="post" action="/mcpserver/{{ s.id }}/sync"
                 onsubmit="var b=this.querySelector('button');b.textContent='Syncing…';b.disabled=true;">
             <button class="btn btn-ghost" type="submit" style="font-size:.82rem;padding:.35rem .75rem;">Sync</button>
           </form>
-          <div id="dz-{{ ds.id }}">
-            <button class="btn btn-ghost" style="color:var(--err);border-color:#fca5a5;font-size:.82rem;padding:.35rem .75rem;" onclick="showDel('{{ ds.id }}')">Delete</button>
+          <div id="dz-{{ s.id }}">
+            <button class="btn btn-ghost" style="color:var(--err);border-color:#fca5a5;font-size:.82rem;padding:.35rem .75rem;" onclick="showDel('{{ s.id }}')">Delete</button>
           </div>
-          <div id="dc-{{ ds.id }}" style="display:none;font-size:.82rem;">
+          <div id="dc-{{ s.id }}" style="display:none;font-size:.82rem;">
             <span style="color:var(--err);">Delete?</span>
-            <form method="post" action="/datasources/{{ ds.id }}/delete" style="display:inline;">
+            <form method="post" action="/mcpserver/{{ s.id }}/delete" style="display:inline;">
               <button class="btn" style="background:var(--err);padding:.25rem .6rem;font-size:.78rem;margin-left:.25rem;">Yes</button>
             </form>
-            <button onclick="hideDel('{{ ds.id }}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.78rem;margin-left:.2rem;">No</button>
+            <button onclick="hideDel('{{ s.id }}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:.78rem;margin-left:.2rem;">No</button>
           </div>
         </div>
       </div>
@@ -124,7 +119,7 @@
     {% else %}
     <div class="empty-state">
       <div style="font-size:1.75rem;margin-bottom:.5rem;">📂</div>
-      <p style="font-size:.875rem;">No datasets yet.<br>Create one above.</p>
+      <p style="font-size:.875rem;">No MCP servers yet.<br>Create one above.</p>
     </div>
     {% endif %}
   </div>
@@ -133,7 +128,7 @@
   <div>
     <div class="section-header">
       <h2>Sessions</h2>
-      {% if datasets %}<button class="btn" onclick="toggleNewSession()" id="new-sess-btn">＋ New Session</button>{% endif %}
+      {% if servers %}<button class="btn" onclick="toggleNewSession()" id="new-sess-btn">＋ New Session</button>{% endif %}
     </div>
 
     <div class="session-form" id="new-session-form" style="display:none;">
@@ -142,17 +137,17 @@
           <label>Session name <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
           <input type="text" name="name" placeholder="e.g. Q2 Sales Analysis">
         </div>
-        <div class="label" style="margin-bottom:.4rem;">Select datasets <span style="color:var(--err);">*</span></div>
+        <div class="label" style="margin-bottom:.4rem;">Select MCP servers <span style="color:var(--err);">*</span></div>
         <div class="cb-list">
-          {% for ds in datasets %}
+          {% for s in servers %}
           <label class="cb-item">
-            <input type="checkbox" name="data_source_ids" value="{{ ds.id }}">
-            <span>{{ ds.name }}</span>
-            <span class="muted" style="font-size:.78rem;margin-left:auto;">{{ ds.table_count }} table{% if ds.table_count != 1 %}s{% endif %}</span>
+            <input type="checkbox" name="mcp_server_ids" value="{{ s.id }}">
+            <span>{{ s.name }}</span>
+            <span class="muted" style="font-size:.78rem;margin-left:auto;">{{ s.table_count }} table{% if s.table_count != 1 %}s{% endif %}</span>
           </label>
           {% endfor %}
         </div>
-        <div id="sess-err" style="color:var(--err);font-size:.82rem;margin-bottom:.5rem;display:none;">Please select at least one dataset.</div>
+        <div id="sess-err" style="color:var(--err);font-size:.82rem;margin-bottom:.5rem;display:none;">Please select at least one MCP server.</div>
         <div style="display:flex;gap:.5rem;">
           <button class="btn" type="submit" onclick="return validateSession()">Create Session</button>
           <button type="button" class="btn btn-ghost" onclick="toggleNewSession()">Cancel</button>
@@ -160,10 +155,10 @@
       </form>
     </div>
 
-    {% if not datasets %}
+    {% if not servers %}
     <div class="empty-state">
       <div style="font-size:1.75rem;margin-bottom:.5rem;">💬</div>
-      <p style="font-size:.875rem;">Create a dataset first,<br>then start a session.</p>
+      <p style="font-size:.875rem;">Create an MCP server first,<br>then start a session.</p>
     </div>
     {% elif all_sessions %}
     {% for sess in all_sessions %}
@@ -171,9 +166,9 @@
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;">
         <div style="min-width:0;flex:1;">
           <div style="font-weight:700;font-size:.95rem;margin-bottom:.3rem;">{{ sess.name or "Unnamed Session" }}</div>
-          {% if session_sources[sess.id] %}
+          {% if session_servers[sess.id] %}
           <div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.3rem;">
-            {% for src in session_sources[sess.id] %}<span class="source-chip">📊 {{ src.name }}</span>{% endfor %}
+            {% for srv in session_servers[sess.id] %}<span class="source-chip">🔌 {{ srv.name }}</span>{% endfor %}
           </div>
           {% endif %}
           <div class="muted" style="font-size:.8rem;">
@@ -208,21 +203,44 @@
 </div><!-- .two-col -->
 
 <script>
-function validateUpload() {
-  const name = document.getElementById('dataset-name');
-  const err = document.getElementById('upload-err');
-  if (!name.value.trim()) { err.textContent = 'Please name the dataset.'; err.style.display = 'block'; return false; }
+async function _errMsg(r) {
+  try { const j = await r.json(); return (j.detail && j.detail.message) || JSON.stringify(j); }
+  catch { return 'Request failed (' + r.status + ').'; }
+}
+function _showErr(msg) { const e = document.getElementById('upload-err'); e.textContent = msg; e.style.display = 'block'; }
+
+async function submitCreate(ev) {
+  ev.preventDefault();
+  const name = document.getElementById('dataset-name').value.trim();
+  if (!name) { _showErr('Please name the dataset.'); return; }
   const typeEl = document.getElementById('dataset-type');
   const isExternal = typeEl && typeEl.value === 'postgresql';
-  if (isExternal) {
-    const uri = document.getElementById('uri-input');
-    if (!uri || !uri.value.trim()) { err.textContent = 'Enter a database URI.'; err.style.display = 'block'; return false; }
-  } else {
-    const input = document.getElementById('csv-input');
-    if (!input.files || !input.files[0]) { err.textContent = 'Please select a file.'; err.style.display = 'block'; return false; }
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    let uri, dtype;
+    if (isExternal) {
+      uri = document.getElementById('uri-input').value.trim();
+      if (!uri) { _showErr('Enter a database URI.'); return; }
+      dtype = 'postgresql';
+    } else {
+      const file = document.getElementById('csv-input').files[0];
+      if (!file) { _showErr('Please select a file.'); return; }
+      const up = new FormData(); up.append('dataset_name', name); up.append('file', file);
+      const r1 = await fetch('/mcpserver/upload', { method: 'POST', body: up });
+      if (!r1.ok) { _showErr(await _errMsg(r1)); return; }
+      uri = (await r1.json()).uri; dtype = 'parquet';
+    }
+    const fd = new FormData();
+    fd.append('name', name); fd.append('dataset_type', dtype); fd.append('dataset_uri', uri);
+    const r2 = await fetch('/mcpserver', { method: 'POST', body: fd });
+    if (r2.ok) { window.location = '/'; return; }
+    _showErr(await _errMsg(r2));
+  } catch (e) {
+    _showErr('Network error: ' + e);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create MCP server';
   }
-  err.style.display = 'none';
-  return true;
 }
 function toggleType() {
   const t = document.getElementById('dataset-type').value;
@@ -233,7 +251,7 @@ function toggleType() {
 function toggleAddCsv(id) { const e = document.getElementById('ac-'+id); e.style.display = e.style.display === 'none' ? 'block' : 'none'; }
 function toggleNewSession() { const f = document.getElementById('new-session-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; }
 function validateSession() {
-  const checked = document.querySelectorAll('input[name="data_source_ids"]:checked');
+  const checked = document.querySelectorAll('input[name="mcp_server_ids"]:checked');
   const err = document.getElementById('sess-err');
   if (checked.length === 0) { err.style.display = 'block'; return false; }
   err.style.display = 'none'; return true;

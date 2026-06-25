@@ -1,19 +1,18 @@
-from data_analysis_agent.domain.models import DataSource, Session, QueryRecord, AgentRunRecord
+from data_analysis_agent.domain.models import McpServer, Session, QueryRecord, AgentRunRecord
 
 
-def test_datasource_defaults():
-    ds = DataSource(name="sales.csv")
-    assert ds.id is not None
-    assert ds.type == "csv"
-    assert ds.column_names == []
-    assert ds.row_count is None
+def test_mcp_server_defaults():
+    s = McpServer(name="sales")
+    assert s.id is not None
+    assert s.type == "parquet"
+    assert s.version == 1
 
 
 def test_session_defaults():
-    s = Session(data_source_ids=["ds1", "ds2"])
+    s = Session(mcp_server_ids=["s1", "s2"])
     assert s.id is not None
     assert s.name is None
-    assert s.data_source_ids == ["ds1", "ds2"]
+    assert s.mcp_server_ids == ["s1", "s2"]
 
 
 def test_query_record_defaults():

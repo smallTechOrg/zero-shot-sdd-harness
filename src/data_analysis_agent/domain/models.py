@@ -8,21 +8,21 @@ def _uid() -> str:
     return str(uuid4())
 
 
-class DataSource(BaseModel):
+class McpServer(BaseModel):
     id: str = Field(default_factory=_uid)
     name: str
-    type: str = "csv"
+    title: str | None = None
     description: str | None = None
-    file_path: str | None = None
-    row_count: int | None = None
-    column_names: list[str] = Field(default_factory=list)
+    type: str = "parquet"
+    uri: str | None = None
+    version: int = 1
     created_at: datetime | None = None
 
 
 class Session(BaseModel):
     id: str = Field(default_factory=_uid)
     name: str | None = None
-    data_source_ids: list[str] = Field(default_factory=list)
+    mcp_server_ids: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

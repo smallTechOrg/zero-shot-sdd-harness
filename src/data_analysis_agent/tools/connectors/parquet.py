@@ -8,7 +8,7 @@ import duckdb
 from data_analysis_agent.tools.connectors.base import DatasetConnectionError
 from data_analysis_agent.tools.mcp.server import (
     DEFAULT_MAX_ROWS,
-    build_dataset_server,
+    build_server,
     new_connection,
     register_parquet_view,
 )
@@ -17,8 +17,8 @@ from data_analysis_agent.tools.mcp.server import (
 class ParquetConnector:
     """Serves a `parquet` dataset. ``tables`` are dicts with ``table_name`` + ``parquet_path``."""
 
-    def __init__(self, dataset: dict, tables: list[dict]) -> None:
-        self._dataset = dataset
+    def __init__(self, server: dict, tables: list[dict]) -> None:
+        self._server = server
         self._tables = list(tables)
 
     def connection_check(self) -> None:
@@ -41,8 +41,8 @@ class ParquetConnector:
         return list(self._tables)
 
     def build_server(self, max_rows: int = DEFAULT_MAX_ROWS):
-        """Open one DuckDB connection with a view per Parquet file and build the dataset server."""
+        """Open one DuckDB connection with a view per Parquet file and build the MCP server."""
         conn = new_connection()
         for table in self._tables:
             register_parquet_view(conn, table["table_name"], table.get("parquet_path"))
-        return build_dataset_server(self._dataset.get("name") or "dataset", conn, self._tables, max_rows)
+        return build_server(self._server.get("name") or "dataset", conn, self._tables, max_rows)

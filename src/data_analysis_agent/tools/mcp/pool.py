@@ -1,8 +1,9 @@
 """Session-scoped pool of in-process MCP servers — the agent's MCP client layer.
 
-A **session** owns one pool: one MCP server **per attached dataset**, each exposing one
-``query_{table}`` capability per table. Built lazily on the session's first query and reused. This
-is the ONLY module that imports ``mcp.shared.memory`` (the in-memory transport).
+A **session** owns one pool: one in-process MCP server **per attached MCP-server entity**, each
+exposing a generic read-only ``query`` tool over that server's tables. Built lazily on the session's
+first query and reused. This is the ONLY module that imports ``mcp.shared.memory`` (the in-memory
+transport).
 
 Concurrency (see spec/product/07-agent-graph.md):
 - LangGraph runs each node in its own asyncio task, so MCP ``ClientSession``s are **transient**
@@ -10,14 +11,14 @@ Concurrency (see spec/product/07-agent-graph.md):
   the built ``FastMCP`` servers and their DuckDB connections.
 - A session's DuckDB connections are not concurrency-safe, so queries on one session are serialized
   by a per-session ``threading.Lock`` (held by ``run_pipeline`` for the whole query). ``close()``
-  acquires that lock before teardown so a dataset change never closes a connection mid-query.
+  acquires that lock before teardown so a server change never closes a connection mid-query.
 - Pools are idle/LRU-evicted; eviction skips sessions whose lock is currently held (in use).
 """
 from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib.metadata import version
 
 import structlog
@@ -25,10 +26,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from data_analysis_agent.config.settings import get_settings
-from data_analysis_agent.db.models import DataSourceRow, DatasetTableRow, SessionDataSourceRow
+from data_analysis_agent.db.models import McpServerRow, SessionMcpServerRow
 from data_analysis_agent.db.session import create_db_session
 from data_analysis_agent.tools.connectors.base import get_connector
-from data_analysis_agent.tools.table_naming import sql_table_name
 
 log = structlog.get_logger()
 
@@ -40,78 +40,57 @@ if not _MCP_VERSION.startswith("1."):
         f"Pin mcp==1.28.0."
     )
 
-
-class NoDataSourcesError(Exception):
-    """Raised when a session has no attached datasets to build a pool from."""
+_GENERIC_TOOL = "query"
 
 
-@dataclass
-class _Capability:
-    """One table within a dataset — an MCP tool the dataset's server exposes."""
-
-    table_name: str
-    description: str
-    parameter_schema: dict
-    columns: list[str]
-    server_tool_name: str  # e.g. "query_orders"
+class NoServersError(Exception):
+    """Raised when a session has no attached MCP servers to build a pool from."""
 
 
 @dataclass
-class _Dataset:
-    """One dataset (the agent's "tool") and its per-table capabilities."""
+class _Server:
+    """One attached MCP-server entity and its in-process FastMCP server (generic SQL tool)."""
 
     name: str
     server: FastMCP
-    tool_description: str
-    capabilities: dict[str, _Capability]  # table_name -> capability
+    description: str
+    tables: list[dict]  # [{"table": str, "columns": list[str]}]
 
 
 @dataclass
 class SessionPool:
-    """A session's datasets, addressed two-level by ``(dataset_name, table_name)``."""
+    """A session's MCP servers, addressed single-level by server ``name``."""
 
     session_id: str
-    datasets: dict[str, _Dataset]
+    servers: dict[str, _Server]
     last_used: float
 
     def snapshot(self) -> list[dict]:
-        """Grouped, agent-facing tool list for the planning prompt (tool=dataset, capability=table)."""
+        """Flat, agent-facing tool list for the planning prompt (one tool per server)."""
         return [
             {
-                "dataset": d.name,
-                "tool_description": d.tool_description,
-                "capabilities": [
-                    {
-                        "table": c.table_name,
-                        "description": c.description,
-                        "columns": c.columns,
-                        "parameter_schema": c.parameter_schema,
-                    }
-                    for c in d.capabilities.values()
-                ],
+                "tool": s.name,
+                "description": s.description,
+                "tables": s.tables,
             }
-            for d in self.datasets.values()
+            for s in self.servers.values()
         ]
 
-    async def call_tool(self, dataset: str, capability: str, arguments: dict) -> tuple[str, bool]:
-        """Route a two-level call to the dataset's server's ``query_{capability}`` tool."""
-        d = self.datasets.get(dataset)
-        if d is None:
-            valid = ", ".join(self.datasets) or "(none)"
-            return f"Unknown tool '{dataset}'. Valid tools: {valid}.", True
-        cap = d.capabilities.get(capability)
-        if cap is None:
-            valid = ", ".join(d.capabilities) or "(none)"
-            return f"Unknown capability '{capability}' for tool '{dataset}'. Valid capabilities: {valid}.", True
-        async with create_connected_server_and_client_session(d.server) as session:
-            result = await session.call_tool(cap.server_tool_name, arguments)
+    async def call_tool(self, tool: str, arguments: dict) -> tuple[str, bool]:
+        """Route a single-level call to the server's generic ``query`` tool."""
+        s = self.servers.get(tool)
+        if s is None:
+            valid = ", ".join(self.servers) or "(none)"
+            return f"Unknown tool '{tool}'. Valid tools: {valid}.", True
+        async with create_connected_server_and_client_session(s.server) as session:
+            result = await session.call_tool(_GENERIC_TOOL, arguments)
         text = result.content[0].text if result.content else ""
         return text, bool(result.isError)
 
     def aclose(self) -> None:
-        """Close every dataset server's DuckDB connection (plain, task-safe)."""
-        for d in self.datasets.values():
-            conn = getattr(d.server, "_duckdb_conn", None)
+        """Close every server's DuckDB connection (plain, task-safe)."""
+        for s in self.servers.values():
+            conn = getattr(s.server, "_duckdb_conn", None)
             if conn is not None:
                 try:
                     conn.close()
@@ -140,8 +119,8 @@ class SessionPoolManager:
     async def acquire(self, session_id: str) -> SessionPool:
         """Return the session's pool, building it lazily on first use.
 
-        Call while holding ``session_lock(session_id)``. Raises :class:`NoDataSourcesError`
-        if the session has no datasets.
+        Call while holding ``session_lock(session_id)``. Raises :class:`NoServersError`
+        if the session has no attached servers.
         """
         with self._registry:
             pool = self._pools.get(session_id)
@@ -159,12 +138,12 @@ class SessionPoolManager:
                 return existing
             self._pools[session_id] = pool
             self._evict_locked()
-            log.info("session_pool.built", session_id=session_id, datasets=len(pool.datasets),
+            log.info("session_pool.built", session_id=session_id, servers=len(pool.servers),
                      active_pools=len(self._pools))
             return pool
 
     def snapshot(self, session_id: str) -> list[dict]:
-        """Return the grouped dataset/capability list for ``plan_action`` (empty if not built)."""
+        """Return the flat server/tool list for ``plan_action`` (empty if not built)."""
         with self._registry:
             pool = self._pools.get(session_id)
             if pool is None:
@@ -172,21 +151,21 @@ class SessionPoolManager:
             pool.last_used = time.monotonic()
             return pool.snapshot()
 
-    async def call_tool(self, session_id: str, dataset: str, capability: str, arguments: dict) -> tuple[str, bool]:
-        """Route a two-level tool call to the session's pool (must be acquired first)."""
+    async def call_tool(self, session_id: str, tool: str, arguments: dict) -> tuple[str, bool]:
+        """Route a single-level tool call to the session's pool (must be acquired first)."""
         with self._registry:
             pool = self._pools.get(session_id)
             if pool is not None:
                 pool.last_used = time.monotonic()
         if pool is None:
             return f"No MCP pool for session '{session_id}'.", True
-        return await pool.call_tool(dataset, capability, arguments)
+        return await pool.call_tool(tool, arguments)
 
     def close(self, session_id: str) -> None:
         """Close a session's pool, waiting for any in-flight query first. Idempotent.
 
-        Acquires the per-session lock before teardown so a dataset change (add-csv/sync/delete)
-        never closes a DuckDB connection mid-query on the pipeline thread.
+        Acquires the per-session lock before teardown so a server change (sync/delete) never closes
+        a DuckDB connection mid-query on the pipeline thread.
         """
         lock = self.session_lock(session_id)
         with lock:
@@ -204,26 +183,37 @@ class SessionPoolManager:
         for pool in pools:
             pool.aclose()
 
+    def close_sessions_for_server(self, mcp_server_id: str) -> None:
+        """Close the pools of every session attached to a given server (after a change)."""
+        with create_db_session() as db:
+            links = (
+                db.query(SessionMcpServerRow)
+                .filter(SessionMcpServerRow.mcp_server_id == mcp_server_id)
+                .all()
+            )
+            session_ids = [link.session_id for link in links]
+        for sid in session_ids:
+            self.close(sid)
+
     # ---- internals -------------------------------------------------------
 
     async def _build(self, session_id: str) -> SessionPool:
-        loaded = _load_datasets(session_id)
+        loaded = _load_servers(session_id)
         if not loaded:
-            raise NoDataSourcesError("No datasets attached to this session")
+            raise NoServersError("No MCP servers attached to this session")
         max_rows = get_settings().mcp_max_result_rows
-        datasets: dict[str, _Dataset] = {}
-        for dataset, tables in loaded:
-            connector = get_connector(dataset, tables)
-            server = connector.build_server(max_rows)
-            columns_by_table = {t["table_name"]: (t.get("column_names") or []) for t in tables}
-            capabilities = await _discover_capabilities(server, columns_by_table)
-            datasets[dataset["name"]] = _Dataset(
-                name=dataset["name"],
-                server=server,
-                tool_description=dataset.get("tool_description") or "",
-                capabilities=capabilities,
+        servers: dict[str, _Server] = {}
+        for server_dict, tables in loaded:
+            connector = get_connector(server_dict, tables)
+            fast = connector.build_server(max_rows)
+            await _verify_server(fast)
+            servers[server_dict["name"]] = _Server(
+                name=server_dict["name"],
+                server=fast,
+                description=server_dict.get("description") or "",
+                tables=[{"table": t["table_name"], "columns": t.get("column_names") or []} for t in tables],
             )
-        return SessionPool(session_id, datasets, time.monotonic())
+        return SessionPool(session_id, servers, time.monotonic())
 
     def _evict_locked(self) -> None:
         """Evict idle + over-cap pools, skipping in-use (locked) sessions. Holds ``_registry``."""
@@ -252,87 +242,42 @@ class SessionPoolManager:
                 lock.release()
 
 
-async def _discover_capabilities(server: FastMCP, columns_by_table: dict[str, list[str]]) -> dict[str, _Capability]:
-    """List a dataset server's tools (one per table) into capability descriptors."""
+async def _verify_server(server: FastMCP) -> None:
+    """Open a transient session once to confirm the server exposes the generic ``query`` tool."""
     async with create_connected_server_and_client_session(server) as session:
         listed = await session.list_tools()
-    capabilities: dict[str, _Capability] = {}
-    for tool in listed.tools:
-        table_name = tool.name[len("query_"):] if tool.name.startswith("query_") else tool.name
-        capabilities[table_name] = _Capability(
-            table_name=table_name,
-            description=tool.description or "",
-            parameter_schema=_input_properties(tool.inputSchema),
-            columns=columns_by_table.get(table_name, []),
-            server_tool_name=tool.name,
-        )
-    return capabilities
+    names = {t.name for t in listed.tools}
+    if _GENERIC_TOOL not in names:
+        raise RuntimeError(f"MCP server is missing the '{_GENERIC_TOOL}' tool (has: {sorted(names)})")
 
 
-def _input_properties(input_schema: dict | None) -> dict:
-    """Reduce an MCP ``inputSchema`` to its property map for the planning prompt."""
-    if not input_schema:
-        return {}
-    return input_schema.get("properties", input_schema)
-
-
-def _load_datasets(session_id: str) -> list[tuple[dict, list[dict]]]:
-    """Load a session's datasets + their tables as serialisable ``(dataset, tables)`` dicts.
-
-    A dataset with no ``dataset_tables`` children (legacy / pre-cutover upload) falls back to a
-    single synthesized table from the deprecated ``DataSourceRow`` columns, so existing data and
-    not-yet-migrated upload paths keep working.
-    """
+def _load_servers(session_id: str) -> list[tuple[dict, list[dict]]]:
+    """Load a session's MCP servers + their physical tables as serialisable ``(server, tables)`` dicts."""
     with create_db_session() as db:
         links = (
-            db.query(SessionDataSourceRow)
-            .filter(SessionDataSourceRow.session_id == session_id)
+            db.query(SessionMcpServerRow)
+            .filter(SessionMcpServerRow.session_id == session_id)
             .all()
         )
         loaded: list[tuple[dict, list[dict]]] = []
         for link in links:
-            ds = db.get(DataSourceRow, link.data_source_id)
-            if ds is None:
+            srv = db.get(McpServerRow, link.mcp_server_id)
+            if srv is None:
                 continue
-            children = (
-                db.query(DatasetTableRow)
-                .filter(DatasetTableRow.dataset_id == ds.id)
-                .order_by(DatasetTableRow.created_at)
-                .all()
-            )
-            tables = [_serialize_table(t) for t in children] or [_legacy_table(ds)]
-            loaded.append((_serialize_dataset(ds), tables))
+            tables = srv.physical_tables
+            if not tables:
+                continue
+            loaded.append((_serialize_server(srv), tables))
         return loaded
 
 
-def _serialize_dataset(ds: DataSourceRow) -> dict:
+def _serialize_server(srv: McpServerRow) -> dict:
     return {
-        "id": ds.id,
-        "name": ds.name,
-        "type": ds.type,
-        "uri": ds.dataset_uri,
-        "tool_description": ds.tool_description,
-    }
-
-
-def _serialize_table(t: DatasetTableRow) -> dict:
-    return {
-        "table_name": t.table_name,
-        "parquet_path": t.parquet_path,
-        "column_names": t.column_names,
-        "row_count": t.row_count,
-        "capability_description": t.capability_description,
-    }
-
-
-def _legacy_table(ds: DataSourceRow) -> dict:
-    """Synthesize a single table from a legacy single-CSV dataset row (no child rows yet)."""
-    return {
-        "table_name": sql_table_name(ds.name),
-        "parquet_path": ds.parquet_path,
-        "column_names": ds.column_names,
-        "row_count": ds.row_count,
-        "capability_description": ds.capability_description,
+        "id": srv.id,
+        "name": srv.name,
+        "type": srv.type,
+        "uri": srv.uri,
+        "description": srv.description or srv.title or "",
     }
 
 

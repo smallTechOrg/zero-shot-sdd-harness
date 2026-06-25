@@ -17,18 +17,18 @@ from urllib.parse import urlsplit
 
 from data_analysis_agent.tools.connectors.base import DatasetConnectionError
 from data_analysis_agent.tools.connectors.uri import DatasetURI
-from data_analysis_agent.tools.mcp.server import DEFAULT_MAX_ROWS, build_dataset_server, new_connection
+from data_analysis_agent.tools.mcp.server import DEFAULT_MAX_ROWS, build_server, new_connection
 
 _CONNECT_TIMEOUT_SECONDS = 8  # hard wall-clock cap around the whole connect/introspect
 
 
 class PostgresConnector:
-    """Serves an external `postgresql` dataset. ``tables`` are introspected DatasetTable dicts."""
+    """Serves an external `postgresql` dataset. ``tables`` are introspected table dicts."""
 
-    def __init__(self, dataset: dict, tables: list[dict]) -> None:
-        self._dataset = dataset
+    def __init__(self, server: dict, tables: list[dict]) -> None:
+        self._server = server
         self._tables = list(tables)
-        self._uri = DatasetURI(dataset.get("uri") or "")
+        self._uri = DatasetURI(server.get("uri") or "")
 
     def connection_check(self) -> None:
         """Connect + ``SELECT 1`` within a hard timeout; raise a sanitized error on any failure."""
@@ -92,7 +92,7 @@ class PostgresConnector:
         except duckdb.Error as exc:
             conn.close()
             raise DatasetConnectionError(f"Could not attach {self._uri.display()}: {self._sanitize(exc)}")
-        return build_dataset_server(self._dataset.get("name") or "dataset", conn, self._tables, max_rows)
+        return build_server(self._server.get("name") or "dataset", conn, self._tables, max_rows)
 
     # ---- helpers ---------------------------------------------------------
 

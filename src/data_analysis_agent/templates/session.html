@@ -13,9 +13,9 @@
   <div>
     <h1 style="font-size:1.2rem;margin-bottom:.4rem;">{{ sess.name }}</h1>
     <div style="display:flex;flex-wrap:wrap;gap:.35rem;">
-      {% for ds in data_sources %}
+      {% for srv in servers %}
       <span style="display:inline-flex;align-items:center;gap:.3rem;background:var(--brand-light);color:var(--brand-dark);font-size:.78rem;font-weight:500;padding:.2rem .6rem;border-radius:999px;">
-        📊 {{ ds.name }}{% if ds.row_count %} · {{ "{:,}".format(ds.row_count) }} rows{% endif %}
+        🔌 {{ srv.name }} · {{ srv.physical_tables|length }} table{% if srv.physical_tables|length != 1 %}s{% endif %}
       </span>
       {% endfor %}
     </div>
@@ -80,7 +80,7 @@
       {% for step in record.query_history %}
       <div style="background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:.85rem 1rem;">
         <div style="font-size:.75rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem;">
-          Step {{ loop.index }} · {{ step.tool }}{% if step.capability %} · {{ step.capability }}{% endif %}
+          Step {{ loop.index }} · {{ step.tool }}
         </div>
         <pre style="font-size:.82rem;font-family:monospace;white-space:pre-wrap;word-break:break-word;color:var(--text-soft);margin-bottom:.5rem;">{{ step.arguments.get('query', '') }}</pre>
         {% if step.is_error %}

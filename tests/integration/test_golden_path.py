@@ -1,6 +1,8 @@
-"""Golden-path UI smoke test: connect CSV, create session with it, ask question, see answer inline."""
+"""Golden-path UI smoke test: upload CSV → create MCP server (auto-sync) → create session → ask a
+question → see the answer inline. Stub mode, tmp SQLite."""
 import csv
 import io
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,14 +21,11 @@ def _stub_env(monkeypatch):
 def _use_sqlite(tmp_path, monkeypatch):
     db = Database(f"sqlite:///{tmp_path / 'golden.db'}")
     db._init_schema()
-
     monkeypatch.setattr(session_module, "_db", db)
     monkeypatch.setattr(session_module, "init_db", lambda: None)
     monkeypatch.setenv("DATAANALYSIS_CHECKPOINT_DB", str(tmp_path / "ckpt.db"))
     monkeypatch.setenv("DATAANALYSIS_DATASETS_DIR", str(tmp_path / "datasets"))
-
     yield
-
     db._dispose()
     monkeypatch.setattr(session_module, "_db", None)
 
@@ -36,10 +35,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATAANALYSIS_UPLOAD_DIR", str(tmp_path / "uploads"))
     import data_analysis_agent.llm.client as llm_module
     llm_module._client = None
-
     from data_analysis_agent.api import create_app
-    app = create_app()
-    with TestClient(app, raise_server_exceptions=True) as c:
+    with TestClient(create_app(), raise_server_exceptions=True) as c:
         yield c
 
 
@@ -52,63 +49,49 @@ def _make_csv() -> bytes:
     return buf.getvalue().encode()
 
 
+def _create_server(client, name: str, filename: str = "data.csv") -> str:
+    """Run the upload → create two-step the UI performs; return the home HTML after create."""
+    up = client.post("/mcpserver/upload", data={"dataset_name": name},
+                     files={"file": (filename, _make_csv(), "text/csv")})
+    assert up.status_code == 200, up.text
+    uri = up.json()["uri"]
+    r = client.post("/mcpserver", data={"name": name, "dataset_type": "parquet", "dataset_uri": uri},
+                    follow_redirects=True)
+    assert r.status_code == 200, r.text
+    return r.text
+
+
 def test_home_page_loads(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Datasets" in r.text
+    assert "MCP Servers" in r.text
     assert "Sessions" in r.text
 
 
 def test_stub_banner_visible_on_home(client):
-    r = client.get("/")
-    assert "Stub mode" in r.text
+    assert "Stub mode" in client.get("/").text
 
 
-def test_upload_csv_returns_to_home(client):
-    csv_bytes = _make_csv()
-    r = client.post(
-        "/datasources/upload",
-        data={"dataset_name": "Sales DB"},
-        files={"file": ("sales.csv", csv_bytes, "text/csv")},
-        follow_redirects=True,
-    )
-    assert r.status_code == 200
-    assert "Sales DB" in r.text
+def test_create_server_shows_on_home(client):
+    html = _create_server(client, "Sales DB")
+    assert "Sales DB" in html
 
 
 def test_golden_path_end_to_end(client):
-    # 1. Upload CSV
-    csv_bytes = _make_csv()
-    r1 = client.post(
-        "/datasources/upload",
-        data={"dataset_name": "Test DB"},
-        files={"file": ("test_data.csv", csv_bytes, "text/csv")},
-        follow_redirects=True,
-    )
-    assert r1.status_code == 200
+    # 1. Upload CSV + create the MCP server (which auto-syncs into tools/resources/prompts)
+    home = _create_server(client, "Test DB", "test_data.csv")
 
-    # Extract datasource_id from the home page response (it's in the checkbox values)
-    import re
-    ds_id_match = re.search(r'name="data_source_ids" value="([^"]+)"', r1.text)
-    assert ds_id_match, "data_source_ids checkbox not found in home page"
-    datasource_id = ds_id_match.group(1)
-
-    # 2. Create session with that data source
-    r2 = client.post(
-        "/sessions",
-        data={"data_source_ids": datasource_id},
-        follow_redirects=True,
-    )
+    # 2. Extract the server id from the session-create checkboxes, then create a session
+    m = re.search(r'name="mcp_server_ids" value="([^"]+)"', home)
+    assert m, "mcp_server_ids checkbox not found on home page"
+    server_id = m.group(1)
+    r2 = client.post("/sessions", data={"mcp_server_ids": server_id}, follow_redirects=True)
     assert r2.status_code == 200
-    session_url = str(r2.url)
-    session_id = session_url.rstrip("/").split("/")[-1].split("?")[0]
+    session_id = str(r2.url).rstrip("/").split("/")[-1].split("?")[0]
 
     # 3. Ask a question
-    r3 = client.post(
-        f"/sessions/{session_id}/query",
-        data={"question": "What is the total revenue?"},
-        follow_redirects=True,
-    )
+    r3 = client.post(f"/sessions/{session_id}/query",
+                     data={"question": "What is the total revenue?"}, follow_redirects=True)
     assert r3.status_code == 200
     assert "stub" in r3.text.lower() or "analysis" in r3.text.lower()
     assert "total revenue" in r3.text.lower()

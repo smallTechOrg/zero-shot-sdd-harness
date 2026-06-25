@@ -18,7 +18,7 @@ class AgentState(TypedDict, total=False):
     # The MCP servers + DuckDB connections live in that manager, never in state.
 
     # ReAct loop state (per-query scratch — reset via the ainvoke input each query)
-    action_history: list[dict]  # [{"tool", "capability", "arguments", "result", "is_error"}]
+    action_history: list[dict]  # [{"tool", "arguments", "result", "is_error"}]
     iteration_count: int
     llm_response: str  # raw LLM output from last plan_action call
 

@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 from data_analysis_agent.api import templates
 from data_analysis_agent.api._common import api_error, render
 from data_analysis_agent.api._repository import (
-    attached_sources,
+    attached_servers,
     get_session_or_404,
 )
 from data_analysis_agent.db.models import (
     AgentRunRow,
-    DataSourceRow,
+    McpServerRow,
     QueryRecordRow,
-    SessionDataSourceRow,
+    SessionMcpServerRow,
     SessionRow,
 )
 from data_analysis_agent.db.session import get_session
@@ -33,18 +33,18 @@ router = APIRouter()
 def create_session(
     request: Request,
     name: Annotated[str, Form()] = "",
-    data_source_ids: Annotated[list[str], Form()] = [],
+    mcp_server_ids: Annotated[list[str], Form()] = [],
     session: Session = Depends(get_session),
 ):
-    """Create a session attached to one or more data sources, then redirect to it."""
-    if not data_source_ids:
-        raise api_error("NO_DATA_SOURCES", "Select at least one data source.")
+    """Create a session attached to one or more MCP servers, then redirect to it."""
+    if not mcp_server_ids:
+        raise api_error("NO_SERVERS", "Select at least one MCP server.")
     sess = SessionRow(name=name.strip() or _default_session_name())
     session.add(sess)
     session.flush()
-    _attach_data_sources(session, sess.id, data_source_ids)
+    _attach_servers(session, sess.id, mcp_server_ids)
     session_id = sess.id
-    log.info("session.created", session_id=session_id, ds_count=len(data_source_ids))
+    log.info("session.created", session_id=session_id, server_count=len(mcp_server_ids))
     session.commit()  # make the links visible before warming the pool
     _warm_pool(session_id)
     return RedirectResponse(url=f"/sessions/{session_id}", status_code=303)
@@ -63,7 +63,7 @@ def session_detail(
     response = render(
         request, templates, "session.html",
         sess=sess,
-        data_sources=attached_sources(session, session_id),
+        servers=attached_servers(session, session_id),
         records=records,
         new_record_id=new,
         new_record_status=_new_record_status(session, new),
@@ -82,8 +82,8 @@ def delete_session(
     sess = get_session_or_404(session, session_id)
     get_manager().close(session_id)  # release the session's MCP pool / DuckDB connections
     _delete_query_records(session, session_id)
-    session.query(SessionDataSourceRow).filter(
-        SessionDataSourceRow.session_id == session_id
+    session.query(SessionMcpServerRow).filter(
+        SessionMcpServerRow.session_id == session_id
     ).delete()
     session.delete(sess)
     log.info("session.deleted", session_id=session_id)
@@ -107,13 +107,13 @@ def _warm_pool(session_id: str) -> None:
         log.warning("session.warm_failed", session_id=session_id, error=str(exc))
 
 
-def _attach_data_sources(session: Session, session_id: str, data_source_ids: list[str]) -> None:
-    """Link the given data sources to a session, rolling back if any is missing."""
-    for ds_id in data_source_ids:
-        if not session.get(DataSourceRow, ds_id):
+def _attach_servers(session: Session, session_id: str, mcp_server_ids: list[str]) -> None:
+    """Link the given MCP servers to a session, rolling back if any is missing."""
+    for server_id in mcp_server_ids:
+        if not session.get(McpServerRow, server_id):
             session.rollback()
-            raise api_error("NOT_FOUND", f"Data source {ds_id} not found.", status_code=404)
-        session.add(SessionDataSourceRow(session_id=session_id, data_source_id=ds_id))
+            raise api_error("NOT_FOUND", f"MCP server {server_id} not found.", status_code=404)
+        session.add(SessionMcpServerRow(session_id=session_id, mcp_server_id=server_id))
 
 
 def _session_records(session: Session, session_id: str) -> list[QueryRecordRow]:

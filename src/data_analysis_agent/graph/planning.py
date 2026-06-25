@@ -8,25 +8,23 @@ from data_analysis_agent.graph.state import AgentState
 _PLAN_TAG = "<node:plan_action>"
 
 
-def build_plan_prompt(state: AgentState, datasets: list[dict]) -> str:
+def build_plan_prompt(state: AgentState, servers: list[dict]) -> str:
     """Assemble the full plan_action prompt for the current ReAct turn.
 
-    The available-tools block is grouped by dataset (tool = dataset name) with one capability per
-    table; ``datasets`` is the grouped snapshot from the ``SessionPoolManager`` (not stored in
-    state). Includes the durable conversation memory, the question, prior tool-call history, and the
-    two-level response format.
+    The available-tools block is flat: one tool per MCP server (single-level addressing). ``servers``
+    is the snapshot from the ``SessionPoolManager`` (not stored in state). Includes the durable
+    conversation memory, the question, prior tool-call history, and the single-level response format.
 
     Args:
         state: The current agent state carrying the question and history.
-        datasets: Grouped tool list ``[{dataset, tool_description, capabilities:[{table, description,
-            columns, parameter_schema}]}]``.
+        servers: Flat tool list ``[{tool, description, tables:[{table, columns}]}]``.
 
     Returns:
         The complete prompt string sent to the LLM.
     """
     lines = _intro_lines()
     lines += _conversation_lines(state.get("conversation", []))
-    lines += _tools_lines(datasets)
+    lines += _tools_lines(servers)
     lines.append(f"User question: {state['question']}")
     lines += _history_lines(state.get("action_history", []))
     lines += _response_format_lines()
@@ -50,9 +48,9 @@ def _intro_lines() -> list[str]:
     return [
         _PLAN_TAG,
         "You are a data-analysis agent operating in a ReAct (Reason + Act) loop.",
-        "On each turn you either (a) call a tool capability to gather more data, or (b) give the",
+        "On each turn you either (a) call a tool to run SQL and gather more data, or (b) give the",
         "final answer. After each call you will see its result and may call another. Build up a plan",
-        "across multiple queries — and across multiple tools/tables — until you can answer.",
+        "across multiple queries — and across multiple tools — until you can answer.",
         "",
         "SQL dialect: DuckDB. Notes:",
         "- Aggregates available natively: COUNT, SUM, AVG, MIN, MAX, STDDEV, VARIANCE, MEDIAN, QUANTILE.",
@@ -63,29 +61,25 @@ def _intro_lines() -> list[str]:
     ]
 
 
-def _tools_lines(datasets: list[dict]) -> list[str]:
-    """Return the grouped available-tools block (tool = dataset, capability = table)."""
-    if not datasets:
+def _tools_lines(servers: list[dict]) -> list[str]:
+    """Return the flat available-tools block (one tool per MCP server)."""
+    if not servers:
         return []
     lines = [
-        "Available tools. Each TOOL is a dataset; each CAPABILITY is one of its tables.",
-        "Call a tool by its dataset name and one of its table capabilities.",
+        "Available tools. Each tool is an MCP server backed by a dataset; pick one and write SQL.",
+        "A query may JOIN any of that server's tables (they share one connection).",
         "",
     ]
-    for ds in datasets:
-        lines.append(f"Tool: {ds['dataset']}")
-        if ds.get("tool_description"):
-            lines.append(f"  {ds['tool_description']}")
-        capabilities = ds.get("capabilities", [])
-        for cap in capabilities:
-            lines.append(f"  capability: {cap['table']}")
-            if cap.get("description"):
-                lines.append(f"    {cap['description']}")
-            if cap.get("columns"):
-                lines.append(f"    columns: {', '.join(cap['columns'])}")
-        if len(capabilities) > 1:
-            tables = ", ".join(c["table"] for c in capabilities)
-            lines.append(f"  (a capability's SQL may JOIN sibling tables in this dataset: {tables})")
+    for srv in servers:
+        lines.append(f"Tool: {srv['tool']}")
+        if srv.get("description"):
+            lines.append(f"  {srv['description']}")
+        tables = srv.get("tables", [])
+        if tables:
+            lines.append("  Tables:")
+            for t in tables:
+                cols = ", ".join(t.get("columns") or [])
+                lines.append(f"    {t['table']}({cols})")
         lines.append("")
     return lines
 
@@ -96,7 +90,7 @@ def _history_lines(history: list[dict]) -> list[str]:
         return []
     lines = ["", "Previous tool calls and results:"]
     for i, entry in enumerate(history, 1):
-        lines.append(f'[{i}] tool: {entry["tool"]} capability: {entry.get("capability", "")}')
+        lines.append(f'[{i}] tool: {entry["tool"]}')
         lines.append(f'    arguments: {json.dumps(entry["arguments"])}')
         if entry.get("is_error"):
             lines.append(f'    result: Error: {entry["result"]}')
@@ -114,8 +108,8 @@ def _response_format_lines() -> list[str]:
         "(no explanations, no markdown, no backticks):",
         "",
         "1. A JSON tool call to gather more data:",
-        '   {"tool": "<dataset>", "capability": "<table>", "arguments": {"query": "SELECT ..."}}',
-        "   ('tool' is a dataset name above; 'capability' is one of that dataset's tables.)",
+        '   {"tool": "<server>", "arguments": {"query": "SELECT ..."}}',
+        "   ('tool' is one of the server names listed above.)",
         "",
         "2. The final answer, when you have enough information:",
         "   FINAL ANSWER: <your complete answer here>",

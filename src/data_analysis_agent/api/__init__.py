@@ -19,6 +19,7 @@ async def _lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(log_level=settings.log_level, log_file=settings.log_file)
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+    Path(settings.datasets_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.checkpoint_db).parent.mkdir(parents=True, exist_ok=True)
     init_db()
     yield
@@ -38,8 +39,8 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    from data_analysis_agent.api import datasources, health, home, queries, sessions
-    for module in (health, home, datasources, sessions, queries):
+    from data_analysis_agent.api import health, home, mcpserver, queries, sessions
+    for module in (health, home, mcpserver, sessions, queries):
         app.include_router(module.router)
 
     return app

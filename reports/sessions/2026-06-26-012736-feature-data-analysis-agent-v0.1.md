@@ -60,9 +60,40 @@ Grounded in the MCP 2025-06-18 tools/resources/prompts spec.
 | ~00:5x | "Rename to mcpserver.py; MCP server has tools/resources/prompts children; 5-stage LLM sync; versioned soft-delete; 1:1 dataset↔server; 3 entities mcpserver/sessions/queries; change UI." | Fetched MCP spec, asked 2 clarifying Qs (hybrid agent; vertical slice), ran a design pass, wrote the plan. |
 | ~01:2x | "Drop entire DB, create migrations fresh, consider it a new project, keep clean and lean." | Revised plan to a clean rebuild; saved the preference to memory; approved. |
 
+- [x] Phase A (clean rebuild, one coherent cutover — no aliases/backfill):
+  - **A1 model + migration:** `McpServerRow` (`mcp_servers`, unique name+uri, version, dataset_schema_json,
+    physical_tables_json) + child `mcp_tools`/`mcp_resources`/`mcp_prompts` (shared version+soft-delete
+    envelope, **partial-unique** `(server_id,name|uri) WHERE deleted_at IS NULL`); dropped
+    `DataSourceRow`/`DatasetTableRow`; `session_mcp_servers` join. Deleted all old Alembic versions →
+    **one fresh initial migration** `835cdb8ae996` (down_revision=None); upgrade/downgrade round-trips on
+    SQLite. settings += `mcp_list_page_size`.
+  - **A2 sync pipeline:** new `tools/sync/` (5 stages title→schema→entities→tools→prompts, each with a
+    `<node:sync_*>` tag + fallback) + transactional `apply_sync_result` (insert/update/**soft-delete**,
+    version++) + generated-SQL `LIMIT 0` validation; deleted `descriptions.py`; stub gained 5 branches +
+    single-level plan reply.
+  - **A3 API:** `api/datasources.py`→`api/mcpserver.py` (upload→create→sync→add-csv→delete + 1:1 URI),
+    repository/home/sessions/__init__ renamed to servers, `mcp_server_ids`.
+  - **A4 dispatch:** new `tools/mcp/dispatch.py` — JSON-RPC over stored rows (tools/resources/prompts
+    list+read/get+call, keyset cursor pagination, -32601/-32602/isError), wired at `POST /mcpserver/{id}`.
+  - **A5 agent:** server.py generic `query` tool + hardened SELECT guard + `_run_select_params`; pool +
+    planning/execution/nodes/state/stub flattened to single-level `{tool,arguments}`; `conversation`
+    kept a plain channel.
+  - **A6 UI:** home.html (MCP Servers, upload→create two-step JS), session.html (server chips, trace),
+    new mcpserver.html detail; deleted vestigial answer/dataset/datasource/history templates.
+  - Tests rewritten (models/migration/connectors/pool/domain + new sync + new mcpserver_api; golden-path
+    two-step). Gate: **`uv run pytest` = 54 passed, 1 skipped** (live PG skipped).
+
 ## Next Steps
 
-Phase 0 — rewrite the spec for the MCP-server model.
+Live smoke (create server → JSON-RPC → session query/memory); update README + ops (.env/Dockerfile/render);
+final full verification.
+
+## Note / flag for the user
+
+Local `.env` `DATAANALYSIS_DATABASE_URL` points at a **remote Render Postgres** (`master_pacb`) with a
+stale `alembic_version`. Spec/README/render all use SQLite for app metadata; I generated + verified the
+fresh migration against local SQLite and did **not** touch the remote DB (dropping a remote, outward-facing
+resource needs explicit confirmation).
 
 ## Session End State
 

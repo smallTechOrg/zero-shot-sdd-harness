@@ -1,0 +1,228 @@
+"""DB-backed MCP JSON-RPC 2.0 dispatcher for ``POST /mcpserver/{id}``.
+
+Answers the MCP read surface (tools/list+call, resources/list+read, prompts/list+get) directly from
+the server's stored capability rows — it does NOT use FastMCP (which cannot represent custom
+inputSchema / resources / prompts). Canned tools execute via the shared DuckDB read-only path with
+parameter binding. This is a different surface from the agent's session pool (``tools/mcp/pool.py``).
+"""
+from __future__ import annotations
+
+import base64
+import json
+from datetime import datetime
+
+import structlog
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session
+
+from data_analysis_agent.config.settings import get_settings
+from data_analysis_agent.db.models import (
+    McpPromptRow,
+    McpResourceRow,
+    McpServerRow,
+    McpToolRow,
+)
+from data_analysis_agent.tools.connectors.base import DatasetConnectionError, get_connector
+from data_analysis_agent.tools.mcp.server import RecoverableQueryError, _run_select_params
+
+log = structlog.get_logger()
+
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+_PARAM_PREFIX = "$"  # DuckDB named-parameter prefix used in sql_template
+
+
+def handle_jsonrpc(db: Session, server: McpServerRow, payload: dict) -> dict:
+    """Route a JSON-RPC request over a server's stored capabilities; return a JSON-RPC response."""
+    req_id = payload.get("id") if isinstance(payload, dict) else None
+    method = payload.get("method") if isinstance(payload, dict) else None
+    params = payload.get("params") or {}
+    try:
+        handler = _METHODS.get(method)
+        if handler is None:
+            return _error(req_id, METHOD_NOT_FOUND, f"Unknown method: {method!r}")
+        return _result(req_id, handler(db, server, params))
+    except _RpcError as exc:
+        return _error(req_id, exc.code, exc.message)
+    except Exception as exc:  # never leak a stack trace as a 500
+        log.error("mcp_dispatch.error", method=method, error=str(exc))
+        return _error(req_id, INVALID_PARAMS, str(exc))
+
+
+# --- methods ----------------------------------------------------------------
+
+def _tools_list(db, server, params):
+    rows, cursor = _page(db, McpToolRow, server.id, params)
+    tools = []
+    for r in rows:
+        tool = {"name": r.name, "description": r.description, "inputSchema": r.input_schema}
+        if r.title:
+            tool["title"] = r.title
+        if r.output_schema is not None:
+            tool["outputSchema"] = r.output_schema
+        if r.annotations is not None:
+            tool["annotations"] = r.annotations
+        tools.append(tool)
+    return _with_cursor({"tools": tools}, cursor)
+
+
+def _tools_call(db, server, params):
+    name = params.get("name")
+    arguments = params.get("arguments") or {}
+    row = _active_one(db, McpToolRow, server.id, McpToolRow.name == name)
+    if row is None:
+        raise _RpcError(INVALID_PARAMS, f"Unknown tool: {name!r}")
+    try:
+        text = _execute_canned(server, row, arguments)
+        return {"content": [{"type": "text", "text": text}], "isError": False}
+    except (RecoverableQueryError, DatasetConnectionError, Exception) as exc:
+        return {"content": [{"type": "text", "text": f"Tool error: {exc}"}], "isError": True}
+
+
+def _resources_list(db, server, params):
+    rows, cursor = _page(db, McpResourceRow, server.id, params)
+    resources = []
+    for r in rows:
+        res = {"uri": r.uri, "name": r.name}
+        if r.title:
+            res["title"] = r.title
+        if r.description:
+            res["description"] = r.description
+        if r.mime_type:
+            res["mimeType"] = r.mime_type
+        resources.append(res)
+    return _with_cursor({"resources": resources}, cursor)
+
+
+def _resources_read(db, server, params):
+    uri = params.get("uri")
+    row = _active_one(db, McpResourceRow, server.id, McpResourceRow.uri == uri)
+    if row is None:
+        raise _RpcError(INVALID_PARAMS, f"Unknown resource: {uri!r}")
+    content = server.dataset_schema if row.kind == "schema" else row.content
+    text = json.dumps(content) if content is not None else (row.description or "")
+    return {"contents": [{"uri": row.uri, "mimeType": row.mime_type or "application/json", "text": text}]}
+
+
+def _prompts_list(db, server, params):
+    rows, cursor = _page(db, McpPromptRow, server.id, params)
+    prompts = []
+    for r in rows:
+        p = {"name": r.name, "arguments": r.arguments}
+        if r.title:
+            p["title"] = r.title
+        if r.description:
+            p["description"] = r.description
+        prompts.append(p)
+    return _with_cursor({"prompts": prompts}, cursor)
+
+
+def _prompts_get(db, server, params):
+    name = params.get("name")
+    row = _active_one(db, McpPromptRow, server.id, McpPromptRow.name == name)
+    if row is None:
+        raise _RpcError(INVALID_PARAMS, f"Unknown prompt: {name!r}")
+    return {"description": row.description or "", "messages": row.template or []}
+
+
+_METHODS = {
+    "tools/list": _tools_list,
+    "tools/call": _tools_call,
+    "resources/list": _resources_list,
+    "resources/read": _resources_read,
+    "prompts/list": _prompts_list,
+    "prompts/get": _prompts_get,
+}
+
+
+# --- canned-query execution -------------------------------------------------
+
+def _execute_canned(server: McpServerRow, tool: McpToolRow, arguments: dict) -> str:
+    """Run a tool's ``sql_template`` with bound parameters over the server's tables."""
+    fast = get_connector(_server_dict(server), server.physical_tables).build_server()
+    conn = getattr(fast, "_duckdb_conn", None)
+    try:
+        params = _bind_params(tool, arguments)
+        max_rows = get_settings().mcp_max_result_rows
+        return _run_select_params(conn, tool.sql_template, params, max_rows)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _bind_params(tool: McpToolRow, arguments: dict) -> dict | None:
+    """Filter arguments to the tool's declared params (named ``$param`` in the SQL)."""
+    props = (tool.input_schema or {}).get("properties") or {}
+    if not props:
+        return None
+    return {k: arguments.get(k) for k in props}
+
+
+def _server_dict(server: McpServerRow) -> dict:
+    return {"id": server.id, "name": server.name, "type": server.type, "uri": server.uri}
+
+
+# --- pagination (opaque keyset cursor) --------------------------------------
+
+def _page(db, model, server_id, params):
+    """Return ``(rows, next_cursor)`` for an active-row listing, keyset-paginated."""
+    page_size = get_settings().mcp_list_page_size
+    q = db.query(model).filter(model.server_id == server_id, model.deleted_at.is_(None))
+    cursor = _decode_cursor(params.get("cursor"))
+    if cursor is not None:
+        c_created, c_id = cursor
+        q = q.filter(or_(model.created_at > c_created,
+                         and_(model.created_at == c_created, model.id > c_id)))
+    rows = q.order_by(model.created_at, model.id).limit(page_size + 1).all()
+    next_cursor = None
+    if len(rows) > page_size:
+        rows = rows[:page_size]
+        next_cursor = _encode_cursor(rows[-1].created_at, rows[-1].id)
+    return rows, next_cursor
+
+
+def _encode_cursor(created_at: datetime, row_id: str) -> str:
+    raw = f"{created_at.isoformat()}|{row_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_cursor(cursor: str | None):
+    if not cursor:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        created, row_id = raw.split("|", 1)
+        return datetime.fromisoformat(created), row_id
+    except Exception:
+        raise _RpcError(INVALID_PARAMS, "Invalid cursor.")
+
+
+def _with_cursor(result: dict, next_cursor: str | None) -> dict:
+    if next_cursor:
+        result["nextCursor"] = next_cursor
+    return result
+
+
+def _active_one(db, model, server_id, predicate):
+    return (
+        db.query(model)
+        .filter(model.server_id == server_id, model.deleted_at.is_(None), predicate)
+        .first()
+    )
+
+
+# --- JSON-RPC envelope ------------------------------------------------------
+
+class _RpcError(Exception):
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _result(req_id, result: dict) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+
+def _error(req_id, code: int, message: str) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}

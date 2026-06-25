@@ -20,39 +20,36 @@ def strip_json_fences(text: str) -> str:
 
 
 def parse_tool_call(raw: str) -> tuple[dict | None, Exception | None]:
-    """Parse a raw LLM reply into a two-level ``{tool, capability, arguments}`` dict.
+    """Parse a raw LLM reply into a single-level ``{tool, arguments}`` dict.
 
     Args:
         raw: The fence-stripped LLM response expected to be a JSON tool call.
 
     Returns:
-        ``(call, None)`` on success, or ``(None, exc)`` if it is not a valid call (missing
-        ``tool`` or ``capability``).
+        ``(call, None)`` on success, or ``(None, exc)`` if it is not a valid call (missing ``tool``).
     """
     try:
         call = json.loads(raw)
         return {
             "tool": call["tool"],
-            "capability": call["capability"],
             "arguments": call.get("arguments", {}),
         }, None
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         return None, exc
 
 
-def observation(tool: str, capability: str, arguments: dict, result: str, is_error: bool) -> dict:
+def observation(tool: str, arguments: dict, result: str, is_error: bool) -> dict:
     """Construct a single ``action_history`` entry."""
-    return {"tool": tool, "capability": capability, "arguments": arguments,
-            "result": result, "is_error": is_error}
+    return {"tool": tool, "arguments": arguments, "result": result, "is_error": is_error}
 
 
 def invalid_call_entry(exc: Exception | None) -> dict:
     """Build the recoverable observation shown when the reply was not a tool call."""
     return observation(
-        "(invalid)", "(invalid)", {},
+        "(invalid)", {},
         f"Your response could not be parsed as a tool call ({exc}). "
         f'Respond with EITHER a single JSON object '
-        f'{{"tool": "<dataset>", "capability": "<table>", "arguments": {{"query": "SELECT ..."}}}} '
+        f'{{"tool": "<server>", "arguments": {{"query": "SELECT ..."}}}} '
         f"(no prose, no markdown) OR a line starting with 'FINAL ANSWER:'.",
         True,
     )

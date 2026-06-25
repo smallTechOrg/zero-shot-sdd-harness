@@ -6,51 +6,119 @@ from data_analysis_agent.llm.types import LLMResult
 
 
 class StubLLMProvider(LLMProvider):
-    """Offline stub — returns plausibly shaped output without any API call."""
+    """Offline stub — returns plausibly shaped output without any API call.
+
+    Branches on the ``<node:...>`` tag in the prompt (never on prose keywords). Each sync stage
+    echoes identifiers parsed from its prompt so the cascade is self-consistent, and the generated
+    tool SQL is a valid zero-parameter SELECT so ``tools/call`` and the agent both work offline.
+    """
 
     def complete(self, prompt: str) -> LLMResult:
-        """Return canned output shaped by the node tag embedded in the prompt.
-
-        Args:
-            prompt: The prompt whose ``<node:...>`` tag selects the response shape.
-
-        Returns:
-            A zero-cost :class:`LLMResult` mimicking a real provider's reply.
-        """
-        if "<node:describe_tool>" in prompt:
-            text = _describe_tool_reply(prompt)
-        elif "<node:plan_action>" not in prompt:
-            text = "(stub) No response — unrecognized node tag in prompt."
-        else:
-            text = _plan_action_reply(prompt)
+        text = _dispatch(prompt)
         return LLMResult(text=text, input_tokens=0, output_tokens=0, total_tokens=0, estimated_cost_usd=0.0)
 
 
-def _describe_tool_reply(prompt: str) -> str:
-    """Build a stub dataset-description response: one tool_description + a per-table capability map."""
-    name_match = re.search(r"Dataset name:\s+(.+)", prompt)
-    name = name_match.group(1).strip() if name_match else "dataset"
-    tables = re.findall(r"Table:\s+(\w+)", prompt)
-    return json.dumps({
-        "tool_description": f"(stub) Dataset '{name}' available for SQL analysis.",
-        "capabilities": {t: f"(stub) Query the '{t}' table." for t in tables},
-    })
+def _dispatch(prompt: str) -> str:
+    if "<node:plan_action>" in prompt:
+        return _plan_action_reply(prompt)
+    if "<node:sync_title>" in prompt:
+        return _sync_title(prompt)
+    if "<node:sync_schema>" in prompt:
+        return _sync_schema(prompt)
+    if "<node:sync_entities>" in prompt:
+        return _sync_entities(prompt)
+    if "<node:sync_tools>" in prompt:
+        return _sync_tools(prompt)
+    if "<node:sync_prompts>" in prompt:
+        return _sync_prompts(prompt)
+    return "(stub) No response — unrecognized node tag in prompt."
+
+
+def _dataset_name(prompt: str) -> str:
+    m = re.search(r"Dataset name:\s+(.+)", prompt)
+    return m.group(1).strip() if m else "dataset"
+
+
+def _tables(prompt: str) -> list[str]:
+    """Table names from a ``Table: <name>`` block (sync stages)."""
+    return re.findall(r"Table:\s+(\w+)", prompt)
 
 
 def _plan_action_reply(prompt: str) -> str:
-    """Build a stub plan_action response: a count query on the first capability, then a final answer.
-
-    Emits the two-level call {tool=dataset, capability=table}. Picks the first advertised dataset
-    and its first table capability (deterministic — tests should not assume a specific table).
-    """
+    """Single-level plan reply: a count query on the first server/table, then a final answer."""
     if "[1] tool:" in prompt:
         return (
             "FINAL ANSWER: (stub) Based on the query results, the data analysis is complete. "
             "Set DATAANALYSIS_OPENROUTER_API_KEY to get real AI-powered answers."
         )
-    dataset_match = re.search(r"Tool:\s+(.+)", prompt)         # dataset name (may contain spaces)
-    capability_match = re.search(r"capability:\s+(\w+)", prompt)  # first table
-    dataset = dataset_match.group(1).strip() if dataset_match else "data"
-    table = capability_match.group(1) if capability_match else "data"
+    server_match = re.search(r"Tool:\s+(.+)", prompt)
+    server = server_match.group(1).strip() if server_match else "data"
+    table_match = re.search(r"^    (\w+)\(", prompt, re.MULTILINE)
+    table = table_match.group(1) if table_match else "data"
     query = f"SELECT COUNT(*) as total_rows FROM {table}"
-    return json.dumps({"tool": dataset, "capability": table, "arguments": {"query": query}})
+    return json.dumps({"tool": server, "arguments": {"query": query}})
+
+
+def _sync_title(prompt: str) -> str:
+    name = _dataset_name(prompt)
+    return json.dumps({
+        "title": f"(stub) {name}",
+        "description": f"(stub) MCP server for dataset '{name}'.",
+    })
+
+
+def _sync_schema(prompt: str) -> str:
+    tables = _tables(prompt)
+    return json.dumps({
+        "tables": {t: {"type": "object"} for t in tables},
+        "relationships": [],
+    })
+
+
+def _sync_entities(prompt: str) -> str:
+    name = _dataset_name(prompt)
+    m = re.search(r"Schema tables:\s+(.+)", prompt)
+    tables = [t.strip() for t in m.group(1).split(",")] if m and m.group(1).strip() != "(none)" else []
+    entities = [
+        {
+            "name": t,
+            "title": f"(stub) {t}",
+            "description": f"(stub) The '{t}' entity.",
+            "kind": "primary_entity",
+            "uri": f"entity://{name}/{t}",
+            "mime_type": "application/json",
+        }
+        for t in tables
+    ]
+    return json.dumps({"entities": entities})
+
+
+def _sync_tools(prompt: str) -> str:
+    m = re.search(r"Tables available:\s+(.+)", prompt)
+    tables = [t.strip() for t in m.group(1).split(",")] if m and m.group(1).strip() != "(none)" else []
+    tools = [
+        {
+            "name": f"list_{t}",
+            "title": f"(stub) List {t}",
+            "description": f"(stub) Return rows from '{t}'.",
+            "input_schema": {"type": "object", "properties": {}},
+            "sql_template": f"SELECT * FROM {t} LIMIT 100",
+        }
+        for t in tables
+    ]
+    return json.dumps({"tools": tools})
+
+
+def _sync_prompts(prompt: str) -> str:
+    tools = re.findall(r"Tool:\s+(\w+)", prompt)
+    prompts = [
+        {
+            "name": f"explore_{t}",
+            "title": f"(stub) Explore {t}",
+            "description": f"(stub) Use the '{t}' tool.",
+            "arguments": [],
+            "template": [{"role": "user", "content": f"Use the '{t}' tool."}],
+        }
+        for t in tools
+    ]
+    return json.dumps({"prompts": prompts})
