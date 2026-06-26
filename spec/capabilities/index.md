@@ -1,23 +1,24 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+## Capabilities in This Project
 
----
+| Capability | File | Phase |
+|-----------|------|-------|
+| CSV Upload | [csv-upload.md](csv-upload.md) | Phase 1 |
+| Natural Language to SQL | [nl-to-sql.md](nl-to-sql.md) | Phase 1 |
+| Chart Rendering | [chart-rendering.md](chart-rendering.md) | Phase 1 |
+| Insight Generation | [insight-generation.md](insight-generation.md) | Phase 1 |
+| Observability | [observability.md](observability.md) | Phase 1 (cross-cutting) |
 
 ## What Is a Capability?
 
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+A capability is a single, discrete action or behavior the agent performs:
 
-## Capabilities in This Project
-
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+- **CSV Upload** — accept a file, parse it, load into SQLite, return schema
+- **Natural Language to SQL** — convert a question + schema into a safe SELECT query and execute it
+- **Chart Rendering** — deterministically choose a chart type and build a Recharts JSON spec from query rows
+- **Insight Generation** — call Gemini to write a plain-English paragraph summarising the results
+- **Observability** — emit structured logs per operation and propagate LLM calls to LangSmith
 
 ## How to Add a New Capability
 
@@ -26,13 +27,3 @@ Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-a
 2. Update this index
 3. Flag any dependencies on existing capabilities
 4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
