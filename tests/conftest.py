@@ -4,9 +4,12 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_settings_singleton():
     import config.settings as m
+    import llm.router as r
     m._settings = None
+    r.reset_router()
     yield
     m._settings = None
+    r.reset_router()
 
 
 @pytest.fixture(autouse=True)

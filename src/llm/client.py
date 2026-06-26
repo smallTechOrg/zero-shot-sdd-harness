@@ -31,5 +31,13 @@ class LLMClient:
     def __init__(self) -> None:
         self._provider = _make_provider()
 
-    def call_model(self, prompt: str, *, system: str | None = None):
-        return self._provider.call_model(prompt, system=system)
+    def call_model(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        model: str | None = None,
+    ):
+        """Call the configured provider. `model` overrides the default for this
+        one call — pass the router's choice here for per-task model selection."""
+        return self._provider.call_model(prompt, system=system, model=model)

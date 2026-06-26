@@ -3,14 +3,15 @@ from pathlib import Path
 
 from graph.state import AgentState, NodeTrace
 from llm.client import LLMClient
+from llm.router import get_router
 from observability.events import get_logger
 
-_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "transform.md"
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _log = get_logger("nodes")
 
 
-def _load_prompt() -> str:
-    return _PROMPT_PATH.read_text(encoding="utf-8").strip()
+def _load_prompt(filename: str = "transform.md") -> str:
+    return (_PROMPTS_DIR / filename).read_text(encoding="utf-8").strip()
 
 
 def _enter(state: AgentState, node: str) -> float:
@@ -30,8 +31,13 @@ def transform_text(state: AgentState) -> AgentState:
     t0 = _enter(state, "transform_text")
     try:
         prompt_template = _load_prompt()
+        # Route the capability work through the "tools" task. Blank route →
+        # provider default (byte-identical to before); set AGENT_MODEL_TOOLS to
+        # route this call to a specific tier. The react node (Phase 2) is where
+        # routing earns its keep; here it proves the wiring end to end.
         response = LLMClient().call_model(
-            f"{prompt_template}\n\nInput: {state['input_text']}"
+            f"{prompt_template}\n\nInput: {state['input_text']}",
+            model=get_router().route("tools"),
         )
         _log.info(
             "llm.call",

@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
 
+    # Model routing — logical task → concrete model id (provider-specific).
+    # Blank → the provider's default model. Set these to your provider's tiers,
+    # e.g. Anthropic: classify=claude-haiku-4-5, tools=claude-sonnet-4-6,
+    # reason=claude-opus-4-8; Gemini: classify=gemini-2.5-flash,
+    # tools=gemini-2.5-flash, reason=gemini-2.5-pro.
+    model_classify: str = Field(default="")
+    model_tools: str = Field(default="")
+    model_reason: str = Field(default="")
+
 
 _settings: Settings | None = None
 
