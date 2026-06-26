@@ -1,3 +1,3 @@
-from domain.run import UploadResponse, QueryRequest, QueryResponse
+from domain.run import SessionResponse, QuestionRequest, AnalysisResponse
 
-__all__ = ["UploadResponse", "QueryRequest", "QueryResponse"]
+__all__ = ["SessionResponse", "QuestionRequest", "AnalysisResponse"]

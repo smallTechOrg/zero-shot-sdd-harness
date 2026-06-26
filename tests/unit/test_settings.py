@@ -52,3 +52,22 @@ def test_explicit_provider_wins(monkeypatch, tmp_path):
     m._settings = None
     s = m.get_settings()
     assert s.llm_provider == "gemini"
+
+
+def test_no_langsmith_fields(monkeypatch, tmp_path):
+    """LangSmith fields must not exist in the new settings."""
+    monkeypatch.setenv("AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    import config.settings as m
+    m._settings = None
+    s = m.get_settings()
+    assert not hasattr(s, "langchain_api_key")
+    assert not hasattr(s, "langchain_tracing_v2")
+    assert not hasattr(s, "langchain_project")
+
+
+def test_default_model_is_gemini_flash(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
+    import config.settings as m
+    m._settings = None
+    s = m.get_settings()
+    assert s.llm_model == "gemini-2.5-flash"

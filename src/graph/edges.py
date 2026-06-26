@@ -1,7 +1,9 @@
 from graph.state import AgentState
 
 
-def route_or_error(state: AgentState, next_node: str) -> str:
-    if state.get("error"):
-        return "handle_error"
-    return next_node
+def after_parse_csv(state: AgentState) -> str:
+    return "handle_error" if state.get("error") else "answer_question"
+
+
+def after_answer_question(state: AgentState) -> str:
+    return "handle_error" if state.get("error") else "finalize"

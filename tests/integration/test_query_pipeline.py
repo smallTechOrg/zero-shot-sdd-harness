@@ -1,8 +1,6 @@
-"""Integration tests for POST /query — requires real AGENT_GEMINI_API_KEY."""
+"""Integration tests for POST /sessions/{id}/questions — requires real AGENT_GEMINI_API_KEY."""
 import io
-import json
 import pytest
-from unittest.mock import patch
 
 
 def _upload_sales_csv(api_client) -> str:
@@ -16,7 +14,7 @@ def _upload_sales_csv(api_client) -> str:
         "Elderberry,8,80.00\n"
     )
     r = api_client.post(
-        "/upload",
+        "/sessions",
         files={"file": ("sales.csv", io.BytesIO(csv_content.encode()), "text/csv")},
     )
     assert r.status_code == 200, f"Upload failed: {r.text}"
@@ -24,113 +22,65 @@ def _upload_sales_csv(api_client) -> str:
 
 
 @pytest.mark.usefixtures("_require_gemini_key")
-class TestQueryPipelineReal:
-    def test_query_returns_completed(self, api_client):
+class TestAnalysisPipelineReal:
+    def test_question_returns_200(self, api_client):
         session_id = _upload_sales_csv(api_client)
         r = api_client.post(
-            "/query",
-            json={"session_id": session_id, "question": "What is the total revenue by product?"},
+            f"/sessions/{session_id}/questions",
+            json={"question": "What is the total revenue by product?"},
         )
         assert r.status_code == 200
-        data = r.json()["data"]
-        assert data["status"] == "completed"
 
-    def test_query_returns_sql(self, api_client):
+    def test_question_returns_answer(self, api_client):
         session_id = _upload_sales_csv(api_client)
         r = api_client.post(
-            "/query",
-            json={"session_id": session_id, "question": "What is the total revenue by product?"},
+            f"/sessions/{session_id}/questions",
+            json={"question": "Which product has the highest revenue?"},
         )
         data = r.json()["data"]
-        assert data["sql"] is not None
-        assert data["sql"].upper().startswith("SELECT")
+        assert data["answer"] is not None
+        assert len(data["answer"]) > 10
 
-    def test_query_returns_chart_spec(self, api_client):
+    def test_question_returns_run_id(self, api_client):
         session_id = _upload_sales_csv(api_client)
         r = api_client.post(
-            "/query",
-            json={"session_id": session_id, "question": "What is the total revenue by product?"},
+            f"/sessions/{session_id}/questions",
+            json={"question": "How many rows?"},
         )
         data = r.json()["data"]
-        assert data["chart_spec"] is not None
-        assert "type" in data["chart_spec"]
+        assert "run_id" in data
+        assert len(data["run_id"]) > 10
 
-    def test_query_returns_insight(self, api_client):
+    def test_chart_fields_are_null_in_phase1(self, api_client):
+        """Phase 2 stub: chart_base64 and chart_type are None in Phase 1."""
         session_id = _upload_sales_csv(api_client)
         r = api_client.post(
-            "/query",
-            json={"session_id": session_id, "question": "What is the total revenue by product?"},
+            f"/sessions/{session_id}/questions",
+            json={"question": "What is the total revenue?"},
         )
         data = r.json()["data"]
-        assert data["insight"] is not None
-        assert len(data["insight"]) > 20
-
-    def test_query_run_id_returned(self, api_client):
-        session_id = _upload_sales_csv(api_client)
-        r = api_client.post(
-            "/query",
-            json={"session_id": session_id, "question": "How many rows?"},
-        )
-        data = r.json()["data"]
-        assert "query_run_id" in data
-        assert len(data["query_run_id"]) > 10
+        assert data["chart_base64"] is None
+        assert data["chart_type"] is None
 
 
-class TestQuerySafetySQLBlocked:
-    def test_safety_violation_returns_failed_status(self, api_client, _isolated_db):
-        """Patching sql_generation to return a DELETE statement triggers the safety guard."""
-        session_id = _upload_sales_csv(api_client)
-
-        def _fake_sql_generation(state):
-            return {**state, "sql": "DELETE FROM sales_csv_abc12345"}
-
-        with patch("graph.nodes.sql_generation", _fake_sql_generation):
-            # We need to also patch the graph to use our fake node
-            # Instead, patch the sql directly by monkey-patching nodes in the graph
-            pass
-
-        # Directly test through the node: create state and call sql_execution
-        from graph.nodes import sql_execution
-        state = {
-            "sql": "DELETE FROM some_table",
-            "table_name": "some_table",
-            "question": "delete all rows",
-        }
-        result = sql_execution(state)
-        assert result.get("error") is not None
-        assert "SQL safety violation" in result["error"]
-
-    def test_safety_error_message_content(self, api_client):
-        from graph.nodes import sql_execution
-        for dangerous_sql in [
-            "INSERT INTO t VALUES (1)",
-            "UPDATE t SET x=1",
-            "DROP TABLE t",
-        ]:
-            state = {"sql": dangerous_sql, "table_name": "t", "question": "q"}
-            result = sql_execution(state)
-            assert result.get("error") is not None
-            assert "SQL safety violation" in result["error"]
-
-
-class TestQueryErrorCases:
+class TestQuestionErrorCases:
     def test_session_not_found_returns_404(self, api_client):
         r = api_client.post(
-            "/query",
-            json={"session_id": "nonexistent-uuid-1234", "question": "Test?"},
+            "/sessions/nonexistent-uuid-1234/questions",
+            json={"question": "Test?"},
         )
         assert r.status_code == 404
 
     def test_empty_question_rejected(self, api_client):
-        r = api_client.post(
-            "/query",
-            json={"session_id": "any", "question": ""},
+        csv_bytes = b"name,age\nAlice,30\n"
+        r_upload = api_client.post(
+            "/sessions",
+            files={"file": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
         )
-        assert r.status_code == 422
+        session_id = r_upload.json()["data"]["session_id"]
 
-    def test_question_too_long_rejected(self, api_client):
         r = api_client.post(
-            "/query",
-            json={"session_id": "any", "question": "x" * 2001},
+            f"/sessions/{session_id}/questions",
+            json={"question": ""},
         )
-        assert r.status_code == 422
+        assert r.status_code == 400

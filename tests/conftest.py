@@ -26,6 +26,14 @@ def _isolated_db(tmp_path, monkeypatch):
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _clear_session_store():
+    import sessions.store as store
+    store._SESSION_STORE.clear()
+    yield
+    store._SESSION_STORE.clear()
+
+
 @pytest.fixture
 def _require_gemini_key():
     """Skip if no Gemini API key is set."""

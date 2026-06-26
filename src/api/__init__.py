@@ -2,24 +2,31 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    from config.settings import configure_langsmith
-    configure_langsmith()
     from db.session import init_db
     init_db()
     yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Agent", version="0.1.0", lifespan=_lifespan)
-    from api import health, upload, query
+    app = FastAPI(title="Data Analysis Agent", version="0.1.0", lifespan=_lifespan)
+
+    # Allow the frontend dev server and any origin to call the API
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    from api import health, sessions
     app.include_router(health.router)
-    app.include_router(upload.router)
-    app.include_router(query.router)
+    app.include_router(sessions.router)
 
     # Serve the built Next.js static export at /app
     # Run `cd frontend && pnpm build` to generate frontend/out/ before starting.

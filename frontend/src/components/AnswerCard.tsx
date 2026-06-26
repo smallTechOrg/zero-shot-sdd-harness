@@ -1,25 +1,28 @@
 'use client'
 
-import { DataChart } from './DataChart'
-import type { ChartSpec } from './DataChart'
 import { StubBadge } from './StubBadge'
 
-export interface QueryResponse {
-  query_run_id: string
-  status: 'completed' | 'failed'
-  sql?: string
-  chart_spec?: ChartSpec
-  insight?: string
-  error?: string
+export interface AnalysisResult {
+  run_id: string
+  answer: string
+  chart_base64: string | null
+  chart_type: string | null
+  executed_code: string | null
+  node_trace: Array<{ node: string; duration_ms: number }>
+  tokens_in: number | null
+  tokens_out: number | null
+  cost_usd: number | null
+  latency_ms: number | null
 }
 
 interface AnswerCardProps {
   question: string
-  answer: QueryResponse | null
+  result: AnalysisResult | null
   loading: boolean
+  error: string | null
 }
 
-export function AnswerCard({ question, answer, loading }: AnswerCardProps) {
+export function AnswerCard({ question, result, loading, error }: AnswerCardProps) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
       {/* Question header */}
@@ -54,62 +57,59 @@ export function AnswerCard({ question, answer, loading }: AnswerCardProps) {
         </div>
       )}
 
+      {/* Error state */}
+      {!loading && error && (
+        <div className="px-4 py-4 bg-amber-50 border-l-4 border-amber-400">
+          <p className="text-sm font-medium text-amber-800 mb-1">Request failed</p>
+          <p className="text-sm text-amber-700">{error}</p>
+        </div>
+      )}
+
       {/* Answer content */}
-      {!loading && answer && (
+      {!loading && !error && result && (
         <div className="divide-y divide-gray-100">
-          {/* Failed state */}
-          {answer.status === 'failed' && (
-            <div className="px-4 py-4 bg-amber-50 border-l-4 border-amber-400">
-              <p className="text-sm font-medium text-amber-800 mb-1">Query failed</p>
-              <p className="text-sm text-amber-700">{answer.error ?? 'An unknown error occurred.'}</p>
-            </div>
-          )}
-
-          {/* SQL block */}
-          {answer.sql && (
-            <div className="px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">SQL Query</p>
-              <pre className="rounded-lg bg-gray-900 text-green-400 font-mono text-xs p-4 overflow-x-auto whitespace-pre-wrap break-words">
-                <code>{answer.sql}</code>
-              </pre>
-            </div>
-          )}
-
-          {/* Chart */}
-          {answer.chart_spec && (
-            <div className="px-4 py-4">
-              {answer.chart_spec.title && (
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
-                  Chart — {answer.chart_spec.title}
-                </p>
-              )}
-              {!answer.chart_spec.title && (
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Chart</p>
-              )}
-              <DataChart chartSpec={answer.chart_spec} />
-            </div>
-          )}
-
-          {/* Insight */}
-          {answer.insight && (
-            <div className="px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Insight</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{answer.insight}</p>
-            </div>
-          )}
-
-          {/* Stub: Pin to Dashboard */}
-          <div className="px-4 py-3 bg-gray-50 flex items-center">
-            <button
-              type="button"
-              onClick={() => alert('Coming soon — dashboard pinning is planned for Phase 2.')}
-              className="flex items-center gap-1.5 text-sm text-gray-400 cursor-not-allowed opacity-75"
-              title="Coming in Phase 2 — save this chart to your dashboard."
-            >
-              Pin to Dashboard
-              <StubBadge label="Phase 2" />
-            </button>
+          {/* Answer text */}
+          <div className="px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Answer</p>
+            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{result.answer}</p>
           </div>
+
+          {/* Chart stub — Phase 2 */}
+          <div className="px-4 py-4 bg-gray-50">
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Charts</p>
+              <StubBadge label="Phase 2" />
+            </div>
+            <div className="rounded-lg border border-dashed border-gray-200 bg-white px-4 py-6 flex items-center justify-center">
+              <p className="text-sm italic text-gray-400">Charts — coming in Phase 2</p>
+            </div>
+          </div>
+
+          {/* Executed code stub — Phase 2 */}
+          <div className="px-4 py-4 bg-gray-50">
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Executed code</p>
+              <StubBadge label="Phase 2" />
+            </div>
+            <div className="rounded-lg border border-dashed border-gray-200 bg-white px-4 py-6 flex items-center justify-center">
+              <p className="text-sm italic text-gray-400">Executed code — coming in Phase 2</p>
+            </div>
+          </div>
+
+          {/* Latency/cost metadata */}
+          {(result.latency_ms != null || result.cost_usd != null) && (
+            <div className="px-4 py-3 bg-gray-50 flex items-center gap-4 text-xs text-gray-400">
+              {result.latency_ms != null && (
+                <span>{(result.latency_ms / 1000).toFixed(2)}s</span>
+              )}
+              {result.tokens_in != null && result.tokens_out != null && (
+                <span>{result.tokens_in + result.tokens_out} tokens</span>
+              )}
+              {result.cost_usd != null && (
+                <span>${result.cost_usd.toFixed(5)}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

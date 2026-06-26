@@ -4,8 +4,8 @@ import { useRef, useState } from 'react'
 
 export interface UploadSession {
   session_id: string
-  table_name: string
-  schema: Array<{ column: string; type: string }>
+  columns: Array<{ name: string; dtype: string }>
+  row_count: number
 }
 
 interface UploadPanelProps {
@@ -49,7 +49,7 @@ export function UploadPanel({ onUploadSuccess }: UploadPanelProps) {
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      const res = await fetch('/upload', { method: 'POST', body: formData })
+      const res = await fetch('/sessions', { method: 'POST', body: formData })
       const data = await res.json()
       if (!res.ok) {
         const msg =
@@ -69,8 +69,8 @@ export function UploadPanel({ onUploadSuccess }: UploadPanelProps) {
       }
       const session: UploadSession = {
         session_id: data.data.session_id,
-        table_name: data.data.table_name,
-        schema: data.data.schema,
+        columns: data.data.columns,
+        row_count: data.data.row_count,
       }
       setUploadedSession(session)
       onUploadSuccess(session)
@@ -142,17 +142,20 @@ export function UploadPanel({ onUploadSuccess }: UploadPanelProps) {
         </div>
       )}
 
-      {/* Schema preview */}
+      {/* Column preview */}
       {uploadedSession && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-green-700 mb-2">
-            Loaded: {uploadedSession.table_name}
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700 mb-1">
+            Loaded successfully
+          </p>
+          <p className="text-xs text-green-600 mb-2">
+            {uploadedSession.row_count.toLocaleString()} rows
           </p>
           <ul className="divide-y divide-green-100">
-            {uploadedSession.schema.map((col) => (
-              <li key={col.column} className="flex items-center justify-between py-1 text-xs text-green-800">
-                <span className="font-mono">{col.column}</span>
-                <span className="text-green-600 bg-green-100 px-1.5 py-0.5 rounded">{col.type}</span>
+            {uploadedSession.columns.map((col) => (
+              <li key={col.name} className="flex items-center justify-between py-1 text-xs text-green-800">
+                <span className="font-mono">{col.name}</span>
+                <span className="text-green-600 bg-green-100 px-1.5 py-0.5 rounded">{col.dtype}</span>
               </li>
             ))}
           </ul>

@@ -1,29 +1,26 @@
 from __future__ import annotations
 
-import warnings
-from pydantic import BaseModel, Field
-from typing import Any
+from pydantic import BaseModel
 
 
-class UploadResponse(BaseModel):
+class SessionResponse(BaseModel):
     session_id: str
-    table_name: str
+    columns: list[dict]
     row_count: int
-    # Named "schema" in the API contract; suppress Pydantic shadow warning
-    schema_: list[dict] = Field(default_factory=list, alias="schema")
-
-    model_config = {"populate_by_name": True}
 
 
-class QueryRequest(BaseModel):
-    session_id: str
+class QuestionRequest(BaseModel):
     question: str
 
 
-class QueryResponse(BaseModel):
-    query_run_id: str
-    status: str
-    sql: str | None = None
-    chart_spec: Any | None = None
-    insight: str | None = None
-    error: str | None = None
+class AnalysisResponse(BaseModel):
+    run_id: str
+    answer: str | None = None
+    chart_base64: str | None = None
+    chart_type: str | None = None
+    executed_code: str | None = None
+    node_trace: list[dict] | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    cost_usd: float | None = None
+    latency_ms: float | None = None

@@ -2,21 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AnswerCard } from './AnswerCard'
-import type { QueryResponse } from './AnswerCard'
-
-interface ChatSession {
-  session_id: string
-  table_name: string
-}
+import type { AnalysisResult } from './AnswerCard'
+import type { UploadSession } from './UploadPanel'
 
 interface Message {
   question: string
-  answer: QueryResponse | null
+  result: AnalysisResult | null
   loading: boolean
+  error: string | null
 }
 
 interface ChatPanelProps {
-  session: ChatSession | null
+  session: UploadSession | null
 }
 
 const MAX_CHARS = 2000
@@ -43,40 +40,43 @@ export function ChatPanel({ session }: ChatPanelProps) {
     setSubmitting(true)
 
     const idx = messages.length
-    setMessages((prev) => [...prev, { question: q, answer: null, loading: true }])
+    setMessages((prev) => [...prev, { question: q, result: null, loading: true, error: null }])
 
     try {
-      const res = await fetch('/query', {
+      const res = await fetch(`/sessions/${session.session_id}/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: session.session_id, question: q }),
+        body: JSON.stringify({ question: q }),
       })
       const data = await res.json()
 
-      let answer: QueryResponse
       if (!res.ok) {
         const msg =
           data.detail?.message ??
           data.error?.message ??
           `Request failed (${res.status})`
-        answer = {
-          query_run_id: '',
-          status: 'failed',
-          error: msg,
-        }
-      } else if (data.ok) {
-        answer = data.data as QueryResponse
-      } else {
-        answer = {
-          query_run_id: '',
-          status: 'failed',
-          error: data.error?.message ?? 'Unknown error.',
-        }
+        setMessages((prev) => {
+          const updated = [...prev]
+          updated[idx] = { question: q, result: null, loading: false, error: msg }
+          return updated
+        })
+        return
       }
 
+      if (!data.ok) {
+        const msg = data.error?.message ?? 'Unknown error.'
+        setMessages((prev) => {
+          const updated = [...prev]
+          updated[idx] = { question: q, result: null, loading: false, error: msg }
+          return updated
+        })
+        return
+      }
+
+      const result: AnalysisResult = data.data
       setMessages((prev) => {
         const updated = [...prev]
-        updated[idx] = { question: q, answer, loading: false }
+        updated[idx] = { question: q, result, loading: false, error: null }
         return updated
       })
     } catch {
@@ -84,12 +84,9 @@ export function ChatPanel({ session }: ChatPanelProps) {
         const updated = [...prev]
         updated[idx] = {
           question: q,
-          answer: {
-            query_run_id: '',
-            status: 'failed',
-            error: 'Network error — is the server running?',
-          },
+          result: null,
           loading: false,
+          error: 'Network error — is the server running?',
         }
         return updated
       })
@@ -111,15 +108,16 @@ export function ChatPanel({ session }: ChatPanelProps) {
         )}
         {messages.length === 0 && session && (
           <div className="flex items-center justify-center h-32 text-sm text-gray-400 text-center">
-            Ask a question about <span className="font-medium text-gray-600 mx-1">{session.table_name}</span> to get started.
+            Ask a question about your data to get started.
           </div>
         )}
         {messages.map((msg, i) => (
           <AnswerCard
             key={i}
             question={msg.question}
-            answer={msg.answer}
+            result={msg.result}
             loading={msg.loading}
+            error={msg.error}
           />
         ))}
         <div ref={bottomRef} />
@@ -135,7 +133,7 @@ export function ChatPanel({ session }: ChatPanelProps) {
             disabled={!session || submitting}
             placeholder={
               session
-                ? `Ask about ${session.table_name}…`
+                ? 'Ask a question about your data…'
                 : 'Upload a CSV file first…'
             }
             maxLength={MAX_CHARS}

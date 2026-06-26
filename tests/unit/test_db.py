@@ -1,47 +1,42 @@
 """DB layer tests — no LLM key required."""
 import json
 from sqlalchemy.orm import Session
-from db.models import UploadSession, QueryRun
+from db.models import SessionRow, AnalysisRun
 
 
-def test_upload_session_roundtrip(_isolated_db):
+def test_session_row_roundtrip(_isolated_db):
     with Session(_isolated_db) as s:
-        session = UploadSession(
-            table_name="test_table_abc12345",
+        row = SessionRow(
             original_filename="test.csv",
             row_count=10,
-            col_count=3,
-            schema_json=json.dumps([{"column": "id", "type": "INTEGER"}]),
+            column_schema=json.dumps([{"name": "id", "dtype": "int64"}]),
         )
-        s.add(session)
+        s.add(row)
         s.commit()
-        session_id = session.id
+        session_id = row.id
 
     with Session(_isolated_db) as s:
-        fetched = s.get(UploadSession, session_id)
+        fetched = s.get(SessionRow, session_id)
         assert fetched is not None
         assert fetched.original_filename == "test.csv"
         assert fetched.row_count == 10
-        assert fetched.col_count == 3
-        schema = json.loads(fetched.schema_json)
-        assert schema[0]["column"] == "id"
+        schema = json.loads(fetched.column_schema)
+        assert schema[0]["name"] == "id"
 
 
-def test_query_run_roundtrip(_isolated_db):
+def test_analysis_run_roundtrip(_isolated_db):
     with Session(_isolated_db) as s:
-        upload = UploadSession(
-            table_name="sales_abc12345",
+        session_row = SessionRow(
             original_filename="sales.csv",
             row_count=5,
-            col_count=2,
-            schema_json="[]",
+            column_schema="[]",
         )
-        s.add(upload)
+        s.add(session_row)
         s.commit()
-        session_id = upload.id
+        session_id = session_row.id
 
     with Session(_isolated_db) as s:
-        run = QueryRun(
+        run = AnalysisRun(
             session_id=session_id,
             question="What are total sales?",
             status="pending",
@@ -51,28 +46,26 @@ def test_query_run_roundtrip(_isolated_db):
         run_id = run.id
 
     with Session(_isolated_db) as s:
-        run = s.get(QueryRun, run_id)
+        run = s.get(AnalysisRun, run_id)
         assert run is not None
         assert run.question == "What are total sales?"
         assert run.status == "pending"
-        assert run.sql is None
+        assert run.answer is None
 
 
-def test_query_run_status_update(_isolated_db):
+def test_analysis_run_status_update(_isolated_db):
     with Session(_isolated_db) as s:
-        upload = UploadSession(
-            table_name="data_ab123456",
+        session_row = SessionRow(
             original_filename="data.csv",
             row_count=3,
-            col_count=1,
-            schema_json="[]",
+            column_schema="[]",
         )
-        s.add(upload)
+        s.add(session_row)
         s.commit()
-        session_id = upload.id
+        session_id = session_row.id
 
     with Session(_isolated_db) as s:
-        run = QueryRun(
+        run = AnalysisRun(
             session_id=session_id,
             question="Test?",
             status="pending",
@@ -82,14 +75,16 @@ def test_query_run_status_update(_isolated_db):
         run_id = run.id
 
     with Session(_isolated_db) as s:
-        run = s.get(QueryRun, run_id)
+        run = s.get(AnalysisRun, run_id)
         run.status = "completed"
-        run.sql = "SELECT * FROM data_ab123456"
-        run.insight = "Some insight."
+        run.answer = "The answer is 42."
+        run.tokens_in = 100
+        run.tokens_out = 50
         s.commit()
 
     with Session(_isolated_db) as s:
-        run = s.get(QueryRun, run_id)
+        run = s.get(AnalysisRun, run_id)
         assert run.status == "completed"
-        assert run.sql == "SELECT * FROM data_ab123456"
-        assert run.insight == "Some insight."
+        assert run.answer == "The answer is 42."
+        assert run.tokens_in == 100
+        assert run.tokens_out == 50

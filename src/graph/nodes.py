@@ -1,267 +1,175 @@
-import re
+"""Graph nodes for the pandas Q&A pipeline."""
 import time
 from pathlib import Path
 
-from pydantic import BaseModel
-from sqlalchemy import text
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
-from graph.state import AgentState
-from db.session import create_db_session
-from config.settings import get_settings
+from graph.state import AgentState, NodeTrace
 from observability.events import get_logger
 
-_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "transform.md"
 _log = get_logger("nodes")
+_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "answer_question.md"
 
-_SQL_DANGER_PATTERN = re.compile(
-    r'\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)\b',
-    re.IGNORECASE,
+
+# ---------------------------------------------------------------------------
+# Node trace helpers
+# ---------------------------------------------------------------------------
+
+def _enter(state: AgentState, node: str) -> float:
+    return time.monotonic()
+
+
+def _exit(state: AgentState, node: str, t0: float) -> list[NodeTrace]:
+    duration_ms = round((time.monotonic() - t0) * 1000, 2)
+    existing: list[NodeTrace] = list(state.get("node_trace") or [])
+    existing.append(NodeTrace(node=node, duration_ms=duration_ms))
+    return existing
+
+
+# ---------------------------------------------------------------------------
+# LLM call with retry
+# ---------------------------------------------------------------------------
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
 )
+def _call_with_retry(prompt: str, *, system: str | None = None):
+    """Call Gemini via the google-genai SDK and return a structured response."""
+    import time as _time
+    from google import genai
+    from google.genai import types
+    from config.settings import get_settings
+    from llm.response import LLMResponse
+    from llm.router import get_router
 
+    s = get_settings()
+    model_override = get_router().route("tools")
 
-def is_sql_safe(sql: str) -> bool:
-    """Return True if sql contains only SELECT logic (no DDL/DML)."""
-    return _SQL_DANGER_PATTERN.search(sql) is None
+    from llm.providers.gemini import GeminiProvider
+    model = model_override or GeminiProvider.DEFAULT_MODEL
 
+    client = genai.Client(api_key=s.gemini_api_key)
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+    ) if system else None
 
-def _load_prompt() -> str:
-    return _PROMPT_PATH.read_text(encoding="utf-8").strip()
+    t0 = _time.monotonic()
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=config,
+    )
+    latency_ms = round((_time.monotonic() - t0) * 1000, 2)
 
+    text = response.text or ""
+    tokens_in = 0
+    tokens_out = 0
+    if response.usage_metadata:
+        tokens_in = response.usage_metadata.prompt_token_count or 0
+        tokens_out = response.usage_metadata.candidates_token_count or 0
 
-class SQLOutput(BaseModel):
-    sql: str
+    # Rough cost estimate for gemini-2.0-flash: ~$0.075/1M input, ~$0.30/1M output
+    cost_usd = (tokens_in * 0.075 + tokens_out * 0.30) / 1_000_000
+
+    return LLMResponse(
+        text=text,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost_usd,
+        model=model,
+        latency_ms=latency_ms,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Graph nodes
 # ---------------------------------------------------------------------------
 
-def schema_introspection(state: AgentState) -> AgentState:
-    _log.info("schema_introspection.enter", table_name=state.get("table_name"))
+def parse_csv(state: AgentState) -> AgentState:
+    t0 = _enter(state, "parse_csv")
     try:
-        table_name = state["table_name"]
-        with create_db_session() as session:
-            result = session.execute(text(f"PRAGMA table_info({table_name})"))
-            rows = result.mappings().all()
-        schema = [{"name": row["name"], "type": row["type"]} for row in rows]
-        _log.info("schema_introspection.done", col_count=len(schema))
-        return {**state, "schema": schema}
-    except Exception as exc:
-        _log.error("schema_introspection.error", error=str(exc))
-        return {**state, "error": str(exc)}
-
-
-def sql_generation(state: AgentState) -> AgentState:
-    _log.info("sql_generation.enter", question=state.get("question", "")[:80])
-    try:
-        settings = get_settings()
-        llm = ChatGoogleGenerativeAI(
-            model=settings.llm_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=0,
-            request_timeout=30,
-        )
-        structured_llm = llm.with_structured_output(SQLOutput)
-
-        prompt_template = _load_prompt()
-        schema_text = "\n".join(
-            f"  {col['name']} {col['type']}" for col in state.get("schema", [])
-        )
-        prompt = (
-            f"{prompt_template}\n\n"
-            f"Table: {state['table_name']}\n"
-            f"Schema:\n{schema_text}\n\n"
-            f"Question: {state['question']}"
-        )
-
-        result: SQLOutput = structured_llm.invoke([HumanMessage(content=prompt)])
-        sql = result.sql.strip()
-        _log.info("sql_generation.done", sql=sql[:200])
-        return {**state, "sql": sql}
-    except Exception as exc:
-        _log.error("sql_generation.error", error=str(exc))
-        return {**state, "error": str(exc)}
-
-
-def sql_execution(state: AgentState) -> AgentState:
-    _log.info("sql_execution.enter")
-    try:
-        sql = state["sql"]
-
-        # Safety guard: block DDL/DML
-        if not is_sql_safe(sql):
-            msg = "SQL safety violation: only SELECT queries are permitted."
-            _log.warning("sql_execution.safety_violation", sql=sql[:200])
-            return {**state, "error": msg}
-
-        t0 = time.monotonic()
-        with create_db_session() as session:
-            result = session.execute(text(sql))
-            rows = list(result.mappings().all())
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        _log.info("sql_execution.done", row_count=len(rows), duration_ms=duration_ms)
-        return {**state, "rows": [dict(r) for r in rows]}
-    except Exception as exc:
-        _log.error("sql_execution.error", error=str(exc))
-        return {**state, "error": str(exc)}
-
-
-def chart_selection(state: AgentState) -> AgentState:
-    _log.info("chart_selection.enter")
-    try:
-        rows = state.get("rows") or []
-        question = state.get("question", "")
-        title = question[:60]
-
-        if not rows:
-            chart_spec = {
-                "type": "empty",
-                "message": "Query returned no rows.",
-                "data": [],
-                "title": title,
+        df = state.get("dataframe")
+        if df is None or len(df) == 0:
+            return {
+                **state,
+                "error": "DataFrame is empty or missing.",
+                "node_trace": _exit(state, "parse_csv", t0),
             }
-            _log.info("chart_selection.done", chart_type="empty", data_points=0)
-            return {**state, "chart_spec": chart_spec}
-
-        keys = list(rows[0].keys())
-
-        def _is_numeric(col: str) -> bool:
-            for row in rows:
-                v = row.get(col)
-                if v is None or v == "":
-                    continue
-                try:
-                    float(v)
-                    return True
-                except (TypeError, ValueError):
-                    return False
-            return False
-
-        def _is_date_like(col: str) -> bool:
-            for row in rows:
-                v = row.get(col)
-                if v and isinstance(v, str) and ("-" in v or "/" in v):
-                    parts = v.replace("/", "-").split("-")
-                    if len(parts) >= 2 and all(p.strip().isdigit() for p in parts[:2]):
-                        return True
-            return False
-
-        numeric_cols = [k for k in keys if _is_numeric(k)]
-        string_cols = [k for k in keys if k not in numeric_cols]
-
-        chart_type = "bar"
-        x_key = string_cols[0] if string_cols else keys[0]
-        y_key = numeric_cols[0] if numeric_cols else keys[-1]
-
-        if len(keys) == 2 and len(numeric_cols) == 1 and len(string_cols) == 1:
-            # Check for date-like string col → line
-            if _is_date_like(string_cols[0]):
-                chart_type = "line"
-            else:
-                unique_vals = {row.get(string_cols[0]) for row in rows}
-                if len(unique_vals) <= 8:
-                    chart_type = "pie"
-                else:
-                    chart_type = "bar"
-        elif len(numeric_cols) >= 2:
-            chart_type = "scatter"
-            x_key = numeric_cols[0]
-            y_key = numeric_cols[1]
-        elif string_cols and numeric_cols:
-            if _is_date_like(string_cols[0]):
-                chart_type = "line"
-            else:
-                chart_type = "bar"
-
-        data = [{x_key: row.get(x_key), y_key: row.get(y_key)} for row in rows]
-
-        if chart_type == "pie":
-            chart_spec = {
-                "type": "pie",
-                "title": title,
-                "nameKey": x_key,
-                "valueKey": y_key,
-                "data": [{x_key: row.get(x_key), y_key: row.get(y_key)} for row in rows],
-            }
-        elif chart_type == "scatter":
-            chart_spec = {
-                "type": "scatter",
-                "title": title,
-                "xKey": x_key,
-                "yKey": y_key,
-                "data": data,
-            }
-        else:
-            chart_spec = {
-                "type": chart_type,
-                "title": title,
-                "xKey": x_key,
-                "yKey": y_key,
-                "data": data,
-            }
-
-        _log.info("chart_selection.done", chart_type=chart_type, data_points=len(data))
-        return {**state, "chart_spec": chart_spec}
+        column_schema = [{"name": col, "dtype": str(df[col].dtype)} for col in df.columns]
+        _log.info(
+            "csv.parsed",
+            run_id=state.get("run_id"),
+            session_id=state.get("session_id"),
+            row_count=len(df),
+            column_count=len(df.columns),
+        )
+        return {
+            **state,
+            "column_schema": column_schema,
+            "node_trace": _exit(state, "parse_csv", t0),
+        }
     except Exception as exc:
-        _log.error("chart_selection.error", error=str(exc))
-        return {**state, "chart_spec": {"type": "empty", "message": str(exc), "data": [], "title": ""}}
+        _log.error("node.error", run_id=state.get("run_id"), node="parse_csv", error=str(exc))
+        return {**state, "error": str(exc), "node_trace": _exit(state, "parse_csv", t0)}
 
 
-def insight_generation(state: AgentState) -> AgentState:
-    _log.info("insight_generation.enter")
+def answer_question(state: AgentState) -> AgentState:
+    t0 = _enter(state, "answer_question")
     try:
-        settings = get_settings()
-        llm = ChatGoogleGenerativeAI(
-            model=settings.llm_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=0.3,
-            request_timeout=30,
+        df = state["dataframe"]
+        column_schema = state["column_schema"]
+        question = state["question"]
+
+        # Build schema text
+        schema_lines = [f"  {c['name']} ({c['dtype']})" for c in column_schema]
+        schema_text = "\n".join(schema_lines)
+
+        # Build sample rows table (first 10 rows as markdown)
+        sample = df.head(10)
+        headers = list(sample.columns)
+        header_row = " | ".join(headers)
+        sep = " | ".join(["---"] * len(headers))
+        data_rows = "\n".join(
+            "| " + " | ".join(str(sample.iloc[i][h]) for h in headers) + " |"
+            for i in range(len(sample))
+        )
+        sample_table = f"| {header_row} |\n| {sep} |\n{data_rows}"
+
+        # Load system prompt from file
+        system_prompt = _PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+        user_prompt = (
+            f"Column schema ({len(df)} rows total):\n{schema_text}\n\n"
+            f"First {len(sample)} rows:\n{sample_table}\n\n"
+            f"Question: {question}"
         )
 
-        question = state.get("question", "")
-        rows = state.get("rows") or []
-        chart_spec = state.get("chart_spec") or {}
-        chart_type = chart_spec.get("type", "unknown")
+        response = _call_with_retry(user_prompt, system=system_prompt)
 
-        if len(rows) <= 20:
-            if rows:
-                headers = list(rows[0].keys())
-                header_row = " | ".join(headers)
-                separator = " | ".join(["---"] * len(headers))
-                data_rows = "\n".join(
-                    " | ".join(str(row.get(h, "")) for h in headers) for row in rows
-                )
-                table_text = f"| {header_row} |\n| {separator} |\n" + "\n".join(
-                    f"| {' | '.join(str(row.get(h, '')) for h in headers)} |" for row in rows
-                )
-            else:
-                table_text = "(no rows returned)"
-        else:
-            # Column stats summary
-            headers = list(rows[0].keys()) if rows else []
-            stats_lines = []
-            for col in headers:
-                values = [row.get(col) for row in rows if row.get(col) is not None]
-                stats_lines.append(f"- {col}: {len(values)} non-null values")
-            table_text = f"(showing stats for {len(rows)} rows)\n" + "\n".join(stats_lines)
-
-        prompt = (
-            f"Question: {question}\n\n"
-            f"Chart type: {chart_type}\n\n"
-            f"Data:\n{table_text}\n\n"
-            f"Write a concise 2-3 sentence plain-English insight that directly answers the question "
-            f"based on the data above. Be specific with numbers."
+        _log.info(
+            "llm.call",
+            run_id=state.get("run_id"),
+            model=response.model,
+            tokens_in=response.tokens_in,
+            tokens_out=response.tokens_out,
+            cost_usd=response.cost_usd,
         )
 
-        result = llm.invoke([HumanMessage(content=prompt)])
-        insight = result.content.strip()
-        _log.info("insight_generation.done", insight_len=len(insight))
-        return {**state, "insight": insight}
+        return {
+            **state,
+            "answer": response.text,
+            "tokens_in": (state.get("tokens_in") or 0) + response.tokens_in,
+            "tokens_out": (state.get("tokens_out") or 0) + response.tokens_out,
+            "cost_usd": (state.get("cost_usd") or 0.0) + response.cost_usd,
+            "model": response.model,
+            "node_trace": _exit(state, "answer_question", t0),
+        }
     except Exception as exc:
-        _log.error("insight_generation.error", error=str(exc))
-        return {**state, "error": str(exc)}
+        _log.error("node.error", run_id=state.get("run_id"), node="answer_question", error=str(exc))
+        return {**state, "error": str(exc), "node_trace": _exit(state, "answer_question", t0)}
 
 
 def handle_error(state: AgentState) -> AgentState:
