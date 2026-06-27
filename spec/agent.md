@@ -19,6 +19,8 @@
 | **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
 | **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
 
+> **Default:** a **ReAct tool-use loop** (reason → act → observe), with guardrails, error-handling, and observability always on — the floor for "an agent". Pick a heavier pattern (planning, multi-agent, supervisor) only when a concrete need justifies it, or a lighter one (single deterministic transform) only when there are no tools and no branching. See [`harness/patterns/agentic-ai.md`](../harness/patterns/agentic-ai.md).
+
 **Chosen:** <!-- state pattern + one-sentence rationale -->
 
 ---

@@ -8,20 +8,31 @@ Agents are built incrementally. This file defines the default phase model. The s
 
 Phase 1 is a thin but REAL vertical slice the user can test the first time, with zero rough edges on the tested path — never a models-only layer the user cannot exercise. Backend on the one core path is minimal but real (no fake data on the tested path); the frontend, built in parallel, is visually complete: real UI for the working path PLUS clearly-labelled non-functional stubs for everything coming later, so the user sees the vision. Each subsequent phase wires a stub into real functionality — one user-testable increment at a time.
 
+## Carried by Every Phase (never a late phase)
+
+Two things ride **every** phase from Phase 1 — they are cross-cutting, not phases of their own, so a build that stops early is never left without them:
+
+- **Observability.** Every new operation a phase adds (LLM call, DB read/write, external HTTP call, graph node, endpoint) emits a structured log line via `src/<pkg>/observability/events.py` — proportional to the phase (Phase 1 logs just its one core operation; never gold-plate).
+- **README.** Every new command, route, env var, or capability a phase introduces is reflected in `README.md` in the **same** phase, and each README command is actually run from its stated directory before the gate is green. (README is a shared file — apply its delta as one serialized step after the phase's parallel slices land.)
+
+A new operation with no log line, or a new command with a stale README, is a BLOCKER for that phase's gate — not a TODO for a later "observability" or "polish" phase.
+
 ## Default Phase Model
 
 The spec-writer sub-agent will customize this for your project, but the general structure is:
 
 ### Phase 1 — Smallest User-Testable Win (thin real vertical slice)
 - One core path works end-to-end against the real LLM/API (keys from `.env`): the minimal domain types, data layer, and core logic that path needs — nothing more.
+- **Already valuable, not hollow.** The win includes the user's primary input path (e.g. using *their own* data, not only seeded/canned data) so it delights on the first test — never a mechanism demo that withholds the actual job. If a hard constraint from intake can only be exercised by a later slice, that slice belongs in Phase 1.
 - Backend is minimal but REAL on that path — no fake data on what the user tests.
 - Frontend (built in parallel) is visually complete: real UI for the one working path, PLUS clearly-labelled non-functional stubs for everything coming later. A stub must be visibly labelled so it is never mistaken for a bug.
 - **Gate (all must pass):**
   1. `pyproject.toml` declares the DB driver in `[project.dependencies]` (e.g. `psycopg2-binary` for PostgreSQL) — never dev-only
   2. `uv run alembic upgrade head` succeeds against the configured database — this must be run and confirmed, not assumed
   3. The core path runs end-to-end against the real LLM/API; tests for the slice pass
-  4. Working tree is clean and committed
-  5. Phase test-handoff published; the human has tested the slice and approved (see Human Testing Gate)
+  4. Observability + README carried (see "Carried by Every Phase"): the core operation emits a structured log line, and `README.md` reflects this phase's run commands — confirmed by running them
+  5. Working tree is clean and committed
+  6. Phase test-handoff published; the human has tested the slice and approved (see Human Testing Gate)
 
 ### Phase 2 — Core Agent Loop (Real Integration)
 - Implement the agent's main loop from start to finish.
@@ -62,14 +73,13 @@ The spec-writer sub-agent will customize this for your project, but the general 
 - Write integration tests that exercise the full system against real services, including edge cases, error paths, and any UI journey.
 - **Gate:** Integration, edge-case, end-to-end, and UI tests pass reliably against the real LLM/API
 
-### Phase 9 — Observability + Logging
-- Add structured logging, metrics, and monitoring
-- **Gate:** Every major operation produces a log entry; errors are surfaced
+### Observability + Logging — NOT a phase (carried by every phase)
+Structured logging rides every phase from Phase 1 (see "Carried by Every Phase"). Do **not** defer it to a late phase. By hand-off, every major operation already produces a log entry and errors are surfaced — because each phase added its own as it went.
 
-### Phase 10 — Polish + Hand-off
-- Fix rough edges, improve error messages, update docs
+### Final Phase — Polish + Hand-off
+- Fix rough edges, improve error messages
 - Final drift audit: code matches spec
-- README is accurate and up to date
+- README — already kept current each phase — gets a final pass and review with the user (not first written here)
 - **Gate:** Drift audit passes; README reviewed by user; user accepts hand-off
 
 ## Human Testing Gate
@@ -97,6 +107,7 @@ A phase is complete when ALL of the following are true:
 4. Phase test-handoff published; (build) human tested and approved
 5. qa-auditor sub-agent (or manual QA checklist) has signed off
 6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
+7. The cross-cutting carry holds (see "Carried by Every Phase"): every new operation emits a structured log line, and `README.md` reflects every command/route/env var this phase added — confirmed by running them
 
 **Never mark a phase complete if any gate is red.**
 
@@ -115,7 +126,7 @@ The spec-writer sub-agent may merge, split, or reorder phases based on your proj
 - A project with no database may shrink phase 1
 - A project with many integrations may split phase 5 into multiple phases
 
-Whatever the spec-writer decides, the core principle holds: **smallest user-testable win first**.
+Observability and README are **never** separate phases — they ride every phase (see "Carried by Every Phase"). Whatever the spec-writer decides, the core principle holds: **smallest user-testable win first**.
 
 ---
 

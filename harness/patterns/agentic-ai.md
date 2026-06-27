@@ -113,9 +113,11 @@ The reusable catalogue of agentic design patterns — generic engineering doctri
 
 ## Choosing patterns
 
-- **Start simple.** The simplest capable agent is often a single tool-use loop with good prompts and guardrails — begin there and measure.
-- **Add a pattern only when a concrete need appears.** Each pattern is a response to a specific failure or requirement, not a default to adopt up front.
-- **Justify the expensive ones.** Multi-agent, reflection, and heavy reasoning add latency and cost; reach for them only when a simpler composition demonstrably falls short.
+**The default architecture is a ReAct loop.** Unless the task is a single deterministic transform, the baseline for "an agent" is a **ReAct loop** (#17 + #5): **reason → act via a tool → observe → repeat until done** — wrapped with guardrails (#18), exception handling (#12), and observability (#19) *always on*. That is the floor, not a single-shot `prompt → answer`. A linear prompt chain (#1) is a step *down* from this floor — pick it only when there are genuinely no tools and no branching.
+
+- **Start at ReAct, not below it.** A tool-use loop with good prompts, guardrails, and structured logging is the smallest *real* agent. Begin there and measure.
+- **Reach up only on a concrete need.** Planning (#6), reflection (#4), multi-agent (#7), and heavy reasoning add latency and cost — adopt them only when the ReAct floor demonstrably falls short, never up front.
+- **Reach down only when there are no tools.** If the task is a fixed transform with no actions to take, a prompt chain (#1) or a single call is correct — don't bolt a loop onto a one-shot.
 - **Compose deliberately.** Patterns stack (e.g. planning + tool use + reflection); keep the set minimal and the data flow between them explicit.
 
 The chosen composition for **this** project — which patterns, wired how — is documented in [`spec/agent.md`](../../spec/agent.md).
