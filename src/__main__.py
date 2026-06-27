@@ -1,3 +1,10 @@
+import sys
+import pathlib
+
+# Ensure src/ is on sys.path so flat imports (api, graph, db, etc.) resolve
+# when running as `uv run python -m src`
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
 import uvicorn
 
 if __name__ == "__main__":
