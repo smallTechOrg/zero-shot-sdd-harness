@@ -101,11 +101,14 @@ def _build_prompt_breakdown(
     memory_block: str,
     action_history: list[dict],
     tokens_input: int,
+    dataset_notes: str = "",
 ) -> dict[str, int]:
     """C29: measure each prompt component with the char/4 heuristic (approximate).
 
     Returns a dict of estimated token contributions per component plus the run's
     accumulated `total_prompt` (the real summed input tokens from the loop).
+    Components: system_overhead, dataset_schemas, history, memory, dataset_notes,
+    action_history, total_prompt (per spec/capabilities/context-window-display.md).
     """
     history_text = "\n".join(
         f"Q: {t.get('question', '')}\nA: {t.get('answer', '')}" for t in conversation_history
@@ -118,6 +121,7 @@ def _build_prompt_breakdown(
         "history": _estimate_tokens(history_text),
         "dataset_schemas": _estimate_tokens(dataset_context or ""),
         "memory": _estimate_tokens(memory_block or ""),
+        "dataset_notes": _estimate_tokens(dataset_notes or ""),
         "action_history": _estimate_tokens(action_text),
         "system_overhead": _estimate_tokens(question or "") + 64,
     }
@@ -262,6 +266,15 @@ def run_agent(
         "consecutive_errors",
     )
 
+    # C29: collect dataset notes text for the prompt breakdown.
+    dataset_notes_text = ""
+    if resolved_ids:
+        with create_db_session() as _notes_session:
+            _notes_rows = [_notes_session.get(DatasetRow, did) for did in resolved_ids]
+            dataset_notes_text = " ".join(
+                (r.context or "").strip() for r in _notes_rows if r is not None
+            )
+
     # ------------------------------------------------------------------ #
     # Follow-up suggestions (graph-adjacent; add its tokens to the total).
     # ------------------------------------------------------------------ #
@@ -279,6 +292,7 @@ def run_agent(
         memory_block=_safe_memory_block(),
         action_history=action_history,
         tokens_input=tokens_input,
+        dataset_notes=dataset_notes_text,
     )
 
     # ------------------------------------------------------------------ #

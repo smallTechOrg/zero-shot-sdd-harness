@@ -180,6 +180,8 @@ def test_ask_single_dataset_returns_answer(api_client):
     assert isinstance(data["prompt_breakdown"], dict)
     assert data["prompt_breakdown"]  # non-empty: carries the measured components
     assert "total_prompt" in data["prompt_breakdown"]
+    # All named spec components must be present (spec/capabilities/context-window-display.md).
+    assert "dataset_notes" in data["prompt_breakdown"]
 
 
 def test_ask_404_when_dataset_missing(api_client):
@@ -232,3 +234,176 @@ def test_stats_daily_counts_completed_runs(api_client):
     r = api_client.get("/stats/daily")
     data = r.json()["data"]
     assert data["query_count"] == 1
+
+
+# --- C16: notes_file tests -----------------------------------------------
+
+
+def test_upload_notes_file_stored_as_context(api_client):
+    """C16: notes_file content is stored as the dataset's context field."""
+    files = {
+        "file": ("data.csv", io.BytesIO(_CSV.encode()), "text/csv"),
+        "notes_file": ("notes.txt", io.BytesIO(b"These are my notes."), "text/plain"),
+    }
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    dataset_id = r.json()["data"]["dataset_id"]
+
+    detail = api_client.get(f"/datasets/{dataset_id}")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["context"] == "These are my notes."
+
+
+def test_upload_notes_file_overrides_form_context(api_client):
+    """C16: notes_file wins when both form context and notes_file are supplied."""
+    files = {
+        "file": ("data.csv", io.BytesIO(_CSV.encode()), "text/csv"),
+        "notes_file": ("notes.txt", io.BytesIO(b"notes win"), "text/plain"),
+    }
+    data = {"context": "form context"}
+    r = api_client.post("/upload", files=files, data=data)
+    assert r.status_code == 200, r.text
+    dataset_id = r.json()["data"]["dataset_id"]
+
+    detail = api_client.get(f"/datasets/{dataset_id}")
+    assert detail.json()["data"]["context"] == "notes win"
+
+
+def test_upload_notes_file_truncated_at_4000(api_client):
+    """C16: notes content over 4000 chars is truncated to exactly 4000."""
+    long_notes = "x" * 5000
+    files = {
+        "file": ("data.csv", io.BytesIO(_CSV.encode()), "text/csv"),
+        "notes_file": ("notes.txt", io.BytesIO(long_notes.encode()), "text/plain"),
+    }
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    dataset_id = r.json()["data"]["dataset_id"]
+
+    detail = api_client.get(f"/datasets/{dataset_id}")
+    assert len(detail.json()["data"]["context"]) == 4000
+
+
+# --- C1/C11: Multi-format upload tests -----------------------------------
+
+
+def test_upload_tsv_parses_correctly(api_client):
+    """C1/C11: TSV files are parsed correctly."""
+    tsv_body = "col_a\tcol_b\n1\talpha\n2\tbeta\n"
+    files = {"file": ("data.tsv", io.BytesIO(tsv_body.encode()), "text/tab-separated-values")}
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["row_count"] == 2
+    assert data["col_count"] == 2
+
+
+def test_upload_txt_parses_correctly(api_client):
+    """C1/C11: .txt files treated as TSV."""
+    tsv_body = "col_a\tcol_b\n1\talpha\n2\tbeta\n"
+    files = {"file": ("data.txt", io.BytesIO(tsv_body.encode()), "text/plain")}
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["row_count"] == 2
+    assert data["col_count"] == 2
+
+
+def test_upload_json_parses_correctly(api_client):
+    """C1/C11: JSON files are parsed correctly."""
+    import json as _json
+    json_body = _json.dumps([{"col_a": 1, "col_b": "alpha"}, {"col_a": 2, "col_b": "beta"}])
+    files = {"file": ("data.json", io.BytesIO(json_body.encode()), "application/json")}
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["row_count"] == 2
+    assert data["col_count"] == 2
+
+
+def test_upload_xlsx_parses_correctly(api_client):
+    """C1/C11: XLSX files are parsed correctly."""
+    import pandas as pd
+
+    buf = io.BytesIO()
+    pd.DataFrame({"col_a": [1, 2], "col_b": ["alpha", "beta"]}).to_excel(buf, index=False)
+    buf.seek(0)
+    files = {
+        "file": (
+            "data.xlsx",
+            buf,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    }
+    r = api_client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["row_count"] == 2
+    assert data["col_count"] == 2
+
+
+# --- C27: Parquet-preference / fallback tests ----------------------------
+
+
+def test_upload_creates_parquet_alongside_csv(api_client):
+    """C27: upload writes both .csv and .parquet for each dataset."""
+    from pathlib import Path
+    import api.upload as upload_module
+
+    r = _upload_csv(api_client)
+    assert r.status_code == 200, r.text
+    dataset_id = r.json()["data"]["dataset_id"]
+
+    parquet_path = upload_module.UPLOADS_DIR / f"{dataset_id}.parquet"
+    assert parquet_path.exists(), f"Parquet file not found: {parquet_path}"
+
+
+def test_peek_columns_prefers_parquet(tmp_path):
+    """C27: _peek_columns returns columns from Parquet when both Parquet and CSV exist."""
+    import pandas as pd
+    from graph import runner
+
+    dataset_id = "test-peek-parquet"
+    csv_path = tmp_path / f"{dataset_id}.csv"
+    parquet_path = tmp_path / f"{dataset_id}.parquet"
+
+    # Write CSV with different columns than Parquet to confirm Parquet wins.
+    pd.DataFrame({"csv_col": [1, 2]}).to_csv(csv_path, index=False)
+    pd.DataFrame({"parquet_col": [1, 2]}).to_parquet(parquet_path, index=False)
+
+    original_uploads_dir = runner._uploads_dir
+
+    def _mock_uploads_dir():
+        return tmp_path
+
+    runner._uploads_dir = _mock_uploads_dir
+    try:
+        cols = runner._peek_columns(dataset_id)
+    finally:
+        runner._uploads_dir = original_uploads_dir
+
+    assert cols == ["parquet_col"]
+
+
+def test_peek_columns_falls_back_to_csv(tmp_path):
+    """C27: _peek_columns falls back to CSV when Parquet is absent."""
+    import pandas as pd
+    from graph import runner
+
+    dataset_id = "test-peek-csv"
+    csv_path = tmp_path / f"{dataset_id}.csv"
+    pd.DataFrame({"csv_only_col": [1, 2]}).to_csv(csv_path, index=False)
+    # No Parquet file written.
+
+    original_uploads_dir = runner._uploads_dir
+
+    def _mock_uploads_dir():
+        return tmp_path
+
+    runner._uploads_dir = _mock_uploads_dir
+    try:
+        cols = runner._peek_columns(dataset_id)
+    finally:
+        runner._uploads_dir = original_uploads_dir
+
+    assert cols == ["csv_only_col"]

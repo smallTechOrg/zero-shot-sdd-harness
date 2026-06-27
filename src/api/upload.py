@@ -84,6 +84,14 @@ async def upload(
 
     content_hash = hashlib.sha256(raw).hexdigest()
 
+    # C16: resolve context from notes_file (wins) or form context field.
+    resolved_context: str | None = context
+    if notes_file is not None:
+        notes_raw = await notes_file.read()
+        notes_text = notes_raw.decode("utf-8", errors="replace").strip()
+        # Truncate at 4000 chars per spec.
+        resolved_context = notes_text[:4000]
+
     # Parse with pandas; an unparseable / empty-table file is a 400.
     try:
         df = _parse_dataframe(raw, ext)
@@ -128,7 +136,7 @@ async def upload(
         columns_json=columns_json,
         content_hash=content_hash,
         format=fmt,
-        context=context,
+        context=resolved_context,
         origin="uploaded",
         auto_notes_status="pending",  # C30: async notes job is fired below
     )
@@ -168,7 +176,7 @@ async def upload(
             "row_count": row.row_count,
             "col_count": row.col_count,
             "columns": columns,
-            "context": context,
+            "context": resolved_context,
             "auto_notes_status": "pending",
         }
     )
