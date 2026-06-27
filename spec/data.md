@@ -33,6 +33,14 @@ The compact derived artifact the agent computes locally and is the ONLY data-bea
 | columns | list of `{name, dtype, friendly_dtype}` | Schema |
 | stats | dict per column | Numeric: min/max/mean/median/std/null_count; categorical: distinct_count, top values + counts; capped |
 | examples | dict per column | ≤5 truncated example values per column (each value string-capped) |
+| group_aggregates | dict (derived, capped, NOT persisted) | Derived scalars enabling grouped / cross-column-derived / multi-role answers. Holds ONLY aggregate scalars — never raw rows, never a full column — and is never written to the DB. Two blocks (see below). |
+
+**`group_aggregates` structure** — a derived, capped, in-memory artifact consistent with the privacy boundary in [architecture.md](architecture.md#the-privacy-data-boundary-first-class-architectural-concern). It carries derived scalars only:
+
+- **`groups`** — for each grouping key (a categorical column, **including high-cardinality keys** such as team names) × each numeric column, the per-group aggregates `{sum, count, mean, ratio}` (where `ratio` is a cross-column derived metric, e.g. sum ÷ count). The cap is **top-N groups BY THE RELEVANT METRIC** — high-cardinality keys are ranked and truncated to the top-N, **not dropped**. Each grouping carries truncation markers `{total_groups, truncated}` so the model knows the list is a top-N slice.
+- **`entity_unions`** — multi-role unions: when the same entity appears across more than one column (e.g. `team1`/`team2` paired with the metric columns `score1`/`score2`), the roles are unioned into per-entity aggregates `{total, count, ratio}` (e.g. goals, matches, goals-per-match). Entities are ranked by `ratio` among those meeting a minimum count (> **Assumed:** 3), then top-N capped with truncation markers `{total_entities, truncated}`. **Empty (`[]`/`{}`) when the dataset has no detectable multi-role column pairs.**
+
+> All `group_aggregates` values are derived scalars computed locally by `load_profile`; the raw DataFrame stays in the node's local scope. Nothing in this artifact is persisted to SQLite.
 
 ### Entity: RunRow (extends skeleton)
 
@@ -61,5 +69,5 @@ One question→answer run. Reuses the skeleton's `runs` table, repurposing field
 
 ## Sensitive Data
 
-- The **raw CSV** may contain anything the user uploads (potentially PII). It is the protected asset: it stays on local disk and is **never** transmitted to Gemini or persisted in the DB. Only the derived `DataProfile` (aggregates + truncated examples) and the question cross the boundary.
+- The **raw CSV** may contain anything the user uploads (potentially PII). It is the protected asset: it stays on local disk and is **never** transmitted to Gemini or persisted in the DB. Only the derived `DataProfile` (summary stats + grouped/derived/multi-role `group_aggregates` + truncated examples) and the question cross the boundary — all derived scalars, never raw rows or full columns.
 - No auth/secrets stored. The Gemini API key lives in `.env` (`AGENT_GEMINI_API_KEY`), never in the DB.

@@ -32,7 +32,7 @@ The agent calls **local pandas functions deterministically** (not LLM-selected t
 
 | "Tool" (local fn) | Description | Inputs | Output | Side-effects |
 |-----------|-------------|--------|--------|--------------|
-| `load_profile(dataset_id)` | Read local CSV, build the derived `DataProfile` | dataset_id | `DataProfile` (small dict) | Reads local disk only; no network |
+| `load_profile(dataset_id)` | Read local CSV, build the derived `DataProfile` incl. grouped/derived/multi-role `group_aggregates` (derived scalars only) | dataset_id | `DataProfile` (small dict) | Reads local disk only; no network |
 | `LLMClient.call_model` | One Gemini call with question + profile | prompt, system | answer text | Network → Gemini |
 
 **Tool selection strategy:** none — deterministic pipeline, no LLM tool choice in Phase 1.
@@ -54,7 +54,7 @@ class AgentState(TypedDict, total=False):
     question: str                # set by the runner from the request
 
     # Pipeline data (populated progressively by nodes)
-    profile: dict                # set by load_profile (LOCAL pandas) — schema+stats+examples
+    profile: dict                # set by load_profile (LOCAL pandas) — schema+stats+examples+group_aggregates (derived scalars only)
     prompt: str                  # set by build_prompt — the EXACT user-prompt string sent to LLM
                                  #   (question + profile only; asserted to contain no raw rows)
 
@@ -82,7 +82,7 @@ class AgentState(TypedDict, total=False):
 |--------|-----------|------------|
 | Local filesystem | Read `data/datasets/{dataset_id}.csv`, `pd.read_csv`, derive `DataProfile` | fatal (set `error` = "Dataset not found or unreadable") |
 
-**Behaviour:** loads the raw CSV **locally** and computes the compact `DataProfile` (schema, row_count, per-column dtype + summary stats + ≤5 truncated example values). The raw DataFrame stays in this node's local scope and is **never** put into state fields that flow to the LLM — only the derived `profile` dict is written. This is the local side of the data boundary.
+**Behaviour:** loads the raw CSV **locally** and computes the compact `DataProfile` (schema, row_count, per-column dtype + summary stats + ≤5 truncated example values **plus derived `group_aggregates`** — grouped, cross-column-derived, and multi-role-union aggregates; see [data.md](data.md#entity-dataprofile-in-memory-not-persisted)). All of these are **derived scalars only** (capped top-N by metric, with truncation markers); no raw rows or full columns are emitted. The raw DataFrame stays in this node's local scope and is **never** put into state fields that flow to the LLM — only the derived `profile` dict is written. This is the local side of the data boundary.
 
 ### `build_prompt`
 

@@ -10,7 +10,7 @@ Upload a CSV in your browser, ask questions about it in plain English, get plain
 ## What it does (today — Phase 1)
 
 - Open the web app, **upload a CSV**, and see its detected columns (name + type) and row count.
-- **Ask a plain-English question** (e.g. *"Which region has the highest total revenue?"*) and get a plain-English answer computed from a **local** pandas profile — the numbers are grounded in your actual data.
+- **Ask a plain-English question** and get a plain-English answer computed from a **local** pandas profile — the numbers are grounded in your actual data. This includes group-by questions over any column (even high-cardinality keys like names/teams), derived ratios (e.g. *"which teams have the best average goals per match?"*), and totals/averages per category (e.g. *"which region has the highest total revenue?"*).
 - A visible privacy note states the guarantee: only a summary and your question are sent to the AI.
 
 **Labelled, not-yet-built (clearly marked in the UI so they're never mistaken for bugs):**
