@@ -123,6 +123,15 @@
     .section-loading.open { display: flex; }
     .section-loading .spinner { width: 20px; height: 20px; color: #1e40af; border-width: 3px; }
 
+    /* ── Pager (Previous / Next over an AJAX-loaded list) ─────────────────── */
+    .pager { display: flex; gap: 6px; justify-content: space-between; margin-top: 8px; }
+    .pg-btn {
+      flex: 1; font-size: 12px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px;
+      background: #fff; color: #374151; cursor: pointer; font-family: inherit;
+    }
+    .pg-btn:hover:not([disabled]) { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .pg-btn[disabled] { opacity: .45; cursor: default; }
+
     /* ── Messages / chips ─────────────────────────────────────────────────── */
     .msg-error   { color: #dc2626; font-size: 13px; }
     .msg-success { color: #16a34a; font-size: 13px; }

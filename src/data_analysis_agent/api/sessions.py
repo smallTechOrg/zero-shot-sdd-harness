@@ -10,9 +10,9 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from data_analysis_agent.api import templates
-from data_analysis_agent.api._common import api_error, render
+from data_analysis_agent.api._common import api_error, fragment_response, render
 from data_analysis_agent.api._repository import get_session_or_404
-from data_analysis_agent.api._view import spa_context
+from data_analysis_agent.api._view import cursor_sessions, spa_context
 from data_analysis_agent.db.models import (
     AgentRunRow,
     DatabaseRow,
@@ -46,6 +46,21 @@ def create_session(
     session.commit()  # make the links visible before warming the pool
     _warm_pool(session_id)
     return RedirectResponse(url=f"/sessions/{session_id}", status_code=303)
+
+
+@router.get("/sessions")
+def list_sessions(
+    request: Request,
+    cursor: str | None = None,
+    active: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """One keyset page of the sidebar's session list (AJAX-loaded); cursor in ``X-Next-Cursor``.
+
+    ``active`` (the open session id, when any) highlights its row on the page it lands on.
+    """
+    items, next_cursor = cursor_sessions(session, cursor, active)
+    return fragment_response(request, templates, "sessions", items, next_cursor)
 
 
 @router.get("/sessions/{session_id}")

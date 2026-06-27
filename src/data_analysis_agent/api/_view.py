@@ -1,14 +1,17 @@
 """Shared view-model builders for the single-page shell.
 
 `/`, `/sessions/{id}` and `/database/{id}` all render the same ``index.html`` with a different active
-entity; :func:`spa_context` assembles the common context (servers + sessions sidebars) plus whichever
-entity is active. Every dataset URI is rendered credential-free via :meth:`DatasetURI.display`.
+entity. The shell itself carries only **counts** (for headers) and the active entity's **metadata** — the
+actual list rows (sessions, databases, the chat thread, and the capability lists) are fetched by AJAX
+**after** the shell renders, each as its own keyset-paginated page (see ``cursor_*`` below and the
+relocated fragment endpoints in ``api/{sessions,database,queries}.py``). Every dataset URI is rendered
+credential-free via :meth:`DatasetURI.display`.
 """
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from data_analysis_agent.api._pagination import page_window
+from data_analysis_agent.api._pagination import keyset_page
 from data_analysis_agent.api._repository import attached_databases, query_count
 from data_analysis_agent.config.settings import get_settings
 from data_analysis_agent.tools.connectors.base import DATABASE_TYPES
@@ -61,7 +64,7 @@ def _entity_tables(resources: list) -> list[dict]:
 
 
 def server_card_view(db: Session, server: DatabaseRow) -> dict:
-    """A credential-free summary of one database for the sidebar / Databases card."""
+    """A credential-free summary of one database for the Databases card (one paged row)."""
     resources = _active_rows(db, McpResourceRow, server.id)
     tables = _entity_tables(resources)
     return {
@@ -84,7 +87,7 @@ def server_card_view(db: Session, server: DatabaseRow) -> dict:
 
 
 def session_card_view(db: Session, sess: SessionRow, active_id: str | None) -> dict:
-    """A summary of one session for the sidebar list."""
+    """A summary of one session for the sidebar list (one paged row)."""
     servers = attached_databases(db, sess.id)
     return {
         "id": sess.id,
@@ -97,30 +100,48 @@ def session_card_view(db: Session, sess: SessionRow, active_id: str | None) -> d
     }
 
 
-def _active_query(db: Session, model, database_id: str):
-    """The base query for a server's active (non-soft-deleted) child rows, in stable list order."""
-    return (
-        db.query(model)
-        .filter(model.database_id == database_id, model.deleted_at.is_(None))
-        .order_by(model.created_at, model.id)
+# --- keyset (cursor) windows for the AJAX-loaded lists -----------------------
+
+def cursor_sessions(db: Session, cursor: str | None, active_id: str | None) -> tuple[list[dict], str | None]:
+    """One keyset window of session cards, most-recently-updated first."""
+    rows, next_cursor = keyset_page(
+        db.query(SessionRow), sort_col=SessionRow.updated_at, id_col=SessionRow.id,
+        sort_attr="updated_at", cursor=cursor, limit=get_settings().ui_page_size, descending=True,
     )
+    return [session_card_view(db, s, active_id) for s in rows], next_cursor
 
 
-def paged_capability(db: Session, model, database_id: str, offset: int) -> tuple[list, bool]:
-    """One ``ui_page_size`` window of a server's active tool/resource/prompt rows (for Load-more)."""
-    return page_window(_active_query(db, model, database_id),
-                       offset=offset, limit=get_settings().ui_page_size)
+def cursor_databases(db: Session, cursor: str | None) -> tuple[list[dict], str | None]:
+    """One keyset window of database cards, newest first."""
+    rows, next_cursor = keyset_page(
+        db.query(DatabaseRow), sort_col=DatabaseRow.created_at, id_col=DatabaseRow.id,
+        sort_attr="created_at", cursor=cursor, limit=get_settings().ui_page_size, descending=True,
+    )
+    return [server_card_view(db, s) for s in rows], next_cursor
 
+
+def cursor_queries(db: Session, session_id: str, cursor: str | None) -> tuple[list[QueryRecordRow], str | None]:
+    """One keyset window of a session's chat thread.
+
+    Windows are taken newest-first (so page 1 is the latest turns) but each window is returned
+    **chronological** (oldest→newest) for display, with the freshest turn at the bottom. ``next_cursor``
+    walks toward OLDER turns (the "Next" page in cursor order)."""
+    rows, next_cursor = keyset_page(
+        db.query(QueryRecordRow).filter(QueryRecordRow.session_id == session_id),
+        sort_col=QueryRecordRow.created_at, id_col=QueryRecordRow.id,
+        sort_attr="created_at", cursor=cursor, limit=get_settings().ui_page_size, descending=True,
+    )
+    return list(reversed(rows)), next_cursor
+
+
+# --- shell context (counts + active-entity metadata only) --------------------
 
 def server_detail_view(db: Session, server: DatabaseRow) -> dict:
-    """Full detail for the Database tab: metadata, physical tables, schema, and the first page of each
-    child list. The EER diagram is fed from ALL entity resources (a diagram, never paginated); the
-    capability lists render the first page + a ``*_has_more`` flag driving a Load-more button."""
+    """Database-tab metadata + counts + the EER source. Capability ROWS are loaded by AJAX from the
+    JSON-RPC surface (``POST /database/{id}`` ``*/list``); only the totals (for the section headers) and
+    the EER diagram (fed from ALL entity resources — never paginated) are server-rendered here."""
     all_resources = _active_rows(db, McpResourceRow, server.id)  # full set: EER + schema + total count
     schema_res = next((r for r in all_resources if r.kind == "schema"), None)
-    tools, tools_more = paged_capability(db, McpToolRow, server.id, 0)
-    resources, resources_more = paged_capability(db, McpResourceRow, server.id, 0)
-    prompts, prompts_more = paged_capability(db, McpPromptRow, server.id, 0)
     return {
         "id": server.id,
         "name": server.name,
@@ -135,42 +156,27 @@ def server_detail_view(db: Session, server: DatabaseRow) -> dict:
         "connection_error": server.connection_error,
         "tables": _entity_tables(all_resources),        # per-table schema from the entity resources (full)
         "dataset_schema": (schema_res.content if schema_res else {}),  # from the schema resource
-        "tools": tools, "tools_has_more": tools_more,
         "tool_count": _active_count(db, McpToolRow, server.id),
-        "resources": resources, "resources_has_more": resources_more,
         "resource_count": len(all_resources),
-        "prompts": prompts, "prompts_has_more": prompts_more,
         "prompt_count": _active_count(db, McpPromptRow, server.id),
     }
 
 
-def paged_sessions(db: Session, offset: int, active_id: str | None) -> tuple[list[dict], bool]:
-    """One ``ui_page_size`` window of session cards, most-recently-updated first (for the sidebar)."""
-    q = db.query(SessionRow).order_by(SessionRow.updated_at.desc())
-    rows, has_more = page_window(q, offset=offset, limit=get_settings().ui_page_size)
-    return [session_card_view(db, s, active_id) for s in rows], has_more
+def _server_options(db: Session) -> list[dict]:
+    """Lightweight full list of databases for the new-session picker + the Database-tab quick-pick.
 
-
-def paged_databases(db: Session, offset: int) -> tuple[list[dict], bool]:
-    """One ``ui_page_size`` window of database cards, newest first (for the Databases card)."""
-    q = db.query(DatabaseRow).order_by(DatabaseRow.created_at.desc())
-    rows, has_more = page_window(q, offset=offset, limit=get_settings().ui_page_size)
-    return [server_card_view(db, s) for s in rows], has_more
-
-
-def paged_queries(db: Session, session_id: str, offset: int) -> tuple[list[QueryRecordRow], bool]:
-    """One window of a session's query records for the chat thread.
-
-    Windows are taken newest-first (``offset`` counts back from the latest), but each window is returned
-    **chronological** (oldest→newest) for display, so the freshest turn sits at the bottom by the ask
-    form. ``has_more`` means OLDER turns exist beyond this window (revealed by scrolling up)."""
-    q = (
-        db.query(QueryRecordRow)
-        .filter(QueryRecordRow.session_id == session_id)
-        .order_by(QueryRecordRow.created_at.desc(), QueryRecordRow.id.desc())
-    )
-    rows, has_more = page_window(q, offset=offset, limit=get_settings().ui_page_size)
-    return list(reversed(rows)), has_more
+    Not paginated (it's a form picker, not a list view); carries only what those two spots render.
+    """
+    out: list[dict] = []
+    for s in db.query(DatabaseRow).order_by(DatabaseRow.created_at.desc()).all():
+        table_count = (
+            db.query(McpResourceRow)
+            .filter(McpResourceRow.database_id == s.id, McpResourceRow.deleted_at.is_(None),
+                    McpResourceRow.kind != "schema")
+            .count()
+        )
+        out.append({"id": s.id, "name": s.name, "table_count": table_count, "version": s.version})
+    return out
 
 
 def spa_context(
@@ -181,17 +187,12 @@ def spa_context(
     active_server: DatabaseRow | None = None,
     new_record_id: str | None = None,
 ) -> dict:
-    """Assemble the shared single-page context: server + session sidebars (first page) and the active
-    entity. The sidebars/lists render their first page + a ``*_has_more`` flag driving Load-more."""
-    active_session_id = active_session.id if active_session else None
-    sessions, sessions_more = paged_sessions(db, 0, active_session_id)
-    servers, servers_more = paged_databases(db, 0)
+    """Assemble the shared shell context: header counts, the server picker, and the active entity's
+    metadata. List ROWS are NOT here — the client fetches each list by AJAX after render."""
     ctx: dict = {
-        "servers": servers,
-        "servers_has_more": servers_more,
+        "servers": _server_options(db),               # picker (modal + quick-pick) only
         "server_total": db.query(DatabaseRow).count(),
-        "sessions": sessions,
-        "sessions_has_more": sessions_more,
+        "session_total": db.query(SessionRow).count(),
         "page_size": get_settings().ui_page_size,
         "active_tab": active_tab,
         "active_session": None,
@@ -203,13 +204,10 @@ def spa_context(
                            for v, label, ext, hint in DATABASE_TYPES],
     }
     if active_session is not None:
-        records, older_has_more = paged_queries(db, active_session.id, 0)
         ctx["active_session"] = {
             "id": active_session.id,
             "name": active_session.name or "Untitled session",
             "servers": attached_databases(db, active_session.id),
-            "records": records,
-            "older_has_more": older_has_more,
         }
         if new_record_id:
             rec = db.get(QueryRecordRow, new_record_id)

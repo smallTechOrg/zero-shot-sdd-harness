@@ -1,10 +1,7 @@
-{# Shared row macros — rendered both inline (first page, index.html) and in "Load more" HTML
-   fragments (fragments.html), so a paged-in row is byte-identical to a server-rendered one. #}
-
-{% macro load_more(url, label='Load more', fn='loadMore') %}
-<button type="button" class="btn btn-ghost btn-xs load-more" data-url="{{ url }}"
-        onclick="{{ fn }}(this)" style="width:100%;margin-top:8px;">{{ label }}</button>
-{% endmacro %}
+{# Shared row macros for the AJAX-loaded lists (sessions / databases / chat thread). Rendered into a
+   rows-only fragment (fragments.html) the client swaps into the list container per page. Capability
+   rows (tools / resources / prompts) are NOT here — they are client-rendered in index.html from the
+   JSON-RPC ``*/list`` response (which carries the edit payload in each item's ``_meta``). #}
 
 {# ── Sidebar session row ─────────────────────────────────────────────────── #}
 {% macro session_row(sess) %}
@@ -48,55 +45,6 @@
       <button type="submit" class="btn btn-ghost-danger btn-xs">Delete</button>
     </form>
   </div>
-</div>
-{% endmacro %}
-
-{# ── Database tab · Tools ────────────────────────────────────────────────── #}
-{% macro tool_item(tool) %}
-<div class="cap-item">
-  <div class="cap-row">
-    <span class="cap-name">{{ tool.name }}</span>
-    <span class="cap-acts">
-      <button type="button" class="cap-btn" onclick='editTool({{ tool.name|tojson }}, {{ (tool.description or "")|tojson }}, {{ tool.execution|tojson }})'>Edit</button>
-      <button type="button" class="cap-btn del" onclick='delCap(this, "tools/delete", "name", {{ tool.name|tojson }})'>Delete</button>
-    </span>
-  </div>
-  {% if tool.description %}<div class="cap-desc">{{ tool.description }}</div>{% endif %}
-  <div class="cap-sql">{{ tool.sql_template }}</div>
-  {% if tool.parameters %}<div class="cap-params">params: {% for p in tool.parameters %}<span class="pill pill-muted">{{ p.name }}:{{ p.type }}</span> {% endfor %}</div>{% endif %}
-</div>
-{% endmacro %}
-
-{# ── Database tab · Resources ────────────────────────────────────────────── #}
-{% macro resource_item(res) %}
-<div class="cap-item">
-  <div class="cap-row">
-    <span style="display:flex;align-items:center;gap:6px;min-width:0;"><span class="pill">{{ res.kind }}</span><span class="cap-name" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;">{{ res.uri }}</span></span>
-    <span class="cap-acts">
-      {% if res.kind == 'schema' %}
-      <button type="button" class="cap-btn" onclick='editSchema({{ res.uri|tojson }}, {{ (res.content or {})|tojson }})'>Edit relationships</button>
-      {% else %}
-      <button type="button" class="cap-btn" onclick='editResource({{ res.uri|tojson }}, {{ (res.title or "")|tojson }}, {{ (res.description or "")|tojson }}, {{ res.kind|tojson }})'>Edit</button>
-      <button type="button" class="cap-btn del" onclick='delCap(this, "resources/delete", "uri", {{ res.uri|tojson }})'>Delete</button>
-      {% endif %}
-    </span>
-  </div>
-  {% if res.description %}<div class="cap-desc">{{ res.description }}</div>{% endif %}
-  {% if res.size %}<div class="cap-params">size: {{ res.size }} bytes</div>{% endif %}
-</div>
-{% endmacro %}
-
-{# ── Database tab · Prompts ──────────────────────────────────────────────── #}
-{% macro prompt_item(p) %}
-<div class="cap-item">
-  <div class="cap-row">
-    <span class="cap-name">{{ p.name }}</span>
-    <span class="cap-acts">
-      <button type="button" class="cap-btn" onclick='editPrompt({{ p.name|tojson }}, {{ (p.description or "")|tojson }}, {{ (p.template or [])|tojson }})'>Edit</button>
-      <button type="button" class="cap-btn del" onclick='delCap(this, "prompts/delete", "name", {{ p.name|tojson }})'>Delete</button>
-    </span>
-  </div>
-  {% if p.description %}<div class="cap-desc">{{ p.description }}</div>{% endif %}
 </div>
 {% endmacro %}
 

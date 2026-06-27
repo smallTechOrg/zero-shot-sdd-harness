@@ -76,6 +76,9 @@ def _tools_list(db, server, params):
             tool["outputSchema"] = r.output_schema
         if r.annotations is not None:
             tool["annotations"] = r.annotations
+        # `_meta` (MCP's reserved extension key) carries the executor spec the management UI edits;
+        # protocol clients ignore it. inputSchema stays the public, derived view of the parameters.
+        tool["_meta"] = {"execution": r.execution}
         tools.append(tool)
     return _with_cursor({"tools": tools}, cursor)
 
@@ -105,6 +108,9 @@ def _resources_list(db, server, params):
             res["description"] = r.description
         if r.mime_type:
             res["mimeType"] = r.mime_type
+        # `_meta`: entity-kind + size + relationship/column content the UI needs (kind drives the
+        # primary↔secondary toggle and schema-vs-entity edit branch; content backs the schema editor).
+        res["_meta"] = {"kind": r.kind, "size": r.size, "content": r.content}
         resources.append(res)
     return _with_cursor({"resources": resources}, cursor)
 
@@ -128,6 +134,9 @@ def _prompts_list(db, server, params):
             p["title"] = r.title
         if r.description:
             p["description"] = r.description
+        # `_meta`: the message template the UI edits (prompts/get returns it too, but inlining here
+        # lets the Edit modal open without a second round-trip).
+        p["_meta"] = {"template": r.template}
         prompts.append(p)
     return _with_cursor({"prompts": prompts}, cursor)
 

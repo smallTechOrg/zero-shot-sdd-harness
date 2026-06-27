@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
 
@@ -38,9 +39,15 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    from data_analysis_agent.api import database, fragments, health, home, queries, sessions, stats
-    for module in (health, home, database, sessions, queries, stats, fragments):
+    from data_analysis_agent.api import database, health, home, queries, sessions, stats
+    for module in (health, home, database, sessions, queries, stats):
         app.include_router(module.router)
+
+    from data_analysis_agent.api._pagination import InvalidCursor
+
+    @app.exception_handler(InvalidCursor)
+    async def _invalid_cursor(request: Request, exc: InvalidCursor):  # tampered/garbled list cursor
+        return JSONResponse(status_code=400, content={"detail": {"code": "INVALID_CURSOR", "message": str(exc)}})
 
     return app
 

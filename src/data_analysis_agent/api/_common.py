@@ -30,3 +30,18 @@ def render(request: Request, templates: Jinja2Templates, name: str, **ctx) -> HT
     response = templates.TemplateResponse(request, name, ctx)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def fragment_response(
+    request: Request, templates: Jinja2Templates, kind: str, items: list, next_cursor: str | None
+) -> HTMLResponse:
+    """Render one keyset page of an AJAX-loaded list as a rows-only HTML fragment.
+
+    The next page's opaque cursor rides in the ``X-Next-Cursor`` header (absent on the last page); the
+    client keeps the stack of visited cursors so its "Previous" button is a step back through it.
+    """
+    response = templates.TemplateResponse(request, "fragments.html", {"kind": kind, "items": items})
+    response.headers["Cache-Control"] = "no-store"
+    if next_cursor:
+        response.headers["X-Next-Cursor"] = next_cursor
+    return response

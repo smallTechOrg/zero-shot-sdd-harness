@@ -10,9 +10,9 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from data_analysis_agent.api import templates
-from data_analysis_agent.api._common import api_error, render
+from data_analysis_agent.api._common import api_error, fragment_response, render
 from data_analysis_agent.api._repository import get_database_or_404
-from data_analysis_agent.api._view import spa_context
+from data_analysis_agent.api._view import cursor_databases, spa_context
 from data_analysis_agent.config.settings import get_settings
 from data_analysis_agent.db.models import (
     McpPromptRow,
@@ -139,6 +139,17 @@ def mcp_dispatch(database_id: str, payload: Annotated[dict, Body(...)]):
 
 
 # --- Detail + delete --------------------------------------------------------
+
+@router.get("/databases")
+def list_databases(
+    request: Request,
+    cursor: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """One keyset page of the Databases card (AJAX-loaded); cursor in ``X-Next-Cursor``."""
+    items, next_cursor = cursor_databases(session, cursor)
+    return fragment_response(request, templates, "databases", items, next_cursor)
+
 
 @router.get("/database/{database_id}")
 def database_detail(request: Request, database_id: str, session: Session = Depends(get_session)):

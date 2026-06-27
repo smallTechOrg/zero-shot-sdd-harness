@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from data_analysis_agent.api._common import api_error
+from data_analysis_agent.api import templates
+from data_analysis_agent.api._common import api_error, fragment_response
 from data_analysis_agent.api._repository import get_session_or_404
+from data_analysis_agent.api._view import cursor_queries
 from data_analysis_agent.db.models import QueryRecordRow, SessionRow
 from data_analysis_agent.db.session import create_db_session, get_session
 
@@ -33,6 +35,20 @@ def submit_query(
     _start_pipeline(query_record_id, session_id, text)
     log.info("query.submitted", query_record_id=query_record_id, session_id=session_id)
     return RedirectResponse(url=f"/sessions/{session_id}?new={query_record_id}", status_code=303)
+
+
+@router.get("/sessions/{session_id}/queries")
+def list_queries(
+    request: Request,
+    session_id: str,
+    cursor: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """One keyset page of a session's chat thread (AJAX-loaded). Page 1 is the newest turns, rendered
+    chronological; ``X-Next-Cursor`` walks toward older turns."""
+    get_session_or_404(session, session_id)
+    items, next_cursor = cursor_queries(session, session_id, cursor)
+    return fragment_response(request, templates, "queries", items, next_cursor)
 
 
 @router.get("/sessions/{session_id}/query/{qr_id}/status")

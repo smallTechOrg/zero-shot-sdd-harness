@@ -86,18 +86,22 @@ endpoint dispatching on `method`. Request: `{"jsonrpc":"2.0","id":…,"method":"
 
 | Method | Params | Result |
 |--------|--------|--------|
-| `tools/list` | `{cursor?}` | `{tools:[{name,title?,description,inputSchema,outputSchema?,annotations?}], nextCursor?}` |
+| `tools/list` | `{cursor?}` | `{tools:[{name,title?,description,inputSchema,outputSchema?,annotations?,_meta}], nextCursor?}` |
 | `tools/call` | `{name, arguments}` | `CallToolResult {content:[{type:"text",text}], structuredContent?, isError}` |
-| `resources/list` | `{cursor?}` | `{resources:[{uri,name,title?,description,mimeType}], nextCursor?}` |
+| `resources/list` | `{cursor?}` | `{resources:[{uri,name,title?,description,mimeType,_meta}], nextCursor?}` |
 | `resources/read` | `{uri}` | `{contents:[{uri,mimeType,text}]}` |
-| `prompts/list` | `{cursor?}` | `{prompts:[{name,title?,description,arguments}], nextCursor?}` |
+| `prompts/list` | `{cursor?}` | `{prompts:[{name,title?,description,arguments,_meta}], nextCursor?}` |
 | `prompts/get` | `{name, arguments?}` | `{description, messages:[…]}` |
 
 - **`tools/call`** binds `arguments` into the tool's `sql_template` via DuckDB **parameter binding** and
   runs it through the read-only SELECT guard. Query/SQL failures → `isError:true` in the **result**
   (not a JSON-RPC error). Unknown tool `name` → JSON-RPC error `-32602`.
 - **Pagination:** opaque keyset `cursor` (base64 of the last `(created_at, id)`); `nextCursor` is omitted
-  on the last page; a malformed/forged cursor → `-32602`. Page size = `mcp_list_page_size` (default 50).
+  on the last page; a malformed/forged cursor → `-32602`. Page size = `mcp_list_page_size` (default 5).
+- **`_meta` (UI enrichment):** each `*/list` item carries an MCP-reserved `_meta` the management UI reads
+  to render rows + open edit modals without extra round-trips — tool `{execution}`, resource
+  `{kind,size,content}`, prompt `{template}`. Protocol clients ignore it; the public schemas are
+  unchanged.
 - **Errors:** unknown `method` → `-32601`; invalid params/cursor → `-32602`; tool-execution failures use
   `isError:true`. Capabilities are filtered to **active** rows (`deleted_at IS NULL`).
 
@@ -119,9 +123,23 @@ the full contract.
 ### `GET /database/{id}`
 
 **Purpose:** Renders the single-page shell on the **Database** tab with this server active — metadata
-(title, type, credential-free URI, version, last-sync status), the schema view (physical tables + typed
-columns + relationships), and the active tools/resources/prompts, with **Sync** / **+ Add table** actions.
+(title, type, credential-free URI, version, last-sync status), the schema/EER view (physical tables +
+typed columns + relationships), and the capability **counts**, with **Sync** / **+ Add table** actions.
+The capability **rows** are loaded afterward by AJAX from the JSON-RPC `*/list` surface (above).
 **Response:** HTML — 404 if not found.
+
+---
+
+### AJAX list fragments — `GET /sessions`, `GET /databases`, `GET /sessions/{id}/queries`
+
+**Purpose:** Back the shell's AJAX-loaded lists (the client fetches each after render and pages it with
+**Previous / Next**). Each returns a **rows-only HTML fragment** rendered with the shared row macros, plus
+the next page's opaque keyset cursor in the **`X-Next-Cursor`** response header (absent on the last page).
+**Request:** `?cursor=` (omit for page 1); `GET /sessions` also takes `?active={id}` to highlight the open
+session. Page size = `ui_page_size` (default 5).
+**Pagination:** newest-first keyset (sessions by `updated_at`, databases + queries by `created_at`); the
+chat thread's page 1 is the latest turns rendered chronological. A malformed cursor → `400 INVALID_CURSOR`.
+**Response:** `text/html` (rows); `no-store`. 404 if the session is not found (queries).
 
 ---
 
@@ -148,9 +166,9 @@ directory on disk.
 
 ### `GET /sessions/{session_id}`
 
-**Purpose:** Renders the single-page shell on the **Analyse** tab with this session active — its
-conversation thread (newest first), attached-server chips, and the ask form. Accepts
-`?new={query_record_id}` to drive the run overlay + status polling. `Cache-Control: no-store`.
+**Purpose:** Renders the single-page shell on the **Analyse** tab with this session active — attached-server
+chips and the ask form; the conversation thread is loaded afterward by AJAX (`GET /sessions/{id}/queries`).
+Accepts `?new={query_record_id}` to drive the run overlay + status polling. `Cache-Control: no-store`.
 **Response:** HTML — 404 if not found.
 
 ---

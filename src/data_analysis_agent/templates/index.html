@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_partials.html" import session_row, database_row, tool_item, resource_item, prompt_item, query_turn, load_more %}
 {% block title %}DataAnalyst AI{% endblock %}
 
 {% block header_center %}
@@ -50,7 +49,7 @@
   .conv-card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   .conv-placeholder { text-align: center; color: #9ca3af; padding: 40px 20px; }
   .conv-placeholder .big { font-size: 30px; margin-bottom: 8px; }
-  #thread { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; flex: 1; min-height: 0; overflow-y: auto; }
+  #queries-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; flex: 1; min-height: 0; overflow-y: auto; }
   .turn { border-left: 3px solid #bfdbfe; padding: 11px 14px; background: #f8fafc; border-radius: 0 6px 6px 0; }
   .turn.failed { border-left-color: #fca5a5; background: #fff7f7; }
   .turn.pending { border-left-color: #fcd34d; background: #fffbeb; }
@@ -240,11 +239,10 @@
         <span class="card-title">Sessions</span>
         <button type="button" class="btn btn-primary btn-xs" onclick="openModal('new-session-modal')">+ New</button>
       </div>
-      <div style="flex:1;overflow-y:auto;" id="sessions-list">
-        {% for sess in sessions %}{{ session_row(sess) }}{% else %}
-        <div class="empty-msg">No sessions yet. Click “+ New”.</div>
-        {% endfor %}
-        {% if sessions_has_more %}{{ load_more('/fragments/sessions?offset=' ~ page_size) }}{% endif %}
+      <div style="flex:1;overflow-y:auto;" id="sessions-list"></div>
+      <div class="pager" id="sessions-pager">
+        <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+        <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
       </div>
     </div>
 
@@ -283,11 +281,10 @@
         <div class="card">
           <div class="card-header"><span class="card-title">Databases</span>
             <span class="pill pill-muted">{{ server_total }}</span></div>
-          <div style="max-height:240px;overflow-y:auto;" id="databases-list">
-            {% for s in servers %}{{ database_row(s) }}{% else %}
-            <div class="empty-msg">No databases yet. Upload a CSV to create one. →</div>
-            {% endfor %}
-            {% if servers_has_more %}{{ load_more('/fragments/databases?offset=' ~ page_size) }}{% endif %}
+          <div style="max-height:240px;overflow-y:auto;" id="databases-list"></div>
+          <div class="pager" id="databases-pager">
+            <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+            <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
           </div>
         </div>
 
@@ -339,11 +336,10 @@
           </span>
         </div>
 
-        <div id="thread">
-          {% if active_session.older_has_more %}{{ load_more('/fragments/sessions/' ~ active_session.id ~ '/queries?offset=' ~ page_size, 'Load older messages', 'loadOlderQueries') }}{% endif %}
-          {% for r in active_session.records %}{{ query_turn(r) }}{% else %}
-          <div class="conv-placeholder"><div class="big">💡</div><p>Ask your first question below.</p></div>
-          {% endfor %}
+        <div id="queries-list"></div>
+        <div class="pager" id="queries-pager">
+          <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+          <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
         </div>
 
         <form method="post" action="/sessions/{{ active_session.id }}/query" id="ask-form" onsubmit="return _onAsk()" style="margin-top:auto;">
@@ -422,23 +418,32 @@
               <div class="section-loading"><span class="spinner"></span></div>
               <div class="cap-head"><h3>Tools ({{ srv.tool_count }})</h3>
                 <button type="button" class="btn btn-ghost btn-xs" onclick="addTool()">+ Add tool</button></div>
-              {% for tool in srv.tools %}{{ tool_item(tool) }}{% else %}<div class="empty-msg">No tools.</div>{% endfor %}
-              {% if srv.tools_has_more %}{{ load_more('/fragments/database/' ~ srv.id ~ '/tools?offset=' ~ page_size) }}{% endif %}
+              <div class="list-rows" id="tools-list"></div>
+              <div class="pager" id="tools-pager">
+                <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+                <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
+              </div>
             </div>
 
             <div class="cap-section">
               <div class="section-loading"><span class="spinner"></span></div>
               <div class="cap-head"><h3>Resources ({{ srv.resource_count }})</h3></div>
-              {% for res in srv.resources %}{{ resource_item(res) }}{% else %}<div class="empty-msg">No resources.</div>{% endfor %}
-              {% if srv.resources_has_more %}{{ load_more('/fragments/database/' ~ srv.id ~ '/resources?offset=' ~ page_size) }}{% endif %}
+              <div class="list-rows" id="resources-list"></div>
+              <div class="pager" id="resources-pager">
+                <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+                <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
+              </div>
             </div>
 
             <div class="cap-section">
               <div class="section-loading"><span class="spinner"></span></div>
               <div class="cap-head"><h3>Prompts ({{ srv.prompt_count }})</h3>
                 <button type="button" class="btn btn-ghost btn-xs" onclick="addPrompt()">+ Add prompt</button></div>
-              {% for p in srv.prompts %}{{ prompt_item(p) }}{% else %}<div class="empty-msg">No prompts.</div>{% endfor %}
-              {% if srv.prompts_has_more %}{{ load_more('/fragments/database/' ~ srv.id ~ '/prompts?offset=' ~ page_size) }}{% endif %}
+              <div class="list-rows" id="prompts-list"></div>
+              <div class="pager" id="prompts-pager">
+                <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
+                <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
+              </div>
             </div>
           </div>
         </div>
@@ -640,37 +645,138 @@
     if (!q) return false;
     _asking = true; _showOverlay(); return true;
   }
-  // ── Chat thread: latest turn at the bottom; load older above on demand ────
-  function _scrollThreadBottom() { const t = document.getElementById('thread'); if (t) t.scrollTop = t.scrollHeight; }
-  // Generic "Load more" (appends): replace the button with the next rows + a fresh button (or nothing).
-  async function loadMore(btn) {
-    const url = btn.dataset.url; btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Loading…';
-    try { btn.outerHTML = await (await fetch(url)).text(); }
-    catch (e) { btn.disabled = false; btn.textContent = orig; alert('Could not load more: ' + e); }
-  }
-  // Load OLDER turns (prepends): keep the viewport stable by re-anchoring scroll after taller content lands.
-  async function loadOlderQueries(btn) {
-    const thread = document.getElementById('thread');
-    const prevH = thread ? thread.scrollHeight : 0, prevTop = thread ? thread.scrollTop : 0;
-    btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Loading…';
-    try {
-      btn.outerHTML = await (await fetch(btn.dataset.url)).text();
-      if (thread) thread.scrollTop = prevTop + (thread.scrollHeight - prevH);
-    } catch (e) { btn.disabled = false; btn.textContent = orig; alert('Could not load older messages: ' + e); }
+  // ── Pager: keyset Previous/Next over an AJAX-loaded list ───────────────────
+  // `loader(cursor)` renders one page into the list and returns the NEXT page's cursor (or null on the
+  // last page). We keep the stack of page-start cursors we've visited, so Previous is just a step back
+  // through it (cursors are forward-only).
+  function setupPager(prefix, loader, afterRender) {
+    const rows = document.getElementById(prefix + '-list');
+    const pager = document.getElementById(prefix + '-pager');
+    if (!rows || !pager) return null;
+    const prevBtn = pager.querySelector('.pg-prev'), nextBtn = pager.querySelector('.pg-next');
+    let stack = [null], idx = 0, nextCursor = null, busy = false;
+    async function go() {
+      if (busy) return; busy = true;
+      prevBtn.disabled = nextBtn.disabled = true;
+      try {
+        nextCursor = await loader(stack[idx]);
+        prevBtn.disabled = idx === 0;
+        nextBtn.disabled = !nextCursor;
+        if (afterRender) afterRender(rows);
+      } catch (e) {
+        rows.innerHTML = '<div class="empty-msg">Could not load: ' + _esc(e.message || e) + '</div>';
+        prevBtn.disabled = idx === 0; nextBtn.disabled = true;
+      } finally { busy = false; }
+    }
+    prevBtn.addEventListener('click', () => { if (idx > 0) { idx--; go(); } });
+    nextBtn.addEventListener('click', () => { if (nextCursor) { stack[idx + 1] = nextCursor; idx++; go(); } });
+    return { reload: () => { stack = [null]; idx = 0; return go(); } };
   }
 
-  {% if active_session %}
+  // Loader for an HTML-fragment list (sessions / databases / chat thread): swap innerHTML, next cursor
+  // from the X-Next-Cursor header.
+  function htmlPageLoader(rows, url, emptyHtml) {
+    return async (cursor) => {
+      const u = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'cursor=' + encodeURIComponent(cursor || '');
+      const r = await fetch(u);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const html = await r.text();
+      rows.innerHTML = html.trim() ? html : (emptyHtml || '<div class="empty-msg">Nothing yet.</div>');
+      return r.headers.get('X-Next-Cursor');
+    };
+  }
+
+  // Loader for a capability list (tools / resources / prompts): JSON-RPC */list → client-rendered rows.
+  function capPageLoader(rows, method, key, renderRow, emptyLabel) {
+    return async (cursor) => {
+      const resp = await mcpRpc(method, cursor ? { cursor } : {});
+      if (resp.error) throw new Error(resp.error.message);
+      const result = resp.result || {};
+      const items = result[key] || [];
+      rows.innerHTML = items.length ? items.map(renderRow).join('')
+        : '<div class="empty-msg">' + emptyLabel + '</div>';
+      return result.nextCursor || null;
+    };
+  }
+
+  // ── Capability rows (client-rendered; each item's edit payload rides in its `_meta`) ──────
+  function _escAttr(s) { return _esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  function _capData(item) { return _escAttr(JSON.stringify(item)); }
+  function renderToolRow(t) {
+    const ex = (t._meta && t._meta.execution) || {}, params = ex.parameters || [];
+    return `<div class="cap-item" data-item="${_capData(t)}">
+      <div class="cap-row"><span class="cap-name">${_esc(t.name)}</span>
+        <span class="cap-acts">
+          <button type="button" class="cap-btn" onclick="editToolEl(this)">Edit</button>
+          <button type="button" class="cap-btn del" onclick="delCapEl(this,'tools/delete','name')">Delete</button>
+        </span></div>
+      ${t.description ? `<div class="cap-desc">${_esc(t.description)}</div>` : ''}
+      <div class="cap-sql">${_esc(ex.sql_template || '')}</div>
+      ${params.length ? `<div class="cap-params">params: ${params.map(p => `<span class="pill pill-muted">${_esc(p.name)}:${_esc(p.type)}</span> `).join('')}</div>` : ''}
+    </div>`;
+  }
+  function renderResourceRow(r) {
+    const m = r._meta || {}, isSchema = m.kind === 'schema';
+    return `<div class="cap-item" data-item="${_capData(r)}">
+      <div class="cap-row">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0;"><span class="pill">${_esc(m.kind || '')}</span><span class="cap-name" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;">${_esc(r.uri)}</span></span>
+        <span class="cap-acts">${isSchema
+          ? `<button type="button" class="cap-btn" onclick="editSchemaEl(this)">Edit relationships</button>`
+          : `<button type="button" class="cap-btn" onclick="editResourceEl(this)">Edit</button>
+             <button type="button" class="cap-btn del" onclick="delCapEl(this,'resources/delete','uri')">Delete</button>`}
+        </span>
+      </div>
+      ${r.description ? `<div class="cap-desc">${_esc(r.description)}</div>` : ''}
+      ${m.size ? `<div class="cap-params">size: ${m.size} bytes</div>` : ''}
+    </div>`;
+  }
+  function renderPromptRow(p) {
+    return `<div class="cap-item" data-item="${_capData(p)}">
+      <div class="cap-row"><span class="cap-name">${_esc(p.name)}</span>
+        <span class="cap-acts">
+          <button type="button" class="cap-btn" onclick="editPromptEl(this)">Edit</button>
+          <button type="button" class="cap-btn del" onclick="delCapEl(this,'prompts/delete','name')">Delete</button>
+        </span></div>
+      ${p.description ? `<div class="cap-desc">${_esc(p.description)}</div>` : ''}
+    </div>`;
+  }
+  function _item(el) { return JSON.parse(el.closest('.cap-item').dataset.item); }
+  function editToolEl(el) { const t = _item(el); editTool(t.name, t.description, (t._meta || {}).execution); }
+  function editResourceEl(el) { const r = _item(el); editResource(r.uri, r.title, r.description, (r._meta || {}).kind); }
+  function editSchemaEl(el) { const r = _item(el); editSchema(r.uri, (r._meta || {}).content); }
+  function editPromptEl(el) { const p = _item(el); editPrompt(p.name, p.description, (p._meta || {}).template); }
+  function delCapEl(el, method, keyName) { const it = _item(el); delCap(el, method, keyName, it[keyName]); }
+
+  // ── Bootstrap: every list loads by its own AJAX call AFTER the shell renders ──────
+  window.PAGERS = {};
+  function _scrollThreadBottom(rows) { const t = rows || document.getElementById('queries-list'); if (t) t.scrollTop = t.scrollHeight; }
   window.addEventListener('DOMContentLoaded', () => {
-    _scrollThreadBottom();  // start on the newest turn
-    const thread = document.getElementById('thread');
-    if (thread) thread.addEventListener('scroll', () => {
-      if (thread.scrollTop <= 4) {                       // scrolled to the top → reveal older history
-        const b = thread.querySelector('.load-more');    // the load-older button, when present
-        if (b && !b.disabled) loadOlderQueries(b);
-      }
-    });
+    const activeSess = {% if active_session %}{{ active_session.id|tojson }}{% else %}null{% endif %};
+    const sessUrl = '/sessions' + (activeSess ? ('?active=' + encodeURIComponent(activeSess)) : '');
+    PAGERS.sessions = setupPager('sessions', htmlPageLoader(document.getElementById('sessions-list'), sessUrl,
+      '<div class="empty-msg">No sessions yet. Click “+ New”.</div>'));
+    PAGERS.databases = setupPager('databases', htmlPageLoader(document.getElementById('databases-list'), '/databases',
+      '<div class="empty-msg">No databases yet. Upload a CSV to create one. →</div>'));
+    if (PAGERS.sessions) PAGERS.sessions.reload();
+    if (PAGERS.databases) PAGERS.databases.reload();
+
+    {% if active_session %}
+    PAGERS.queries = setupPager('queries',
+      htmlPageLoader(document.getElementById('queries-list'), '/sessions/' + activeSess + '/queries',
+        '<div class="conv-placeholder"><div class="big">💡</div><p>Ask your first question below.</p></div>'),
+      _scrollThreadBottom);
+    if (PAGERS.queries) PAGERS.queries.reload();
+    {% endif %}
+
+    {% if active_server %}
+    PAGERS.tools = setupPager('tools', capPageLoader(document.getElementById('tools-list'), 'tools/list', 'tools', renderToolRow, 'No tools.'));
+    PAGERS.resources = setupPager('resources', capPageLoader(document.getElementById('resources-list'), 'resources/list', 'resources', renderResourceRow, 'No resources.'));
+    PAGERS.prompts = setupPager('prompts', capPageLoader(document.getElementById('prompts-list'), 'prompts/list', 'prompts', renderPromptRow, 'No prompts.'));
+    if (PAGERS.tools) PAGERS.tools.reload();
+    if (PAGERS.resources) PAGERS.resources.reload();
+    if (PAGERS.prompts) PAGERS.prompts.reload();
+    {% endif %}
   });
-  {% endif %}
   {% if active_session and new_record_id and new_record_status not in ('completed','failed') %}
   window.addEventListener('DOMContentLoaded', () => {
     _showOverlay();
