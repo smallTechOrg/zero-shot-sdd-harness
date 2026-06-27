@@ -76,6 +76,7 @@ class QueryRunRow(Base):
     tokens_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tokens_output: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt_breakdown: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    charts_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     dataset_ids_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     selector_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -17,6 +17,11 @@ import type { LastQueryTokens } from '@/components/analyse/AnalyseTab'
  * currency estimate for the last query and for today. When the active model is
  * not in the table — or its price is deliberately left `null` because we are not
  * confident of the real rate — the cost shows "N/A" rather than a wrong number.
+ *
+ * User-configured pricing (D4): if the user sets price_input_per_million and
+ * price_output_per_million in Settings, those values override the hardcoded
+ * table. `settingsVersion` bumps whenever the user saves settings, triggering a
+ * re-fetch of the user-configured price.
  */
 
 /**
@@ -66,15 +71,19 @@ function formatCost(value: number | null): string {
   // Show enough precision for tiny per-query costs without trailing noise.
   return `$${value.toFixed(value < 0.01 ? 5 : 4)}`
 }
+
 export function TokenWidget({
   provider,
   lastTokens,
+  settingsVersion = 0,
 }: {
   provider?: string
   lastTokens: LastQueryTokens | null
+  settingsVersion?: number
 }) {
   const [stats, setStats] = useState<DailyStats | null>(null)
   const [statsError, setStatsError] = useState<string | null>(null)
+  const [userPrice, setUserPrice] = useState<ModelPrice | null>(null)
 
   const loadStats = useCallback(async () => {
     setStatsError(null)
@@ -89,6 +98,19 @@ export function TokenWidget({
   useEffect(() => {
     void loadStats()
   }, [loadStats, lastTokens])
+
+  // Fetch user-configured pricing from Settings; re-fetch when settings change.
+  useEffect(() => {
+    api.getSettings().then(s => {
+      const inp = parseFloat(s.price_input_per_million ?? '')
+      const out = parseFloat(s.price_output_per_million ?? '')
+      if (!isNaN(inp) && !isNaN(out)) {
+        setUserPrice({ inputPerMillion: inp, outputPerMillion: out })
+      } else {
+        setUserPrice(null)
+      }
+    }).catch(() => {})
+  }, [settingsVersion])
 
   const mode =
     provider === 'stub' ? 'Stub (offline)' : provider ? provider : '—'
@@ -105,9 +127,8 @@ export function TokenWidget({
       ? Math.min(100, (totalToday / stats.context_limit) * 100)
       : 0
 
-  // Cost (C18) via the client-side pricing table. "N/A" when the active model
-  // has no known price.
-  const price = priceFor(stats?.model)
+  // Cost (C18): user-configured price takes precedence; fall back to hardcoded table.
+  const price = userPrice ?? priceFor(stats?.model)
   const lastQueryCost = lastTokens
     ? formatCost(costUsd(price, lastTokens.input, lastTokens.output))
     : '—'
@@ -166,7 +187,7 @@ export function TokenWidget({
         </p>
       )}
 
-      {/* Cost (C18) — client-side pricing table; "N/A" when price is unknown. */}
+      {/* Cost (C18) — user price > hardcoded table; "N/A" when price is unknown. */}
       <div className="mt-3 border-t border-gray-100 pt-3">
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="text-[11px] font-medium text-gray-500">Cost estimate</span>
@@ -175,9 +196,9 @@ export function TokenWidget({
           <Row label="Last query cost" value={lastQueryCost} live={!!lastTokens} />
           <Row label="Today cost" value={todayCost} live={!!stats} />
         </dl>
-        {price === null && stats && (
+        {price === null && stats && !userPrice && (
           <p className="mt-1 text-[11px] text-gray-400">
-            No published price for this model — cost shown as N/A.
+            Configure pricing in Settings to see cost estimates.
           </p>
         )}
       </div>

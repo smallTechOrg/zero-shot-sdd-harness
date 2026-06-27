@@ -19,6 +19,7 @@ from typing import Any
 
 import pandas as pd
 
+from config.db_overrides import get_runtime_max_iterations, get_runtime_model
 from config.settings import get_settings
 from db.models import DatasetRow, QueryRunRow
 from db.session import create_db_session
@@ -154,6 +155,11 @@ def run_agent(
     """
     settings = get_settings()
     cap = max_iterations if max_iterations is not None else settings.max_iterations
+    # Read DB overrides (user-configured via /settings API).
+    _db_model = get_runtime_model()  # reserved for future LLMClient wiring
+    _db_max_iter = get_runtime_max_iterations()
+    if _db_max_iter is not None:
+        cap = _db_max_iter
     candidate_ids = [d for d in (dataset_ids or []) if d]
     conversation_history = conversation_history or []
 
@@ -310,6 +316,7 @@ def run_agent(
             row.error_message = error_message
             row.selector_reasoning = selector_reasoning
             row.prompt_breakdown = prompt_breakdown
+            row.charts_json = charts or []
 
     logger.info(
         "run_done",

@@ -81,6 +81,7 @@ def _turn_payload(run: QueryRunRow) -> dict:
         # so a future persisted column flows through, else fall back to [].
         "suggested_questions": getattr(run, "suggested_questions", None) or [],
         "prompt_breakdown": run.prompt_breakdown or {},
+        "charts": run.charts_json or [],
     }
 
 

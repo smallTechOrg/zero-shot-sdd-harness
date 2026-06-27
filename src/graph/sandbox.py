@@ -240,6 +240,25 @@ def _capture_charts(result: Any) -> list[str]:
     return charts
 
 
+def _collect_namespace_charts(namespace: dict[str, Any]) -> list[str]:
+    """Scan the eval namespace for any go.Figure objects assigned to variables.
+
+    Handles the common LLM pattern `fig = px.bar(...); fig.show()` where the
+    result of eval/exec is None (show() returns None) but the figure is still
+    reachable as a named variable in the namespace.
+    """
+    charts: list[str] = []
+    seen_ids: set[int] = set()
+    for val in namespace.values():
+        if isinstance(val, go.Figure) and id(val) not in seen_ids:
+            seen_ids.add(id(val))
+            try:
+                charts.append(val.to_json())
+            except Exception:
+                pass
+    return charts
+
+
 def _stringify(result: Any) -> str:
     """Convert an arbitrary eval result to a readable string for the transcript."""
     if result is None:
@@ -306,7 +325,17 @@ def eval_expression(
             except Exception:
                 result = "[executed statements; no return value]"
 
-        charts = _capture_charts(result)
+        direct_charts = _capture_charts(result)
+        ns_charts = _collect_namespace_charts(namespace)
+        # Merge: direct return (expression result) takes priority;
+        # namespace scan adds figures that were assigned to variables and then
+        # shown via fig.show() (which returns None, so result-capture misses them).
+        seen_json: set[str] = set(direct_charts)
+        charts = list(direct_charts)
+        for c in ns_charts:
+            if c not in seen_json:
+                seen_json.add(c)
+                charts.append(c)
         return _stringify(result), charts, False, None
     except Exception as exc:  # noqa: BLE001 — recoverable, recorded in transcript
         err = f"{type(exc).__name__}: {exc}"

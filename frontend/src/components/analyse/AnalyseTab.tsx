@@ -10,6 +10,7 @@ import {
   ConversationCard,
   type ConversationHandle,
 } from '@/components/analyse/ConversationCard'
+import { SettingsPanel } from '@/components/analyse/SettingsPanel'
 
 /** Token counts from the most recent completed ask (drives the TokenWidget). */
 export interface LastQueryTokens {
@@ -49,6 +50,8 @@ export function AnalyseTab({
   const [datasetsVersion, setDatasetsVersion] = useState(0)
   const [sessionsVersion, setSessionsVersion] = useState(0)
   const [lastTokens, setLastTokens] = useState<LastQueryTokens | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsVersion, setSettingsVersion] = useState(0)
 
   const conversationRef = useRef<ConversationHandle>(null)
 
@@ -122,8 +125,22 @@ export function AnalyseTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_1fr]">
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => setSettingsVersion(v => v + 1)}
+      />
+
       {/* Sidebar */}
       <aside className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 shadow-sm hover:bg-gray-50"
+          aria-label="Open settings"
+        >
+          <span aria-hidden="true">⚙</span> Settings
+        </button>
         <SessionSidebar
           activeSessionId={sessionId}
           refreshToken={sessionsVersion}
@@ -133,7 +150,7 @@ export function AnalyseTab({
           onAllDeleted={handleAllSessionsDeleted}
           onOpenMemory={onOpenMemory}
         />
-        <TokenWidget provider={provider} lastTokens={lastTokens} />
+        <TokenWidget provider={provider} lastTokens={lastTokens} settingsVersion={settingsVersion} />
       </aside>
 
       {/* Main column */}

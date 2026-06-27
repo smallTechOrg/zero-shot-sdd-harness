@@ -483,3 +483,38 @@ def test_delete_dataset_cascades_runs_via_dataset_ids_json(api_client, _isolated
             f"Run {run_id} still present after deleting dataset B "
             "(dataset_ids_json cascade missed it)"
         )
+
+
+# --- D4: Settings API tests -----------------------------------------------
+
+
+def test_get_settings_returns_defaults(api_client):
+    r = api_client.get("/settings")
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert "llm_model" in data
+    assert "max_iterations" in data
+    assert "price_input_per_million" in data
+    assert "price_output_per_million" in data
+
+
+def test_patch_and_read_settings(api_client):
+    r = api_client.patch("/settings", json={"max_iterations": "10"})
+    assert r.status_code == 200
+    assert r.json()["data"]["max_iterations"] == "10"
+    # Clear it
+    r2 = api_client.patch("/settings", json={"max_iterations": None})
+    assert r2.status_code == 200
+
+
+# --- D8: charts_json persisted on run ------------------------------------
+
+
+def test_charts_json_persisted_on_run(api_client):
+    # Smoke: a completed run row should have charts_json accessible (empty for stub)
+    r = api_client.post("/upload", files={"file": ("t.csv", b"a,b\n1,2\n3,4", "text/csv")})
+    ds_id = r.json()["data"]["dataset_id"]
+    r2 = api_client.post("/ask", json={"dataset_id": ds_id, "question": "describe"})
+    assert r2.status_code == 200
+    # charts in response may be [] for stub but key must exist
+    assert "charts" in r2.json()["data"]

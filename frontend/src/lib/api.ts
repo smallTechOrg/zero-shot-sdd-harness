@@ -330,6 +330,17 @@ export interface MemoryResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Settings (D4)
+// ---------------------------------------------------------------------------
+
+export interface SettingsData {
+  llm_model: string | null
+  max_iterations: string | null
+  price_input_per_million: string | null
+  price_output_per_million: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Endpoint wrappers (Phase 2 surface)
 // ---------------------------------------------------------------------------
 
@@ -464,4 +475,17 @@ export const api = {
 
   patchMemory: (text: string) =>
     patchJson<MemoryResponse>('/memory', { global_memory: text }),
+
+  // --- Settings (D4) --------------------------------------------------------
+
+  getSettings: () => getJson<SettingsData>('/settings'),
+
+  async patchSettings(patch: Partial<SettingsData>): Promise<SettingsData> {
+    const res = await fetch('/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    return unwrap<SettingsData>(res)
+  },
 }
