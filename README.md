@@ -1,176 +1,128 @@
-# Zero Shot SDD Harness for Building Agents
+# DataChat
 
-Give it a one-line idea. Walk away with a working, tested, phased agent.
+> **All commands run from the repo root.** The repo root *is* the project — there is no subdirectory to `cd` into, except the one-time frontend build (`cd frontend && … && cd ..`). Every Python command is prefixed with `uv run`; a bare `alembic`/`pytest`/`python` will fail unless the venv is manually activated.
 
-A lean, Claude-Code-native harness for building agentic software **spec-first**. One person with an idea and one API key can drive a real, production-shaped agent into existence — and a senior engineer opening the result finds a conventional, reviewable stack, not generated mush.
+## What DataChat Is
 
----
+DataChat is a local, single-user data-analysis chat agent. Upload a CSV or Excel (`.xlsx`) file, ask questions about it in plain language ("what were total sales by region?", then "break that down by month"), and get a plain-language answer plus an automatically-chosen inline chart (bar, line, or pie). The headline property is a **hard privacy boundary**: all computation over your data happens locally with pandas — only the dataset's *schema* (column names + types) and *locally-computed aggregate tables* are ever sent to Gemini. **Raw data rows never leave the machine.**
 
-## The Spirit
+## Prerequisites
 
-Six convictions the whole repo is built around:
+- [`uv`](https://docs.astral.sh/uv/) — Python dependency + venv manager (Python 3.11+).
+- [`pnpm`](https://pnpm.io/) + Node.js — to build the frontend static export.
+- A **Google Gemini API key** — the only secret you need to supply.
 
-1. **Spec is the source of truth.** The spec is written before the code, always. When spec and code disagree, the spec wins and the code is fixed (`/zero-shot-sync`). Every AI session reads the same requirements instead of re-deriving them.
-2. **Built for two audiences at once.** A non-coder drives it with a single sentence; a senior engineer inherits a clean FastAPI + LangGraph stack they can read, review, and own. Neither audience is an afterthought.
-3. **Lean harness, not a framework.** `harness/` is engineering *mindfulness* — rules and patterns that keep every session consistent — deliberately Claude-Code-only and kept small. The product runtime stays provider-agnostic; the harness does not.
-4. **Smallest first-time-right win, phase by phase.** Each phase ships the smallest increment a human can actually test, and it must work the *first* time they test it — real on the tested path, with clearly-labelled stubs for everything still to come. No rough edges on the path you're handed.
-5. **A human gates every phase.** The build is autonomous *within* a phase and stops at each boundary for you to test the increment. You stay in control of what "done" means.
-6. **Real LLM/API or it doesn't count.** Gates, tests, and evals run against the real model with keys from `.env`. A stubbed pass is not a pass.
+## Setup
 
----
+All steps run from the repo root.
 
-## What This Is
+### 1. Configure your environment
 
-A starting point for building AI agents spec-first. The repo ships with:
-
-- A working **baseline agent** in `src/` (FastAPI + LangGraph + SQLite, provider-agnostic LLM — Anthropic or Gemini, `transform_text` as the capability slot) — tests pass out of the box
-- A **spec template** in `spec/` covering roadmap, architecture, capabilities, data model, API, UI, and agent graph
-- Three **zero-shot skills** (`/zero-shot-build`, `/zero-shot-fix`, `/zero-shot-sync`)
-- A four-agent **team** — agent-builder orchestrates (plans, fans out, owns git/PR); spec-writer is the single design authority; code-generator implements one slice per instance (parallelised); qa-auditor reviews and gates
-- Engineering rules and patterns in `harness/` so every Claude Code session is consistent
-- **Human testing gate between phases** — autonomous within a phase, you test each increment before the next starts
-
----
-
-## How to Use This
-
-### Step 1 — Clone
-
-```bash
-git clone https://github.com/smallTechOrg/zero-shot-sdd-harness.git my-agent
-cd my-agent
-```
-
-### Step 2 — Open in Claude Code
-
-```bash
-claude
-```
-
-### Step 3 — Build
-
-```
-/zero-shot-build An agent that monitors my Shopify store for low-inventory products and drafts restock emails to suppliers
-```
-
-One intake round (scope, stack, API keys → fill `.env`), then the agent builds phase by phase and stops at each boundary for you to test.
-
----
-
-## What Happens (Intake → Phase by Phase)
-
-```
-Your idea
-    ↓
-INTAKE — scope, stack, LLM provider, constraints; fill .env with the required API key
-    ↓
-[spec-writer]  → Full spec: architecture + agent-graph + phased plan (self-reviewed)
-    ↓
-[agent-builder] → Feature branch + PR, scaffold
-    ↓
-per phase — all slices concurrently:
-    [code-generator: slice-a]  ──→  [qa-auditor: slice-a]  ─┐
-    [code-generator: slice-b]  ──→  [qa-auditor: slice-b]  ─┤→  commit + push
-    [code-generator: slice-c]  ──→  [qa-auditor: slice-c]  ─┘
-    ↓
-HUMAN TESTING GATE — exact run commands + expected result; you confirm before next phase
-    ↓
-(issue → qa-auditor classifies SPEC-vs-CODE → code-generator fixes → re-gate)
-    ↓
-repeat per phase → SHIP
-```
-
-Phase 1 is the smallest first-time-right win — real on the tested path, with labelled stubs for everything coming later. Each later phase wires one more stub into real functionality.
-
----
-
-## Repo Layout
-
-```
-src/                ← baseline agent (FastAPI + LangGraph + SQLite, Anthropic/Gemini)
-  api/              ← FastAPI routers (create_app, health, runs)
-  config/           ← Pydantic BaseSettings
-  db/               ← SQLAlchemy models + session
-  domain/           ← Pydantic request/response models
-  graph/            ← LangGraph nodes, edges, state, runner  ← CAPABILITY SLOT
-  llm/              ← LLM client + providers/ (anthropic, gemini)
-  prompts/          ← prompt templates (.md)
-  observability/
-frontend/           ← Next.js static export (served by FastAPI at /app)
-tests/
-  unit/             ← passes with no API key
-  integration/      ← requires real key in .env
-spec/               ← your spec: roadmap, architecture, capabilities/, data, api, ui, agent
-harness/
-  rules/            ← ai-agents, git, secret-hygiene
-  patterns/         ← spec-driven, phases, project-layout, tech-stack, code, test-driven, ui-ux, agentic-ai, engineering-practices
-.claude/
-  skills/           ← /zero-shot-build, /zero-shot-fix, /zero-shot-sync
-  agents/           ← agent-builder, spec-writer, code-generator, qa-auditor
-CLAUDE.md
-pyproject.toml
-alembic.ini        ← Alembic migrations (alembic/)
-agent.py            ← verify setup (default); --run to start the server
-.env.example
-```
-
-**Capability slot** — the three files to replace for your agent:
-- `src/graph/nodes.py` — replace `transform_text` with your logic
-- `src/prompts/transform.md` — replace with your system prompt
-- `frontend/src/app/page.tsx` — replace the transform form with your UI
-
-Everything else (graph wiring, API, DB, settings, tests) is already working.
-
----
-
-## Running the Baseline
+Copy the example env file and fill in your Gemini key:
 
 ```bash
 cp .env.example .env
-# edit .env: set exactly ONE provider key —
-#   AGENT_ANTHROPIC_API_KEY=<your key>   or   AGENT_GEMINI_API_KEY=<your key>
-# the provider is auto-detected from whichever key is set
-uv sync
-python agent.py                        # verify tools, .env, deps, tests (default)
-python agent.py --run                  # migrations + frontend build + start server
 ```
 
-Once running:
+Then edit `.env` and set:
 
-| URL | What |
-|-----|------|
-| `http://localhost:8001/app/` | **UI** — transform form (the capability slot) |
-| `http://localhost:8001/health` | API health check |
-| `http://localhost:8001/docs` | Interactive API docs (Swagger) |
+```
+AGENT_GEMINI_API_KEY=<your-gemini-api-key>
+```
 
-Tests:
+This is the only manual setup step. `PORT` defaults to `8001` (set it in `.env` only if you need a different port). The app's metadata database defaults to `sqlite:///./data/agent.db`.
+
+### 2. Install Python dependencies
 
 ```bash
-uv run pytest tests/unit/ -v          # no key needed
-uv run pytest tests/ -v               # requires real key in .env
+uv sync
 ```
 
----
+This installs everything in `pyproject.toml` — pandas, openpyxl, langgraph, fastapi, sqlalchemy, alembic, and the rest.
 
-## Rules AI Agents Follow
+### 3. Build the frontend
 
-Full rules in `harness/rules/ai-agents.md`. Summary:
+This is the only step that changes directory. It produces `frontend/out/`, which FastAPI serves at `/app`:
 
-- Read the full spec before writing any code
-- Never skip a phase; commit every logical unit
-- Tests run against the real LLM/API using keys from `.env` — stubbed runs do not count as passing
-- Each phase is tested by the human before the next phase starts
-- The build record is git history + the PR + the per-phase test-handoffs
+```bash
+cd frontend && pnpm install && pnpm build && cd ..
+```
 
----
+### 4. Set up the database
 
-## FAQ
+Apply migrations against the production SQLite database, then verify they actually ran:
 
-**What if I already have a stack in mind?**
-State it in the idea: `/zero-shot-build [idea] — use Python + FastAPI + PostgreSQL`. Stack choices are binding.
+```bash
+uv run alembic upgrade head
+uv run alembic current
+```
 
-**What if something breaks?**
-Run `/zero-shot-fix [what's broken]` — qa-auditor classifies the problem (SPEC vs CODE), the right generator fixes it, qa-auditor re-gates.
+`uv run alembic current` **must print `0002 (head)`** — blank output means no migration was applied and the app will not work.
 
-**What if spec and code drift?**
-Run `/zero-shot-sync` — qa-auditor classifies each divergence, generators fix, spec wins.
+## Run
+
+Start the server from the repo root:
+
+```bash
+uv run python -m src
+```
+
+It serves on `http://localhost:8001` (or `PORT` from `.env`). Then open:
+
+```
+http://localhost:8001/app/
+```
+
+> Use exactly `uv run python -m src`. It launches uvicorn with the flat `src/` package path set up. A bare `uvicorn api:app` fails because the package path is not configured.
+
+## Using It
+
+1. **Upload** — drag a CSV or `.xlsx` file (e.g. a sales export) onto the upload area. Within a few seconds you'll see the detected schema: column names, inferred types, and the row count.
+2. **Ask** — type a plain-language question like *"what were total sales by region?"*. You'll get a plain-language answer grounded in a locally-computed aggregation, plus an auto-chosen **bar chart** rendered inline.
+3. **Follow up** — ask *"show that as a trend over time"* or *"break it down by month"*. The agent uses the recent conversation context and returns a **line chart**.
+
+When a question doesn't warrant a chart (e.g. a single-value answer), none is forced.
+
+### Labelled "Coming soon" stubs (Phase 1)
+
+These surfaces are visible but intentionally **non-functional** in Phase 1 — they are badged "Coming soon", not broken:
+
+- **Connect a live database** (Phase 4)
+- **Deep memory** indicator (Phase 2)
+- **Auto-insights** panel (Phase 3)
+- **Chart-type toggle** (manual chart override)
+
+## API
+
+The FastAPI service exposes four endpoints (full request/response shapes in [`spec/api.md`](spec/api.md)):
+
+| Method & path | Purpose |
+|---|---|
+| `POST /datasets` | Multipart upload a CSV/`.xlsx` → dataset id + detected schema (no LLM call). |
+| `POST /chat` | Ask a question about a dataset → plain-language answer + optional chart spec. |
+| `GET /datasets/{dataset_id}` | Fetch a dataset's metadata + schema. |
+| `GET /conversations/{conversation_id}` | Fetch a conversation's ordered message thread. |
+
+All responses use the envelope `{"data": ..., "error": null}` on success.
+
+## Testing
+
+Run the full suite (the Phase-1 gate) from the repo root:
+
+```bash
+uv run alembic upgrade head && uv run pytest -q
+```
+
+The 32 local-logic tests (schema inference, aggregation, API contract, privacy-boundary construction) pass offline. The live-Gemini integration tests in `tests/integration/test_chat_graph.py` and `tests/integration/test_api.py` hit the **real Gemini API** and require a valid, **non-rate-limited** `AGENT_GEMINI_API_KEY` in `.env`; without an un-capped key they fail with a Gemini quota/billing error rather than a code defect.
+
+## Privacy
+
+The privacy boundary is the whole point of DataChat:
+
+- Raw uploaded files live on local disk under `./data/uploads/` (gitignored) and are **never read into any LLM prompt**.
+- Only the dataset **schema** and **locally-computed aggregate tables** (capped, small group-by results) are ever sent to Gemini.
+- The aggregation arithmetic runs deterministically and locally with pandas. The LLM is used only to plan the aggregation and to phrase the answer + pick a chart from the small aggregate table.
+
+## Stack
+
+Python 3.11+ / FastAPI / LangGraph / SQLite / Gemini (`gemini-2.5-pro`) / Next.js + Recharts.
