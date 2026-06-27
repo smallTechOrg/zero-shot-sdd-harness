@@ -88,7 +88,7 @@ For every capability that processes a dataset:
 | Integration | fewer | 100s of ms | real DB and real LLM/API boundary (keys from `.env`) |
 | E2E / smoke | fewest | seconds | a real process, golden-path user journey |
 
-Push assertions **down** the pyramid: if a unit test can catch it, don't wait for the smoke test. The golden-path UI smoke test runs against the **live provider** and asserts **real response content**, not just status codes — a 200 that renders a broken or unstyled page is a failing test.
+Push assertions **down** the pyramid: if a unit test can catch it, don't wait for the smoke test. The golden-path UI smoke test runs against the **live provider** and asserts **real response content**, not just status codes — a 200 that renders a broken or unstyled page is a failing test. For any UI, verify the built CSS bundle contains real utility selectors; a passing build is not proof of styling.
 
 ---
 
@@ -105,3 +105,5 @@ Push assertions **down** the pyramid: if a unit test can catch it, don't wait fo
 - Run the **full** suite, not just the test you touched. Show the output.
 - "It should pass" is not a passing test (`rules/ai-agents.md` rule 2). Run it or say you couldn't.
 - A phase is not complete until its gate suite is green against the production DB driver WITH real LLM/API keys from `.env`, including edge-case and E2E/UI tests.
+- For analytical capabilities: assert the correct answer against a fixture with a known result — a non-empty response is not a passing gate.
+- For stateful capabilities: drive at least two interactions in the same session and assert the second sees the first — a single happy-path call proves nothing about state.

@@ -19,10 +19,7 @@ Reason: port 8000 is commonly occupied by other local services (FastAPI apps, Dj
 When the frontend is a **Next.js static export served by the backend** (the skeleton's model: `output: 'export'`, `basePath: '/app'`, mounted by FastAPI at `/app`), three things are mandatory — each was a real first-build failure:
 
 - **Single-origin is the canonical run + test path.** The user (and the gate) runs **one** server: `cd frontend && pnpm build` → `uv run python -m src`, then opens **`http://localhost:8001/app/`** (note the port `8001`, the `/app/`, and the trailing slash). Do **not** hand the user the two-server `pnpm dev` (`:3000`) flow as the test path — with `basePath: '/app'`, `localhost:3000/` 404s and the API origin differs, which reads as "nothing loads". `pnpm dev` is for inner-loop dev only.
-- **Tailwind v4 needs a PostCSS config AND an explicit `@source` directive.** Two steps, both required:
-  1. Ship `frontend/postcss.config.mjs` with `{ plugins: { '@tailwindcss/postcss': {} } }`.
-  2. Add `@source "../";` as the first line of `app/globals.css`. Tailwind v4's auto-detection does **not** scan TSX files during `next build` with `output: 'export'`. Without `@source`, the built CSS bundle contains `@layer utilities{@tailwind utilities}` literally — zero utility classes generated — and the UI renders as unstyled barebones HTML even though the build exits 0.
-  The qa-auditor must grep the built CSS bundle (`.next/static/css/*.css`) for real utility selectors (e.g. `.flex`, `.bg-`) and treat their absence as a **BLOCKER** — a passing `next build` is not proof of styling.
+- **Tailwind v4 requires a PostCSS config and an explicit `@source` directive in the global CSS file.** Without both, auto-detection skips framework files during static export builds and the built CSS bundle contains no utility classes — the UI renders unstyled even though the build exits 0. The gate must verify the built CSS contains real utility selectors, not just check HTTP 200.
 - **Node-version safety.** Node ≥25 exposes a broken global `localStorage` unless `--localstorage-file` is set, which crashes Next SSR (`localStorage.getItem is not a function` → every page 500s). The frontend `dev`/`build`/`start` scripts must carry `NODE_OPTIONS=--no-experimental-webstorage` (or the project must pin a supported Node LTS via `.nvmrc`/`engines`).
 
 ## LLM Model Name Rule

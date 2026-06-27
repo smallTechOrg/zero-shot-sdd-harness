@@ -110,9 +110,8 @@ The reusable catalogue of agentic design patterns — generic engineering doctri
 **Example** — A research agent branches across queries and sources to map an unfamiliar topic.
 
 ### 22. LLM-Generated Code Execution
-**What** — For dynamic questions over structured data, the LLM writes executable code (Python/pandas) and the system runs it with the data in scope.
-**When** — Any capability where users ask arbitrary, open-ended questions about data. **Anti-pattern:** a hardcoded op-list the LLM maps questions onto — fails silently when column names don't match or the op-list lacks a primitive. Always generate executable code, never a rigid op-list interpreter.
-**Example** — User asks "top 5 teams by avg goals"; LLM writes `df.groupby('team')['goals'].mean().nlargest(5)`, system `exec()`s it with `df` in scope.
+**What** — For dynamic questions over structured data, the LLM writes executable code and the system runs it with the data in scope.
+**When** — Any capability where users ask arbitrary, open-ended questions about data. **Anti-pattern:** a hardcoded op-list the LLM maps questions onto — fails silently when inputs don't match or the list lacks a primitive. Always generate executable code, never a rigid op-list interpreter.
 
 ---
 
