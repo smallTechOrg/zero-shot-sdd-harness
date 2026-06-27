@@ -1,220 +1,130 @@
 # Agent
 
-> Required when the project uses an agent framework. Delete this file if your project has no agent framework.
->
-> If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
->
+## Pattern
 
----
+**Code-interpreter / generate-pandas-then-execute loop** (LangGraph), with a bounded self-correction retry edge. The LLM never sees the full dataset — it receives the dataframe schema + a small profile/sample and the user's question, writes pandas code, and that code is executed **locally** over the full dataframe. On execution error, the error is fed back to the LLM to regenerate (bounded). On success, the result + captured steps are summarized into a plain-language answer.
 
-## Agent Architecture Pattern
+This pattern is chosen from `harness/patterns/agentic-ai.md` (code-generation-and-execution with error-driven self-correction). It replaces the baseline `transform_text` single-call node.
 
-<!-- FILL IN: Which pattern does this agent follow? Choose one and describe why. -->
+## State
 
-| Pattern | Use when |
-|---------|----------|
-| **Single-agent loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
-| **Graph (LangGraph)** | Multi-step pipeline with conditional edges, checkpointing, or parallel nodes. |
-| **Multi-agent** | Specialised sub-agents with distinct roles; orchestrator routes between them. |
-| **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
-| **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
+`AgentState` (`src/graph/state.py`, `TypedDict, total=False`) — replaces the baseline transform state:
 
-> **Default:** a **ReAct tool-use loop** (reason → act → observe), with guardrails, error-handling, and observability always on — the floor for "an agent". Pick a heavier pattern (planning, multi-agent, supervisor) only when a concrete need justifies it, or a lighter one (single deterministic transform) only when there are no tools and no branching. See [`harness/patterns/agentic-ai.md`](../harness/patterns/agentic-ai.md).
+| Field | Type | Meaning |
+|-------|------|---------|
+| `run_id` | `str` | analyses row id (persisted) |
+| `dataset_id` | `str` | which dataset this question is about |
+| `question` | `str` | the user's natural-language question |
+| `schema_summary` | `str` | schema + dtypes + small sample/profile (the ONLY data sent to the LLM) |
+| `dataframe_path` | `str` | local path to the parsed file; the runner loads the full df from here for execution |
+| `generated_code` | `str \| None` | the latest pandas code the LLM produced |
+| `execution_result` | `str \| None` | repr/string of the computed result value |
+| `execution_steps` | `str \| None` | captured stdout from running the code (intermediate steps) |
+| `execution_error` | `str \| None` | traceback/error string if the last execution raised |
+| `attempts` | `int` | how many generate→execute cycles have run |
+| `max_attempts` | `int` | retry ceiling (default 3) |
+| `answer` | `str \| None` | final plain-language explanation |
+| `error` | `str \| None` | terminal error (e.g. retries exhausted) |
+| `status` | `str` | `completed` / `failed` |
 
-**Chosen:** <!-- state pattern + one-sentence rationale -->
+The full dataframe is **not** stored in state and never sent to the LLM. `execute_code` loads it from `dataframe_path` at execution time.
 
----
+## Nodes
 
-## LLM Provider & Model
+| Node | Function | Behavior |
+|------|----------|----------|
+| `generate_code` | `src/graph/nodes.py::generate_code` | Builds the prompt from `src/prompts/analyze.md` + `schema_summary` + `question` (+ on retry, the previous `generated_code` and `execution_error`). Calls Gemini via `LLMClient`. Extracts the pandas code block into `generated_code`. Increments `attempts`. Emits a structured log line. |
+| `execute_code` | `src/graph/nodes.py::execute_code` | Loads the full dataframe from `dataframe_path`, runs `generated_code` in `src/execution/sandbox.py` (restricted builtins, no network/FS, timeout). On success → sets `execution_result` + `execution_steps`, clears `execution_error`. On raise → sets `execution_error`. Emits a structured log line. |
+| `summarize` | `src/graph/nodes.py::summarize` | Calls Gemini once more with the question + `execution_result` + `execution_steps` to produce a concise plain-language `answer`. Sets `status="completed"`. |
+| `handle_error` | `src/graph/nodes.py::handle_error` | Retries exhausted: sets `error` (last `execution_error`), `status="failed"`, and a best-effort `answer` explaining the failure. |
 
-<!-- FILL IN: Which model drives each agent/node? State provider, model ID, and why. -->
+> Reuses the baseline `finalize`/`handle_error` shape but renames/extends them for this flow. The runner persists the final state to the `analyses` row.
 
-| Agent / Node | Provider | Model ID | Rationale |
-|-------------|----------|----------|-----------|
-| <!-- node --> | Anthropic | <!-- e.g. claude-sonnet-4-6 --> | <!-- latency vs. quality trade-off --> |
-
-**Fallback behaviour:** <!-- Production resilience only: retry/backoff, degraded mode, or a surfaced error if the LLM API is unavailable or rate-limited. NOT a test/offline stub path — tests call the real API with keys from `.env`. -->
-
-**Prompt strategy:** <!-- System/user split, few-shot examples, structured output (tool_use / JSON mode)? -->
-
----
-
-## Tools & Tool Calling
-
-<!-- FILL IN: Every tool the agent can call. -->
-
-| Tool name | Description | Inputs | Output | Side-effects |
-|-----------|-------------|--------|--------|--------------|
-| <!-- name --> | <!-- what it does --> | <!-- params --> | <!-- return type --> | <!-- DB write, API call, file write, etc. --> |
-
-**Tool selection strategy:** <!-- How does the agent decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
-
-**Tool failure handling:** <!-- retry, fallback, abort — per tool or global policy? -->
-
----
-
-## Agent State
-
-<!-- FILL IN: The full state type. Every field must be named, typed, and annotated with what populates it. -->
-
-```python
-class AgentState(TypedDict):
-    # Identity
-    run_id: int                          # set at initialisation
-
-    # Input
-    # ...                                # fields populated from the trigger
-
-    # Pipeline data (populated progressively by nodes)
-    # ...
-
-    # Output
-    # ...                                # final result fields
-
-    # Control
-    error: str | None                    # set by any node on fatal failure
-    checkpoint: str | None              # last completed node (for resume)
-```
-
----
-
-## Nodes / Steps
-
-<!-- FILL IN: One section per node. For single-agent loops, describe each "step" or "tool call phase." -->
-
-### `node_[name]`
-
-**Reads from state:** <!-- field names -->
-
-**Writes to state:** <!-- field names -->
-
-**LLM call:** <!-- yes/no; if yes: prompt template summary, model used, output format -->
-
-**External calls:**
-
-| System | Operation | On Failure |
-|--------|-----------|------------|
-| <!-- system --> | <!-- what it calls --> | <!-- fatal (set error) / partial (log + continue) / retry --> |
-
-**Behaviour:** <!-- One paragraph. What decision or transformation does this node perform? -->
-
----
-
-## Graph / Flow Topology
-
-<!-- FILL IN: ASCII diagram of node flow. Show ALL conditional edges explicitly. -->
+## Edges & Routing
 
 ```
 START
-  │
-  ▼
-node_a ──(error)──► node_handle_error ──► END
-  │
-  ▼
-node_b ──(condition)──► node_c
-  │                         │
-  │                         ▼
-  └──────────────────► node_finalize
-                             │
-                             ▼
-                            END
+  └─▶ generate_code
+        └─▶ execute_code
+              └─(conditional: route_after_execute)─┐
+                                                    ├─ "summarize"     (execution_error is None)
+                                                    ├─ "generate_code" (error AND attempts < max_attempts)  ← self-correction retry
+                                                    └─ "handle_error"  (error AND attempts >= max_attempts)
+  summarize    ─▶ END
+  handle_error ─▶ END
 ```
 
-**Conditional edges:**
+`route_after_execute` (`src/graph/edges.py`):
+```
+def route_after_execute(state):
+    if not state.get("execution_error"):
+        return "summarize"
+    if state.get("attempts", 0) < state.get("max_attempts", 3):
+        return "generate_code"   # feed the error back, regenerate
+    return "handle_error"
+```
 
-| Source node | Condition | Target |
-|-------------|-----------|--------|
-| <!-- node --> | <!-- e.g. state["error"] is not None --> | <!-- target node --> |
+## Error Handler & Finalize
 
----
+- `handle_error` is the terminal failure node (retries exhausted or non-recoverable). It never surfaces a raw traceback as the user-facing answer; it produces a plain-language failure message and records the underlying `error` for the steps panel.
+- `summarize` is the success finalizer. The **runner** (`src/graph/runner.py`) then persists `generated_code`, `execution_result`, `execution_steps`, `answer`, and `status` to the `analyses` row in local SQLite.
 
-## Memory & Context
+## Concurrency
 
-<!-- FILL IN: How does the agent remember things across turns, steps, or runs? -->
+Single-threaded per analysis run; the graph is invoked synchronously inside the request handler / runner. No fan-out within the graph. Multiple analyses are independent runs (separate `run_id`s). Phase 3 adds an execution timeout but does not change the graph topology.
 
-| Scope | Mechanism | What is stored |
-|-------|-----------|----------------|
-| **Within a run** | LangGraph state | All in-progress data |
-| **Across runs** | <!-- DB / vector store / none --> | <!-- e.g. past results, user prefs --> |
-| **Conversation** | <!-- message history / summary / none --> | <!-- if chat-style --> |
-
-**Context window management:** <!-- How is the prompt kept within limits? (summary, sliding window, RAG retrieval) -->
-
----
-
-## Human-in-the-Loop Checkpoints
-
-<!-- FILL IN: Where does execution pause for human input? Delete section if not applicable. -->
-
-| Checkpoint | What is shown to the user | Expected user action | Timeout / default |
-|------------|--------------------------|----------------------|-------------------|
-| <!-- name --> | <!-- what the agent surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
-
----
-
-## Error Handling & Recovery
-
-<!-- FILL IN: How the agent handles failures at each level. -->
-
-**Node-level:** <!-- Each node catches its own exceptions; fatal errors set state["error"] and route to handle_error node. -->
-
-**Graph-level (handle_error node):**
-- Reads: `state.error`, `state.run_id`
-- Updates DB: run status → "failed", `error_message`, `completed_at`
-- Logs error with `run_id` context
-- Terminates graph
-
-**Resume / retry strategy:** <!-- Can a failed run be resumed from its last checkpoint? How? -->
-
-**Partial failure:** <!-- If a non-critical step fails, does the agent degrade gracefully or abort? -->
-
----
-
-## Observability
-
-<!-- FILL IN: What is logged, traced, and measured? -->
-
-| Signal | What | Where |
-|--------|------|-------|
-| **Trace** | One trace per run, one span per node | <!-- OpenTelemetry / LangSmith / stdout --> |
-| **LLM calls** | Prompt tokens, completion tokens, latency, model | <!-- LangSmith / structured log --> |
-| **Tool calls** | Tool name, inputs, success/error, latency | Structured log |
-| **Run outcome** | Status, total duration, error if any | DB + structured log |
-
----
-
-## Concurrency Model
-
-<!-- FILL IN: How concurrent agent runs are handled. -->
-
-- **Run isolation:** <!-- one-at-a-time (API returns 409) / queue / parallel with run_id scoping -->
-- **Parallel nodes within a run:** <!-- which nodes run in parallel and why -->
-- **Checkpointing:** <!-- none / SqliteSaver / PostgresSaver — required if human-in-the-loop or long-running -->
-
----
-
-## Graph Assembly (`agent/graph.py`)
-
-<!-- FILL IN: Pseudocode showing how nodes and edges are wired. Must be ≤ 60 lines in the real file. -->
+## Graph Assembly (pseudocode — `src/graph/agent.py`)
 
 ```python
-graph = StateGraph(AgentState)
+from langgraph.graph import StateGraph, END
+from graph.state import AgentState
+from graph.nodes import generate_code, execute_code, summarize, handle_error
+from graph.edges import route_after_execute
 
-graph.add_node("node_a", node_a)
-graph.add_node("node_b", node_b)
-graph.add_node("finalize", node_finalize)
-graph.add_node("handle_error", node_handle_error)
+def _build_graph():
+    g = StateGraph(AgentState)
+    g.add_node("generate_code", generate_code)
+    g.add_node("execute_code", execute_code)
+    g.add_node("summarize", summarize)
+    g.add_node("handle_error", handle_error)
 
-graph.set_entry_point("node_a")
+    g.set_entry_point("generate_code")
+    g.add_edge("generate_code", "execute_code")
+    g.add_conditional_edges(
+        "execute_code",
+        route_after_execute,
+        {
+            "summarize": "summarize",
+            "generate_code": "generate_code",   # retry
+            "handle_error": "handle_error",
+        },
+    )
+    g.add_edge("summarize", END)
+    g.add_edge("handle_error", END)
+    return g.compile()
 
-graph.add_conditional_edges(
-    "node_a",
-    lambda s: "handle_error" if s.get("error") else "node_b",
-)
-
-graph.add_edge("node_b", "finalize")
-graph.add_edge("finalize", END)
-graph.add_edge("handle_error", END)
-
-compiled_graph = graph.compile()
+agentic_ai = _build_graph()
 ```
+
+## Runner (pseudocode — `src/graph/runner.py`)
+
+```python
+def run_analysis(dataset_id: str, question: str) -> str:
+    init_db()
+    ds = load_dataset_meta(dataset_id)          # from datasets table
+    initial = {
+        "dataset_id": dataset_id,
+        "question": question,
+        "schema_summary": ds.schema_summary,     # schema + sample/profile only
+        "dataframe_path": ds.local_path,          # full df loaded at execute time, locally
+        "attempts": 0,
+        "max_attempts": get_settings().max_attempts,  # default 3
+        "error": None,
+    }
+    # create analyses row (status=pending), get run_id, set into state
+    final = agentic_ai.invoke({**initial, "run_id": run_id})
+    # persist generated_code, execution_result, execution_steps, answer, status to analyses row
+    return run_id
+```
+
+> **Assumed:** `max_attempts` default is 3 (1 initial generate + up to 2 retries), exposed as `AGENT_MAX_ATTEMPTS`.
