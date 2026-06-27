@@ -112,6 +112,7 @@ Each phase ends when:
 - All code for that phase is written and committed
 - All tests for that phase pass
 - The qa-auditor sub-agent has returned VERIFIED (or you have run the gate checklist manually)
+- **README is updated** to reflect what this phase added — any new setup steps, commands, endpoints, or environment variables must be accurate and runnable before the gate is declared passed (Rule 1 applies at every phase boundary, not just at session close)
 
 See `harness/patterns/phases.md` for the phase definitions and gates.
 

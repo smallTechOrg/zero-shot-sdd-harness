@@ -1,3 +1,4 @@
+
 # Test-Driven Development
 
 How tests are written in this repo. This expands the Testing section of `engineering-practices.md` into a concrete discipline. It applies to every phase and every fix.
@@ -63,6 +64,18 @@ So a single happy-path test of a stateful capability is **not coverage of that c
 - **State-survival test** — reload the page / restart the process, then assert prior state is still present and usable.
 
 Derive what to test from the phase's **capabilities**, not its endpoints: if the spec claims "persistent sessions" or "remembers across…", the absence of a multi-interaction + survival test is a coverage hole, regardless of line coverage.
+
+---
+
+## Data-Processing Capabilities Need Full-Data Gates
+
+A capability that analyses, aggregates, or computes over a dataset has a silent failure mode: **sampling**. An implementation that sends only the first N rows to the LLM and asks it to describe them looks correct on a gate CSV of exactly N rows — because sample == full dataset. The bug is invisible until a real user uploads a file with N+1 rows.
+
+For every capability that processes a dataset:
+
+- **Gate test must exceed the maximum plausible sample size.** The test dataset must be large enough that a result computed from a sample is observably different from a result computed from the full set. If the implementation could truncate at N, the gate dataset must have significantly more than N items.
+- **Assert the computed value, not a proxy.** Pick a dataset where the correct answer is exactly knowable and can only be produced from the full data — not a value that a partial view would also produce. Avoid test data where the full-data answer and the sample answer are the same.
+- **The spec must name the approach.** "LLM describes a sample" is not "code execution on the full dataset". These two approaches pass different tests; record which one the spec requires so the gate can distinguish them.
 
 ---
 

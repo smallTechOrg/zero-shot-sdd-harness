@@ -12,20 +12,32 @@ You run the human channel — intake, then the testing gate at every phase bound
 
 ## Stage 1 — Intake (the only interactive setup step)
 
-Intake captures scope, stack, LLM provider, output/trigger, and constraints, MAY ask additional clarifying questions up front if anything is ambiguous, and asks the user to fill `.env` with the required API keys/secrets. Aim for a **tight scope** — Phase 1 should be the smallest user-testable **quick win**, not "complete".
+Intake runs in **two rounds**. Round 1 clarifies what the user wants. Round 2 collects the technical choices needed to build without interruption. Both rounds use `AskUserQuestion`; the API key prompt is the only additional manual step. Aim for a **tight scope** — Phase 1 should be the smallest user-testable **quick win**, not "complete".
 
-**Precondition: you already have the user's idea as their own free text** (from `$ARGUMENTS` or the plain-text prompt above). Never use `AskUserQuestion` to generate or propose the idea itself — it is only for the structured intake questions below, which refine an idea the user has already stated.
+**Precondition: you already have the user's idea as their own free text** (from `$ARGUMENTS` or the plain-text prompt above). Never use `AskUserQuestion` to generate or propose the idea itself.
+
+### Round 1 — What do they want?
 
 1. Acknowledge the idea in one sentence.
-2. Load the question tool: `ToolSearch` with query `select:AskUserQuestion` (before asking).
-3. Ask **one round** of questions via `AskUserQuestion` (add clarifiers if underspecified):
-   - **MVP scope** — minimum to call it working? Push for the smallest first win.
-   - **Stack** — language, database, hosting? ("no preference" → sensible defaults, documented as an assumption; no later user round to confirm).
-   - **LLM provider** — offer these options: **OpenRouter**, **Gemini (API key)**, **Anthropic (API key)**, **Other**. (Drives which key the user sets and the default model from `harness/patterns/tech-stack.md`.)
-   - **Output/trigger** — how invoked, what produced?
-   - **Key constraints** *(multiSelect: true)* — hard no's, compliance, systems to integrate.
-4. **API key** (the only manual user step). **First, read `.env` and check whether the matching key for the chosen provider is already set (non-empty):** `AGENT_OPENROUTER_API_KEY`, `AGENT_GEMINI_API_KEY`, or `AGENT_ANTHROPIC_API_KEY` (for **Other**, ask which env var + base URL). If the key is already present and non-empty, skip the prompt entirely and proceed silently. Only if the key is missing or empty, tell the user to set it in `.env` (from `.env.example`) and wait for their confirmation before continuing. The build and tests load the key programmatically from `.env` (gitignored) and use it for all tests and evals; confirm by presence (bool) only — never echo, print, paste, or commit a secret value.
-5. Synthesize answers into a one-paragraph brief. ("Just build it" → narrow MVP, Python + PostgreSQL defaults, documented as assumptions.)
+2. Load the question tool: `ToolSearch` with query `select:AskUserQuestion`.
+3. Ask **Round 1** via `AskUserQuestion` — product-focused, 3–4 questions:
+   - **MVP scope** — what's the minimum that makes this useful? Push for the smallest first win.
+   - **Core behaviour** — what does a successful interaction look like? What does the user do and what does the agent return?
+   - **Key constraints** *(multiSelect: true)* — hard no's, compliance, systems to integrate, non-negotiable behaviours.
+
+### Round 2 — What do we need to build it?
+
+4. Read the Round 1 answers. Identify any ambiguities that would block or derail Phase 1 if left unresolved. Load `AskUserQuestion` again if needed.
+5. Ask **Round 2** via `AskUserQuestion` — 3–4 questions total:
+   - **1 follow-up** derived from Round 1 answers only — things that were ambiguous or implied but unconfirmed (e.g. if they said "chat" → does it need to remember prior messages?; if they said "process files" → what formats?). Skip if Round 1 was unambiguous.
+   - **LLM provider** — offer: **Anthropic (API key)**, **Gemini (API key)**, **OpenRouter**, **Other**. (Drives which key the user sets and the default model.)
+   - **Stack** — language, database, hosting? ("no preference" → sensible defaults documented as assumptions.)
+   - **Output/trigger** — how is it invoked and what does it produce? (web UI, CLI, API, webhook, scheduled — and what format: text, JSON, file, notification.)
+
+   Every Round 2 question must be a **build blocker** — something that, unanswered, would force a mid-phase pause or produce a wrong assumption. Do not ask nice-to-have clarifications here.
+
+6. **API key** (the only manual user step). Read `.env` and check whether the key for the chosen provider is already set (non-empty): `AGENT_ANTHROPIC_API_KEY`, `AGENT_GEMINI_API_KEY`, or `AGENT_OPENROUTER_API_KEY` (for **Other**, ask which env var + base URL). If present and non-empty, skip silently. Only if missing or empty, tell the user to set it in `.env` (from `.env.example`) and wait for confirmation. Never echo, print, paste, or commit a secret value.
+7. Synthesize both rounds into a one-paragraph brief. ("Just build it" → narrow MVP, Python + SQLite defaults, documented as assumptions.)
 
 ## Stage 2 — Design + scaffold + build Phase 1 (delegate)
 

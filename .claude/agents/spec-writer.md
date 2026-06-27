@@ -105,6 +105,8 @@ Be your own adversarial reviewer — there is no second pair of eyes, so catch t
 - **Stack** — stated preferences honored exactly; every unstated choice documented as `> **Assumed:** ...`.
 - **HOW placement** — no stack/library/framework leaked into the product-narrative files; the HOW is in `architecture.md` + `agent.md`.
 - **Testability** — every success criterion is something you could write a real test for; no vague "works well".
+- **Conversational memory** — if the output surface is a chat UI, does Phase 1 include conversation history (turn memory) as a capability? A chat agent that answers each question without context of prior turns is not fit for purpose. If it's absent, add it or write an explicit `> **Assumed:** deferred to Phase N because …` justification.
+- **Data-processing gates** — if any capability processes a dataset, does the gate test use data large enough that a sampled answer and a full-data answer are observably different? A gate that passes on a tiny fixture because sample == full is not a gate.
 
 Fix anything that fails before returning.
 
@@ -125,3 +127,5 @@ Fix anything that fails before returning.
 - A Phase 1 that is too big to work first-time, or whose stubs aren't visibly labelled.
 - Scope creep past 4 capabilities.
 - Interviewing the user (that's the skill's job).
+- A chat-UI agent spec with no conversation history capability — memory is the default, not a luxury; its absence is a spec gap.
+- A data-processing gate that uses a fixture small enough for sample == full — the gate proves nothing; the fixture must force the difference.
