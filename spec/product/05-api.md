@@ -132,13 +132,16 @@ The capability **rows** are loaded afterward by AJAX from the JSON-RPC `*/list` 
 
 ### AJAX list fragments — `GET /sessions`, `GET /databases`, `GET /sessions/{id}/queries`
 
-**Purpose:** Back the shell's AJAX-loaded lists (the client fetches each after render and pages it with
-**Previous / Next**). Each returns a **rows-only HTML fragment** rendered with the shared row macros, plus
-the next page's opaque keyset cursor in the **`X-Next-Cursor`** response header (absent on the last page).
+**Purpose:** Back the shell's AJAX-loaded lists (the client fetches each after render). Sessions and
+databases are paged with **Previous / Next**; `GET /sessions/{id}/queries` backs the **infinite-scroll**
+chat thread (same endpoint — the client loads the next older page on scroll-up). Each returns a
+**rows-only HTML fragment** rendered with the shared row macros, plus the next page's opaque keyset cursor
+in the **`X-Next-Cursor`** response header (absent on the last page).
 **Request:** `?cursor=` (omit for page 1); `GET /sessions` also takes `?active={id}` to highlight the open
 session. Page size = `ui_page_size` (default 5).
 **Pagination:** newest-first keyset (sessions by `updated_at`, databases + queries by `created_at`); the
-chat thread's page 1 is the latest turns rendered chronological. A malformed cursor → `400 INVALID_CURSOR`.
+chat thread's page 1 is the latest turns rendered chronological, `X-Next-Cursor` walking toward older
+turns. A malformed cursor → `400 INVALID_CURSOR`.
 **Response:** `text/html` (rows); `no-store`. 404 if the session is not found (queries).
 
 ---

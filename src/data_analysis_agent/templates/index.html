@@ -337,10 +337,6 @@
         </div>
 
         <div id="queries-list"></div>
-        <div class="pager" id="queries-pager">
-          <button type="button" class="pg-btn pg-prev" disabled>&lsaquo; Previous</button>
-          <button type="button" class="pg-btn pg-next" disabled>Next &rsaquo;</button>
-        </div>
 
         <form method="post" action="/sessions/{{ active_session.id }}/query" id="ask-form" onsubmit="return _onAsk()" style="margin-top:auto;">
           <label class="field-label" for="question">Your question</label>
@@ -673,8 +669,8 @@
     return { reload: () => { stack = [null]; idx = 0; return go(); } };
   }
 
-  // Loader for an HTML-fragment list (sessions / databases / chat thread): swap innerHTML, next cursor
-  // from the X-Next-Cursor header.
+  // Loader for an HTML-fragment Prev/Next list (sessions / databases): swap innerHTML, next cursor from
+  // the X-Next-Cursor header.
   function htmlPageLoader(rows, url, emptyHtml) {
     return async (cursor) => {
       const u = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'cursor=' + encodeURIComponent(cursor || '');
@@ -684,6 +680,46 @@
       rows.innerHTML = html.trim() ? html : (emptyHtml || '<div class="empty-msg">Nothing yet.</div>');
       return r.headers.get('X-Next-Cursor');
     };
+  }
+
+  // ── Chat thread: infinite scroll (same cursor surface, no Prev/Next) ──────
+  // Page 1 is the newest turns, pinned to the bottom; scrolling to the top fetches the next OLDER page
+  // (X-Next-Cursor) and prepends it, re-anchoring scroll so the viewport stays put. Stops when the
+  // header drops (no older turns).
+  function setupChatThread(rows, baseUrl) {
+    let nextCursor = null, loading = false, done = false;
+    async function fetchPage(cursor) {
+      const u = baseUrl + (cursor ? ('?cursor=' + encodeURIComponent(cursor)) : '');
+      const r = await fetch(u);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return { html: await r.text(), next: r.headers.get('X-Next-Cursor') };
+    }
+    async function loadInitial() {
+      loading = true;
+      try {
+        const { html, next } = await fetchPage(null);
+        rows.innerHTML = html.trim() ? html
+          : '<div class="conv-placeholder"><div class="big">💡</div><p>Ask your first question below.</p></div>';
+        nextCursor = next; done = !next;
+        rows.scrollTop = rows.scrollHeight;            // start on the newest turn
+      } catch (e) { rows.innerHTML = '<div class="empty-msg">Could not load: ' + _esc(e.message || e) + '</div>'; }
+      finally { loading = false; }
+    }
+    async function loadOlder() {
+      if (loading || done || !nextCursor) return;
+      loading = true;
+      const prevH = rows.scrollHeight, prevTop = rows.scrollTop;
+      try {
+        const { html, next } = await fetchPage(nextCursor);
+        if (html.trim()) {
+          rows.insertAdjacentHTML('afterbegin', html);  // older turns go ABOVE
+          rows.scrollTop = prevTop + (rows.scrollHeight - prevH);  // keep the viewport stable
+        }
+        nextCursor = next; done = !next;
+      } finally { loading = false; }
+    }
+    rows.addEventListener('scroll', () => { if (rows.scrollTop <= 8) loadOlder(); });
+    return { loadInitial };
   }
 
   // Loader for a capability list (tools / resources / prompts): JSON-RPC */list → client-rendered rows.
@@ -749,7 +785,6 @@
 
   // ── Bootstrap: every list loads by its own AJAX call AFTER the shell renders ──────
   window.PAGERS = {};
-  function _scrollThreadBottom(rows) { const t = rows || document.getElementById('queries-list'); if (t) t.scrollTop = t.scrollHeight; }
   window.addEventListener('DOMContentLoaded', () => {
     const activeSess = {% if active_session %}{{ active_session.id|tojson }}{% else %}null{% endif %};
     const sessUrl = '/sessions' + (activeSess ? ('?active=' + encodeURIComponent(activeSess)) : '');
@@ -761,11 +796,7 @@
     if (PAGERS.databases) PAGERS.databases.reload();
 
     {% if active_session %}
-    PAGERS.queries = setupPager('queries',
-      htmlPageLoader(document.getElementById('queries-list'), '/sessions/' + activeSess + '/queries',
-        '<div class="conv-placeholder"><div class="big">💡</div><p>Ask your first question below.</p></div>'),
-      _scrollThreadBottom);
-    if (PAGERS.queries) PAGERS.queries.reload();
+    setupChatThread(document.getElementById('queries-list'), '/sessions/' + activeSess + '/queries').loadInitial();
     {% endif %}
 
     {% if active_server %}
