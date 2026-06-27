@@ -1,218 +1,387 @@
 # Agent
 
-> Required when the project uses an agent framework. Delete this file if your project has no agent framework.
->
-> If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
->
-
----
-
 ## Agent Architecture Pattern
 
-<!-- FILL IN: Which pattern does this agent follow? Choose one and describe why. -->
+**Chosen:** Prompt Chaining (#1) within a LangGraph StateGraph, with Exception Handling and Recovery (#12).
 
-| Pattern | Use when |
-|---------|----------|
-| **Single-agent loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
-| **Graph (LangGraph)** | Multi-step pipeline with conditional edges, checkpointing, or parallel nodes. |
-| **Multi-agent** | Specialised sub-agents with distinct roles; orchestrator routes between them. |
-| **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
-| **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
+The analysis task has a fixed, ordered sequence of steps with clear data dependencies between them (schema → plan → computation → answer → chart), making prompt chaining the correct pattern. There is no branching based on input type in Phase 1 (CSV only), and no need for a ReAct tool-calling loop — the pandas operations are deterministic given the plan. LangGraph is used because it provides built-in conditional error routing and explicit state typing, which the existing skeleton already wires. The base ReAct pattern is upgraded to Planning + Prompt Chaining because the agent's "tool use" is not open-ended — it executes a fixed sequence of well-defined transforms.
 
-**Chosen:** <!-- state pattern + one-sentence rationale -->
+Phases 3+ will layer in Reflection (#4) for plan quality and Memory (#8) for multi-turn conversation history per dataset.
 
 ---
 
 ## LLM Provider & Model
 
-<!-- FILL IN: Which model drives each agent/node? State provider, model ID, and why. -->
-
 | Agent / Node | Provider | Model ID | Rationale |
-|-------------|----------|----------|-----------|
-| <!-- node --> | Anthropic | <!-- e.g. claude-sonnet-4-6 --> | <!-- latency vs. quality trade-off --> |
+|---|---|---|---|
+| `plan_analysis` | Google Gemini | `gemini-2.5-flash` | Structured JSON output required; Flash is fast and cost-efficient for planning |
+| `generate_answer` | Google Gemini | `gemini-2.5-flash` | Natural language generation; Flash quality is sufficient for data narration |
 
-**Fallback behaviour:** <!-- Production resilience only: retry/backoff, degraded mode, or a surfaced error if the LLM API is unavailable or rate-limited. NOT a test/offline stub path — tests call the real API with keys from `.env`. -->
+Model is env-configurable via `AGENT_LLM_MODEL`; defaults to `gemini-2.5-flash`.
 
-**Prompt strategy:** <!-- System/user split, few-shot examples, structured output (tool_use / JSON mode)? -->
+**Fallback behaviour:** Each LLM-calling node wraps the call in a try/except. On any exception (4xx, 5xx, timeout, invalid JSON), the node sets `state["error"]` and the conditional edge routes to `handle_error`. `plan_analysis` retries once before erroring (the plan must be valid JSON; a single retry catches transient malformed responses). No other nodes retry. The user sees the error message in the browser; no crash, no 5xx.
+
+**Prompt strategy:**
+- `plan_analysis`: system prompt from `src/prompts/analysis_plan.md` (describes output JSON schema); user message = schema summary + question. Expects a JSON response with keys `{ pandas_ops: [...], chart_type: str, chart_columns: [...] }`. Validated with `json.loads()` after extraction; retried once on parse failure.
+- `generate_answer`: system prompt from `src/prompts/answer.md` (instructs concise plain-English narration); user message = question + computed_data summary. Plain text response; no JSON parsing.
 
 ---
 
 ## Tools & Tool Calling
 
-<!-- FILL IN: Every tool the agent can call. -->
+The agent does not use LLM function-calling (tool_use) protocol. The LLM produces structured text that the nodes parse and execute deterministically. Tool-style operations are implemented as Python functions called directly by nodes.
 
 | Tool name | Description | Inputs | Output | Side-effects |
-|-----------|-------------|--------|--------|--------------|
-| <!-- name --> | <!-- what it does --> | <!-- params --> | <!-- return type --> | <!-- DB write, API call, file write, etc. --> |
+|---|---|---|---|---|
+| `parse_csv` | Load CSV from disk into pandas DataFrame | `dataset_path: str` | `(df: DataFrame, schema_summary: str)` | None |
+| `compute_schema_summary` | Extract column names, dtypes, shape, sample rows | `df: DataFrame` | `schema_summary: str` (≤ 20 cols, 5 rows) | None |
+| `execute_pandas_ops` | Run a list of pandas operations from the plan | `df: DataFrame, ops: list[dict]` | `computed_data: dict` | None |
+| `build_plotly_figure` | Construct Plotly figure dict from computed_data and plan | `computed_data: dict, plan: dict` | `chart_json: str` (JSON) or `None` | None |
+| `persist_dataset` | Write DatasetRow to SQLite | `filename, row_count, column_names, dataset_path` | `dataset_id: str` | DB write |
+| `persist_analysis` | Write AnalysisRow to SQLite | `dataset_id, question, answer, chart_json, status, error` | `analysis_id: str` | DB write |
 
-**Tool selection strategy:** <!-- How does the agent decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
+**Tool selection strategy:** Fixed sequence — nodes call specific tools in order; no LLM-based tool selection.
 
-**Tool failure handling:** <!-- retry, fallback, abort — per tool or global policy? -->
+**Tool failure handling:** Each tool call is wrapped in the enclosing node's try/except. Failure sets `state["error"]`; graph routes to `handle_error`.
 
 ---
 
 ## Agent State
 
-<!-- FILL IN: The full state type. Every field must be named, typed, and annotated with what populates it. -->
-
 ```python
-class AgentState(TypedDict):
+from typing import TypedDict
+
+class AgentState(TypedDict, total=False):
     # Identity
-    run_id: int                          # set at initialisation
+    run_id: str            # set at graph entry by run_analysis(); UUID string
+
+    # Dataset context (populated by ingest_csv or set before graph entry for analysis runs)
+    dataset_id: str        # UUID of the DatasetRow in the datasets table
+    dataset_path: str      # absolute path: data/uploads/<dataset_id>.csv
 
     # Input
-    # ...                                # fields populated from the trigger
+    question: str          # the user's natural-language question
 
     # Pipeline data (populated progressively by nodes)
-    # ...
+    schema_summary: str    # column names, dtypes, shape, sample rows — built by ingest_csv
+    analysis_plan: dict    # parsed JSON from plan_analysis: {pandas_ops, chart_type, chart_columns}
+    computed_data: dict    # result of execute_analysis: {result_label: value_or_series, ...}
 
-    # Output
-    # ...                                # final result fields
+    # Output (populated by generate_answer and generate_chart)
+    answer_text: str       # plain-English answer from generate_answer
+    chart_json: str | None # Plotly figure JSON string from generate_chart; None if no chart
 
     # Control
-    error: str | None                    # set by any node on fatal failure
-    checkpoint: str | None              # last completed node (for resume)
+    error: str | None      # set by any node on fatal failure; triggers handle_error edge
+    status: str            # "pending" | "completed" | "failed"
 ```
 
 ---
 
 ## Nodes / Steps
 
-<!-- FILL IN: One section per node. For single-agent loops, describe each "step" or "tool call phase." -->
+### `ingest_csv`
 
-### `node_[name]`
+**Reads from state:** `dataset_path`, `dataset_id`
 
-**Reads from state:** <!-- field names -->
+**Writes to state:** `schema_summary`
 
-**Writes to state:** <!-- field names -->
-
-**LLM call:** <!-- yes/no; if yes: prompt template summary, model used, output format -->
+**LLM call:** No
 
 **External calls:**
 
 | System | Operation | On Failure |
 |--------|-----------|------------|
-| <!-- system --> | <!-- what it calls --> | <!-- fatal (set error) / partial (log + continue) / retry --> |
+| Local filesystem | `pd.read_csv(dataset_path)` | Fatal — set `state["error"]`; route to handle_error |
+| SQLite | Update `DatasetRow.row_count` and `column_names_json` if not yet set | Fatal — set `state["error"]` |
 
-**Behaviour:** <!-- One paragraph. What decision or transformation does this node perform? -->
+**Behaviour:** Reads the CSV file from disk using pandas. Computes `schema_summary`: a text block with column names, inferred dtypes, dataset shape (rows × cols), and up to 5 sample rows as a markdown table. Caps at 20 columns (takes first 20 if wider) and 5 rows to keep the downstream prompt bounded. Writes `schema_summary` to state. This node runs on both the initial upload path (where DatasetRow already exists) and on re-analysis of an existing dataset.
+
+---
+
+### `plan_analysis`
+
+**Reads from state:** `schema_summary`, `question`
+
+**Writes to state:** `analysis_plan`
+
+**LLM call:** Yes — `gemini-2.5-flash`, system prompt `src/prompts/analysis_plan.md`, structured JSON response.
+
+**External calls:**
+
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| Gemini API | Generate analysis plan JSON | Retry once; on second failure set `state["error"]` |
+
+**Behaviour:** Calls Gemini with the schema summary and question. Expects a JSON response with this schema:
+```json
+{
+  "pandas_ops": [
+    { "op": "groupby", "by": "region", "agg": {"revenue": "mean"} }
+  ],
+  "chart_type": "bar",
+  "chart_columns": { "x": "region", "y": "revenue_mean" },
+  "reasoning": "The question asks for average revenue by region..."
+}
+```
+Extracts JSON from the response (handles markdown code fences). Validates with `json.loads()`. If the first attempt produces invalid JSON, retries once with the same prompt. Writes parsed dict to `state["analysis_plan"]`.
+
+---
+
+### `execute_analysis`
+
+**Reads from state:** `dataset_path`, `analysis_plan`
+
+**Writes to state:** `computed_data`
+
+**LLM call:** No
+
+**External calls:**
+
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| Local filesystem | Re-reads CSV (if df not in state; always re-reads for correctness) | Fatal — set `state["error"]` |
+
+**Behaviour:** Loads the CSV into a pandas DataFrame (fresh read — no in-memory caching between graph invocations). Interprets `analysis_plan["pandas_ops"]` as a sequence of pandas operations drawn from a safe whitelist: `groupby`, `agg`, `sort_values`, `head`, `describe`, `value_counts`, `filter`, `resample`. Each op is applied in sequence; the result of each op is stored in `computed_data` keyed by a descriptor string. Operations not on the whitelist are skipped with a warning logged (never executed). Final `computed_data` is a dict of `{label: serializable_value}` where values are Python scalars, lists, or dicts (DataFrames converted via `.to_dict(orient="records")`).
+
+---
+
+### `generate_answer`
+
+**Reads from state:** `question`, `computed_data`, `schema_summary`
+
+**Writes to state:** `answer_text`
+
+**LLM call:** Yes — `gemini-2.5-flash`, system prompt `src/prompts/answer.md`, plain text response.
+
+**External calls:**
+
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| Gemini API | Generate plain-English answer | Fatal — set `state["error"]` |
+
+**Behaviour:** Calls Gemini with the original question, the schema summary (for column context), and the computed_data (serialized as compact JSON, limited to 4,000 characters to keep within token budget). The system prompt instructs the model to write a concise, factual, plain-English answer — 1–3 sentences, no markdown, no preamble. Response text is written directly to `state["answer_text"]`.
+
+---
+
+### `generate_chart`
+
+**Reads from state:** `computed_data`, `analysis_plan`, `question`
+
+**Writes to state:** `chart_json`
+
+**LLM call:** No (pure Python/Plotly)
+
+**External calls:** None
+
+**Behaviour:** Constructs a Plotly `go.Figure` dict programmatically from `computed_data` and `analysis_plan["chart_type"]` / `analysis_plan["chart_columns"]`. Supported chart types: `bar`, `line`, `scatter`, `pie`, `histogram`. If `chart_type` is missing, unrecognized, or if `computed_data` lacks the expected columns, sets `chart_json = None` (the UI gracefully shows only the text answer). On success, serializes the Plotly figure to JSON via `plotly.io.to_json()` and writes the string to `state["chart_json"]`. Validates that the resulting string is parseable JSON before writing.
+
+---
+
+### `finalize`
+
+**Reads from state:** `run_id`, `dataset_id`, `question`, `answer_text`, `chart_json`
+
+**Writes to state:** `status = "completed"`
+
+**LLM call:** No
+
+**External calls:**
+
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| SQLite | Upsert `AnalysisRow` with answer, chart_json, status=completed | Log error; do not re-raise (result already computed) |
+
+**Behaviour:** Persists the completed analysis to the `analyses` table. Writes `status = "completed"` to state so the graph terminates cleanly.
+
+---
+
+### `handle_error`
+
+**Reads from state:** `error`, `run_id`, `dataset_id`, `question`
+
+**Writes to state:** `status = "failed"`
+
+**LLM call:** No
+
+**External calls:**
+
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| SQLite | Upsert `AnalysisRow` with status=failed, error_message | Log only — do not raise |
+
+**Behaviour:** Persists the failed analysis to the `analyses` table with `status = "failed"` and `error_message = state["error"]`. Logs the error with `run_id` context using structlog. Sets `state["status"] = "failed"`. The graph terminates. The API layer reads `state["error"]` and returns it in the response body — the user sees the error message in the browser.
 
 ---
 
 ## Graph / Flow Topology
 
-<!-- FILL IN: ASCII diagram of node flow. Show ALL conditional edges explicitly. -->
-
 ```
 START
   │
   ▼
-node_a ──(error)──► node_handle_error ──► END
+ingest_csv ──(error)──────────────────────────────────────► handle_error ──► END
   │
   ▼
-node_b ──(condition)──► node_c
-  │                         │
-  │                         ▼
-  └──────────────────► node_finalize
-                             │
-                             ▼
-                            END
+plan_analysis ──(error)───────────────────────────────────► handle_error
+  │
+  ▼
+execute_analysis ──(error)────────────────────────────────► handle_error
+  │
+  ▼
+generate_answer ──(error)─────────────────────────────────► handle_error
+  │
+  ▼
+generate_chart ──(error)──────────────────────────────────► handle_error
+  │
+  ▼
+finalize
+  │
+  ▼
+END
 ```
 
 **Conditional edges:**
 
 | Source node | Condition | Target |
-|-------------|-----------|--------|
-| <!-- node --> | <!-- e.g. state["error"] is not None --> | <!-- target node --> |
+|---|---|---|
+| `ingest_csv` | `state.get("error")` is not None | `handle_error` |
+| `ingest_csv` | `state.get("error")` is None | `plan_analysis` |
+| `plan_analysis` | `state.get("error")` is not None | `handle_error` |
+| `plan_analysis` | `state.get("error")` is None | `execute_analysis` |
+| `execute_analysis` | `state.get("error")` is not None | `handle_error` |
+| `execute_analysis` | `state.get("error")` is None | `generate_answer` |
+| `generate_answer` | `state.get("error")` is not None | `handle_error` |
+| `generate_answer` | `state.get("error")` is None | `generate_chart` |
+| `generate_chart` | `state.get("error")` is not None | `handle_error` |
+| `generate_chart` | `state.get("error")` is None | `finalize` |
+
+The edge function pattern used throughout:
+```python
+def _route(state: AgentState) -> str:
+    return "handle_error" if state.get("error") else "<next_node>"
+```
 
 ---
 
 ## Memory & Context
 
-<!-- FILL IN: How does the agent remember things across turns, steps, or runs? -->
-
 | Scope | Mechanism | What is stored |
-|-------|-----------|----------------|
-| **Within a run** | LangGraph state | All in-progress data |
-| **Across runs** | <!-- DB / vector store / none --> | <!-- e.g. past results, user prefs --> |
-| **Conversation** | <!-- message history / summary / none --> | <!-- if chat-style --> |
+|---|---|---|
+| Within a run | LangGraph `AgentState` (in-memory dict) | All in-progress data: schema, plan, computed_data, answer, chart |
+| Across runs | SQLite `analyses` table | Completed analysis records: answer_text, chart_json, status |
+| Dataset persistence | SQLite `datasets` table + local filesystem | Dataset metadata and uploaded CSV files |
+| Conversation | Not in Phase 1 — deferred to Phase 3 | Multi-turn questions against the same dataset |
 
-**Context window management:** <!-- How is the prompt kept within limits? (summary, sliding window, RAG retrieval) -->
+> **Assumed:** Conversation history (multi-turn memory per dataset session) is deferred to Phase 3. Phase 1 and Phase 2 are single-turn: one question → one answer per API call. The UI in Phase 1 shows only the latest result; prior results are accessible via `GET /analyses/{id}` but not displayed as a conversation thread.
 
----
-
-## Human-in-the-Loop Checkpoints
-
-<!-- FILL IN: Where does execution pause for human input? Delete section if not applicable. -->
-
-| Checkpoint | What is shown to the user | Expected user action | Timeout / default |
-|------------|--------------------------|----------------------|-------------------|
-| <!-- name --> | <!-- what the agent surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
+**Context window management:** Schema summary is capped at 20 columns × 5 sample rows. Computed data passed to `generate_answer` is capped at 4,000 characters via `json.dumps(computed_data)[:4000]`. This keeps both Gemini calls well within the `gemini-2.5-flash` context window.
 
 ---
 
 ## Error Handling & Recovery
 
-<!-- FILL IN: How the agent handles failures at each level. -->
+**Node-level:** Every node wraps its body in a try/except. On any exception: log with structlog at ERROR level (including `run_id`), set `state["error"] = str(exc)`, and return the mutated state. The conditional edge after each node checks `state.get("error")` and routes to `handle_error`.
 
-**Node-level:** <!-- Each node catches its own exceptions; fatal errors set state["error"] and route to handle_error node. -->
+**Graph-level (`handle_error` node):**
+- Reads: `state["error"]`, `state.get("run_id")`, `state.get("dataset_id")`, `state.get("question")`
+- Writes `AnalysisRow` to DB: `status = "failed"`, `error_message = state["error"]`
+- Logs with structlog: `event="analysis.failed"`, `run_id=...`, `error=...`
+- Sets `state["status"] = "failed"`
+- Graph terminates at END
 
-**Graph-level (handle_error node):**
-- Reads: `state.error`, `state.run_id`
-- Updates DB: run status → "failed", `error_message`, `completed_at`
-- Logs error with `run_id` context
-- Terminates graph
+**Resume / retry strategy:** No resume from checkpoint in Phase 1. A failed run requires the user to submit the question again (new `POST /analyses`). Phase 3 may add LangGraph checkpointing for long-running analyses.
 
-**Resume / retry strategy:** <!-- Can a failed run be resumed from its last checkpoint? How? -->
-
-**Partial failure:** <!-- If a non-critical step fails, does the agent degrade gracefully or abort? -->
+**Partial failure:** `generate_chart` failure (e.g., unsupported chart type) sets `chart_json = None` rather than `state["error"]` — this is a non-critical partial failure. The answer is still returned; only the chart is absent. The UI handles `chart_json == null` gracefully by showing only the text answer.
 
 ---
 
 ## Observability
 
-<!-- FILL IN: What is logged, traced, and measured? -->
-
 | Signal | What | Where |
 |--------|------|-------|
-| **Trace** | One trace per run, one span per node | <!-- OpenTelemetry / LangSmith / stdout --> |
-| **LLM calls** | Prompt tokens, completion tokens, latency, model | <!-- LangSmith / structured log --> |
-| **Tool calls** | Tool name, inputs, success/error, latency | Structured log |
-| **Run outcome** | Status, total duration, error if any | DB + structured log |
+| Node entry/exit | `event="node.start"/"node.end"`, `node_name`, `run_id` | structlog stdout |
+| LLM calls | `event="llm.call"`, `model`, `prompt_chars`, `response_chars`, `latency_ms` | structlog stdout |
+| Errors | `event="node.error"`, `node_name`, `run_id`, `error` | structlog ERROR |
+| Run outcome | `event="analysis.completed"/"analysis.failed"`, `analysis_id`, `duration_ms` | structlog stdout |
 
 ---
 
 ## Concurrency Model
 
-<!-- FILL IN: How concurrent agent runs are handled. -->
-
-- **Run isolation:** <!-- one-at-a-time (API returns 409) / queue / parallel with run_id scoping -->
-- **Parallel nodes within a run:** <!-- which nodes run in parallel and why -->
-- **Checkpointing:** <!-- none / SqliteSaver / PostgresSaver — required if human-in-the-loop or long-running -->
+- **Run isolation:** Each `POST /analyses` invocation gets its own `run_id` and `AgentState`. The graph is invoked synchronously (`agentic_ai.invoke(initial_state)`) inside the FastAPI route handler. FastAPI handles HTTP concurrency; each request runs in its own thread (Uvicorn default worker model). Multiple concurrent analyses are independent.
+- **Parallel nodes within a run:** No parallel nodes in Phase 1. All nodes execute sequentially. `generate_answer` and `generate_chart` are candidates for parallelization in Phase 3 (both read `computed_data`, neither writes a shared field).
+- **Checkpointing:** None in Phase 1. Added in Phase 3 if multi-turn conversation requires run resumption.
 
 ---
 
-## Graph Assembly (`agent/graph.py`)
-
-<!-- FILL IN: Pseudocode showing how nodes and edges are wired. Must be ≤ 60 lines in the real file. -->
+## Graph Assembly (`src/graph/agent.py`)
 
 ```python
-graph = StateGraph(AgentState)
-
-graph.add_node("node_a", node_a)
-graph.add_node("node_b", node_b)
-graph.add_node("finalize", node_finalize)
-graph.add_node("handle_error", node_handle_error)
-
-graph.set_entry_point("node_a")
-
-graph.add_conditional_edges(
-    "node_a",
-    lambda s: "handle_error" if s.get("error") else "node_b",
+from langgraph.graph import StateGraph, END
+from graph.state import AgentState
+from graph.nodes import (
+    ingest_csv,
+    plan_analysis,
+    execute_analysis,
+    generate_answer,
+    generate_chart,
+    finalize,
+    handle_error,
+)
+from graph.edges import (
+    after_ingest,
+    after_plan,
+    after_execute,
+    after_answer,
+    after_chart,
 )
 
-graph.add_edge("node_b", "finalize")
-graph.add_edge("finalize", END)
-graph.add_edge("handle_error", END)
 
-compiled_graph = graph.compile()
+def _build_graph() -> StateGraph:
+    g = StateGraph(AgentState)
+
+    g.add_node("ingest_csv", ingest_csv)
+    g.add_node("plan_analysis", plan_analysis)
+    g.add_node("execute_analysis", execute_analysis)
+    g.add_node("generate_answer", generate_answer)
+    g.add_node("generate_chart", generate_chart)
+    g.add_node("finalize", finalize)
+    g.add_node("handle_error", handle_error)
+
+    g.set_entry_point("ingest_csv")
+
+    g.add_conditional_edges(
+        "ingest_csv",
+        after_ingest,
+        {"plan_analysis": "plan_analysis", "handle_error": "handle_error"},
+    )
+    g.add_conditional_edges(
+        "plan_analysis",
+        after_plan,
+        {"execute_analysis": "execute_analysis", "handle_error": "handle_error"},
+    )
+    g.add_conditional_edges(
+        "execute_analysis",
+        after_execute,
+        {"generate_answer": "generate_answer", "handle_error": "handle_error"},
+    )
+    g.add_conditional_edges(
+        "generate_answer",
+        after_answer,
+        {"generate_chart": "generate_chart", "handle_error": "handle_error"},
+    )
+    g.add_conditional_edges(
+        "generate_chart",
+        after_chart,
+        {"finalize": "finalize", "handle_error": "handle_error"},
+    )
+
+    g.add_edge("finalize", END)
+    g.add_edge("handle_error", END)
+
+    return g.compile()
+
+
+agentic_ai = _build_graph()
 ```
