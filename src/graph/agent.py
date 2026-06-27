@@ -1,23 +1,61 @@
 from langgraph.graph import StateGraph, END
 
-from graph.state import AgentState
-from graph.nodes import transform_text, handle_error, finalize
-from graph.edges import after_transform
+from graph.state import DataAnalysisState
+from graph.nodes import (
+    parse_upload,
+    run_preset_analysis,
+    run_nl_query,
+    format_response,
+    handle_error,
+    finalize,
+)
+from graph.edges import after_parse_and_route, after_preset, after_nl_query
 
 
 def _build_graph() -> StateGraph:
-    g = StateGraph(AgentState)
-    g.add_node("transform_text", transform_text)
+    g = StateGraph(DataAnalysisState)
+
+    g.add_node("parse_upload", parse_upload)
+    g.add_node("run_preset_analysis", run_preset_analysis)
+    g.add_node("run_nl_query", run_nl_query)
+    g.add_node("format_response", format_response)
     g.add_node("handle_error", handle_error)
     g.add_node("finalize", finalize)
-    g.set_entry_point("transform_text")
+
+    g.set_entry_point("parse_upload")
+
     g.add_conditional_edges(
-        "transform_text",
-        after_transform,
-        {"finalize": "finalize", "handle_error": "handle_error"},
+        "parse_upload",
+        after_parse_and_route,
+        {
+            "run_preset_analysis": "run_preset_analysis",
+            "run_nl_query": "run_nl_query",
+            "handle_error": "handle_error",
+        },
     )
+
+    g.add_conditional_edges(
+        "run_preset_analysis",
+        after_preset,
+        {
+            "format_response": "format_response",
+            "handle_error": "handle_error",
+        },
+    )
+
+    g.add_conditional_edges(
+        "run_nl_query",
+        after_nl_query,
+        {
+            "format_response": "format_response",
+            "handle_error": "handle_error",
+        },
+    )
+
+    g.add_edge("format_response", "finalize")
+    g.add_edge("handle_error", "finalize")
     g.add_edge("finalize", END)
-    g.add_edge("handle_error", END)
+
     return g.compile()
 
 
