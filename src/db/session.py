@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,11 +9,23 @@ _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
 
 
+def _ensure_sqlite_parent(database_url: str) -> None:
+    """Create the parent dir for a file-based SQLite DB so a clean checkout self-heals."""
+    if not database_url.startswith("sqlite:///"):
+        return
+    file_path = database_url[len("sqlite:///"):]
+    if not file_path or file_path == ":memory:":
+        return
+    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+
+
 def _get_engine() -> Engine:
     global _engine
     if _engine is None:
         from config.settings import get_settings
-        _engine = create_engine(get_settings().database_url, echo=False)
+        database_url = get_settings().database_url
+        _ensure_sqlite_parent(database_url)
+        _engine = create_engine(database_url, echo=False)
     return _engine
 
 

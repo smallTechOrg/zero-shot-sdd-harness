@@ -37,6 +37,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # Self-heal: create the parent dir for a file-based SQLite DB on a clean checkout.
+    url = config.get_main_option("sqlalchemy.url") or ""
+    if url.startswith("sqlite:///"):
+        file_path = url[len("sqlite:///"):]
+        if file_path and file_path != ":memory:":
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
