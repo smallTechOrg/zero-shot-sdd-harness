@@ -6,21 +6,26 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
     "next": "15.3.0",
+    "plotly.js": "^2.35.2",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-plotly.js": "^2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "@tailwindcss/postcss": "^4.1.8",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/react-plotly.js": "^2.6.3",
     "tailwindcss": "^4.1.8",
     "typescript": "^5"
   }

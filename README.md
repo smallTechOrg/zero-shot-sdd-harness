@@ -114,40 +114,63 @@ agent.py            ← verify setup (default); --run to start the server
 .env.example
 ```
 
-**Capability slot** — the three files to replace for your agent:
-- `src/graph/nodes.py` — replace `transform_text` with your logic
-- `src/prompts/transform.md` — replace with your system prompt
-- `frontend/src/app/page.tsx` — replace the transform form with your UI
+**This project's agent** (Local CSV Analyst) replaced the `transform_text`
+capability slot with:
+- `src/graph/` — the `plan → generate_code → execute_code → finalize/handle_error`
+  LangGraph with a retry loop (`nodes.py`, `edges.py`, `agent.py`, `runner.py`)
+- `src/analyst/` — the local pandas `sandbox.py` (subprocess) + `profile.py`
+- `src/prompts/plan.md` + `src/prompts/code.md` — the system prompts
+- `src/api/datasets.py` + `src/api/analysis.py` — upload / ask / SSE / fetch
+- `frontend/src/app/page.tsx` — the analyst UI
 
-Everything else (graph wiring, API, DB, settings, tests) is already working.
+Everything else (DB session, settings, LLM client, observability) is reused.
 
 ---
 
-## Running the Baseline
+## Running the Local CSV Analyst (Phase 1)
+
+This repo currently builds the **Local CSV Analyst** — upload a CSV, ask a
+plain-English question, and the agent plans → writes pandas → runs it locally
+over the full file → streams its steps → returns an answer + chart + table +
+the code that ran. Only schema + a few sample rows + the question ever reach the
+LLM; the raw data never leaves the machine.
 
 ```bash
 cp .env.example .env
-# edit .env: set exactly ONE provider key —
-#   AGENT_ANTHROPIC_API_KEY=<your key>   or   AGENT_GEMINI_API_KEY=<your key>
-# the provider is auto-detected from whichever key is set
+# set the Gemini key (this project uses Gemini gemini-3.1-pro):
+#   AGENT_GEMINI_API_KEY=<your key>
 uv sync
-python agent.py                        # verify tools, .env, deps, tests (default)
-python agent.py --run                  # migrations + frontend build + start server
+uv run alembic upgrade head            # create datasets + runs tables (SQLite)
+cd frontend && pnpm install && pnpm build && cd ..   # build the static UI
+uv run python -m src                   # start API + UI on :8001
 ```
 
-Once running:
+Then open `http://localhost:8001/app/` and:
+
+1. Click **Upload CSV** and choose
+   `src/data/datasets/8bc76e9e-1151-437e-95eb-727b57b674ee/olist_orders_dataset.csv`.
+2. Ask: *"How many orders are there for each order_status?"*
+3. Watch the live stream — a short **plan**, then **writing code** / **running
+   code** steps — then the answer, an interactive **bar chart**, a **summary
+   table**, and a collapsible **Show code** section with the pandas that ran.
+   (If the first attempt errors, a retry step shows the error and a corrected
+   second attempt.)
 
 | URL | What |
 |-----|------|
-| `http://localhost:8001/app/` | **UI** — transform form (the capability slot) |
+| `http://localhost:8001/app/` | **UI** — upload + ask + answer/chart/table/code |
 | `http://localhost:8001/health` | API health check |
 | `http://localhost:8001/docs` | Interactive API docs (Swagger) |
 
-Tests:
+Key endpoints (see `spec/api.md`): `POST /datasets` (upload),
+`POST /datasets/{id}/runs` (ask), `GET /runs/{id}/stream` (SSE progress),
+`GET /runs/{id}` (persisted audit trail).
+
+Tests (real Gemini key from `.env`; SQLite is production here):
 
 ```bash
-uv run pytest tests/unit/ -v          # no key needed
-uv run pytest tests/ -v               # requires real key in .env
+uv run pytest tests/unit/ -q          # no key needed
+uv run pytest -q                      # full suite — requires AGENT_GEMINI_API_KEY in .env
 ```
 
 ---

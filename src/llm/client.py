@@ -33,3 +33,13 @@ class LLMClient:
 
     def call_model(self, prompt: str, *, system: str | None = None) -> str:
         return self._provider.call_model(prompt, system=system)
+
+    def call_model_with_usage(
+        self, prompt: str, *, system: str | None = None
+    ) -> tuple[str, int]:
+        """Return (text, total_tokens). Falls back to (text, 0) for providers
+        that do not expose usage."""
+        fn = getattr(self._provider, "call_model_with_usage", None)
+        if fn is not None:
+            return fn(prompt, system=system)
+        return self._provider.call_model(prompt, system=system), 0
