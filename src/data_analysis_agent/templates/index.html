@@ -151,6 +151,7 @@
 <!-- Tool add/edit modal -->
 <div id="tool-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal modal--lg">
+    <div class="section-loading" id="tool-modal-loading"><div class="spinner"></div></div>
     <button type="button" class="modal__close" onclick="closeModal('tool-modal')" aria-label="Close">&#10005;</button>
     <h3 class="modal__title" id="tool-modal-title">Add tool</h3>
     <p class="modal__desc">A canned read-only SELECT. Embed parameters as <code>$name</code> in the SQL and
@@ -174,6 +175,7 @@
 <!-- Prompt add/edit modal -->
 <div id="prompt-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal modal--md">
+    <div class="section-loading" id="prompt-modal-loading"><div class="spinner"></div></div>
     <button type="button" class="modal__close" onclick="closeModal('prompt-modal')" aria-label="Close">&#10005;</button>
     <h3 class="modal__title" id="prompt-modal-title">Add prompt</h3>
     <label class="field-label" for="prompt-name">Name</label>
@@ -193,6 +195,7 @@
 <!-- Resource (entity) edit modal — only title + description are editable -->
 <div id="resource-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal modal--md">
+    <div class="section-loading" id="resource-modal-loading"><div class="spinner"></div></div>
     <button type="button" class="modal__close" onclick="closeModal('resource-modal')" aria-label="Close">&#10005;</button>
     <h3 class="modal__title">Edit resource</h3>
     <p class="modal__desc">The title, description, and entity kind of an entity resource can be edited
@@ -218,6 +221,7 @@
 <!-- Schema (entity-relationship) edit modal -->
 <div id="schema-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal modal--lg">
+    <div class="section-loading" id="schema-modal-loading"><div class="spinner"></div></div>
     <button type="button" class="modal__close" onclick="closeModal('schema-modal')" aria-label="Close">&#10005;</button>
     <h3 class="modal__title">Edit entity relationships</h3>
     <p class="modal__desc">The entity-relationship schema is the source of truth for how tables relate. It
@@ -881,7 +885,9 @@
       execution: { sql_template: document.getElementById('tool-sql').value.trim(), parameters: params },
     };
     if (!def.name) return _capErr('tool-err', 'Name is required.');
-    _runMut(window._toolMode, {definition: def}, 'tool-err');
+    const ov = document.getElementById('tool-modal-loading');
+    if (ov) ov.classList.add('open');
+    _runMut(window._toolMode, {definition: def}, 'tool-err', ov);
   }
 
   // Prompts
@@ -909,7 +915,9 @@
                   description: document.getElementById('prompt-desc').value.trim() };
     if (template !== null) def.template = template;
     if (!def.name) return _capErr('prompt-err', 'Name is required.');
-    _runMut(window._promptMode, {definition: def}, 'prompt-err');
+    const ov = document.getElementById('prompt-modal-loading');
+    if (ov) ov.classList.add('open');
+    _runMut(window._promptMode, {definition: def}, 'prompt-err', ov);
   }
 
   // Resource (entity) — title + description + kind (primary/secondary entity) editable
@@ -927,7 +935,9 @@
                   title: document.getElementById('resource-title').value,
                   description: document.getElementById('resource-desc').value,
                   kind: document.getElementById('resource-kind').value };
-    _runMut('resources/update', {definition: def}, 'resource-err');
+    const ov = document.getElementById('resource-modal-loading');
+    if (ov) ov.classList.add('open');
+    _runMut('resources/update', {definition: def}, 'resource-err', ov);
   }
 
   // Schema (entity relationships) — update only
@@ -945,7 +955,9 @@
     catch (e) { return _capErr('schema-err', 'must be valid JSON: ' + e); }
     const def = { uri: document.getElementById('schema-uri').value,
                   content: {relationships: rels, foreign_keys: fks} };
-    _runMut('resources/update', {definition: def}, 'schema-err');
+    const ov = document.getElementById('schema-modal-loading');
+    if (ov) ov.classList.add('open');
+    _runMut('resources/update', {definition: def}, 'schema-err', ov);
   }
 
   function delCap(btn, method, keyName, key) {

@@ -131,6 +131,8 @@
     }
     .section-loading.open { display: flex; }
     .section-loading .spinner { width: 20px; height: 20px; color: #1e40af; border-width: 3px; }
+    /* Inside a modal the overlay should match the modal's corner radius. */
+    .modal .section-loading { border-radius: 10px; z-index: 10; }
 
     /* ── Pager (Previous / Next over an AJAX-loaded list) ─────────────────── */
     .pager { display: flex; gap: 6px; justify-content: space-between; margin-top: 8px; }
