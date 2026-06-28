@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
 
+    # Data-analysis agent (AGENT_ prefix) ----------------------------------
+    # Gemini model used by every agent node. Env: AGENT_GEMINI_MODEL.
+    gemini_model: str = Field(default="gemini-2.5-flash")
+    # Bounded refinement-loop limit. Env: AGENT_MAX_STEPS.
+    max_steps: int = Field(default=6)
+    # Managed file store for uploaded datasets. Env: AGENT_DATASET_STORE_DIR.
+    dataset_store_dir: str = Field(default="data/datasets")
+    # Cost rates (USD per 1K tokens) for the daily/per-run cost meter.
+    cost_per_1k_in: float = Field(default=0.0003)
+    cost_per_1k_out: float = Field(default=0.0025)
+
 
 _settings: Settings | None = None
 
