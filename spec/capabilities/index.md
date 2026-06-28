@@ -1,38 +1,19 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
-
----
-
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+One file per capability. Active = Phase 1 (the privacy proof). Deferred capabilities are listed with their target phase and have their own files for design continuity.
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+| Capability | Phase | File |
+|-----------|-------|------|
+| Ingest & auto-profile a dataset | 1 (active) | [ingest-profile.md](ingest-profile.md) |
+| Plan & generate local analysis code | 1 (active) | [plan-generate-code.md](plan-generate-code.md) |
+| Execute analysis locally (privacy boundary) | 1 (active) | [execute-locally.md](execute-locally.md) |
+| Stream answer & show code | 1 (active) | [stream-answer.md](stream-answer.md) |
+| Conversational memory | 2 (deferred) | [conversational-memory.md](conversational-memory.md) |
+| Visual results (charts/tables) + follow-ups + cost meter | 2 (deferred) | [visual-results.md](visual-results.md) |
+| Library, cross-file compare, Excel, audit & clarify | 3 (deferred) | [library-audit.md](library-audit.md) |
 
 ## How to Add a New Capability
 
-Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
-1. Create a new file in this directory (`<name>.md`, no number prefix)
-2. Update this index
-3. Flag any dependencies on existing capabilities
-4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+Run `/zero-shot-build [description]`. The spec-writer creates `<name>.md`, updates this index, flags dependencies, and self-reviews against the architecture and data model.
