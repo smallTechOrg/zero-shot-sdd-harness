@@ -1,0 +1,7 @@
+Customer Name,Order #,Amount (USD),Notes
+Alice,1001,100.50,paid
+Bob,1002,,pending
+Carol,1003,75.25,
+Dave,,200.00,paid
+Eve,1005,N/A,refunded
+Frank,1006,50.00,paid
