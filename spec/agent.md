@@ -1,218 +1,122 @@
 # Agent
 
-> Required when the project uses an agent framework. Delete this file if your project has no agent framework.
->
-> If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
->
+LangGraph is in use, so this file is authoritative for the agent graph.
 
----
+## Pattern Choice
 
-## Agent Architecture Pattern
+A **ReAct-style plan→execute→verify→iterate loop** built on **LLM-Generated Code Execution**
+(catalogue #22) — the LLM writes pandas code, the system runs it locally over the full data.
+Composed with: **Planning** (#6, lightweight per-step), **Tool Use** (#5 — the executor is the
+single tool), **Exception Handling and Recovery** (#12 — code errors feed regeneration),
+**Guardrails** (#18 — restricted namespace + privacy prompt builder), and **Observability**
+(#19 — structured step logging). We deliberately do NOT use multi-agent, reflection, or RAG in
+Phase 1. See [agentic-ai.md](../harness/patterns/agentic-ai.md).
 
-<!-- FILL IN: Which pattern does this agent follow? Choose one and describe why. -->
+**Anti-pattern avoided:** no hardcoded op-list interpreter — the LLM always emits executable
+code.
 
-| Pattern | Use when |
-|---------|----------|
-| **Single-agent loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
-| **Graph (LangGraph)** | Multi-step pipeline with conditional edges, checkpointing, or parallel nodes. |
-| **Multi-agent** | Specialised sub-agents with distinct roles; orchestrator routes between them. |
-| **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
-| **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
-
-**Chosen:** <!-- state pattern + one-sentence rationale -->
-
----
-
-## LLM Provider & Model
-
-<!-- FILL IN: Which model drives each agent/node? State provider, model ID, and why. -->
-
-| Agent / Node | Provider | Model ID | Rationale |
-|-------------|----------|----------|-----------|
-| <!-- node --> | Anthropic | <!-- e.g. claude-sonnet-4-6 --> | <!-- latency vs. quality trade-off --> |
-
-**Fallback behaviour:** <!-- Production resilience only: retry/backoff, degraded mode, or a surfaced error if the LLM API is unavailable or rate-limited. NOT a test/offline stub path — tests call the real API with keys from `.env`. -->
-
-**Prompt strategy:** <!-- System/user split, few-shot examples, structured output (tool_use / JSON mode)? -->
-
----
-
-## Tools & Tool Calling
-
-<!-- FILL IN: Every tool the agent can call. -->
-
-| Tool name | Description | Inputs | Output | Side-effects |
-|-----------|-------------|--------|--------|--------------|
-| <!-- name --> | <!-- what it does --> | <!-- params --> | <!-- return type --> | <!-- DB write, API call, file write, etc. --> |
-
-**Tool selection strategy:** <!-- How does the agent decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
-
-**Tool failure handling:** <!-- retry, fallback, abort — per tool or global policy? -->
-
----
-
-## Agent State
-
-<!-- FILL IN: The full state type. Every field must be named, typed, and annotated with what populates it. -->
+## State (`AgentState`, extends the skeleton TypedDict)
 
 ```python
-class AgentState(TypedDict):
-    # Identity
-    run_id: int                          # set at initialisation
-
-    # Input
-    # ...                                # fields populated from the trigger
-
-    # Pipeline data (populated progressively by nodes)
-    # ...
-
-    # Output
-    # ...                                # final result fields
-
-    # Control
-    error: str | None                    # set by any node on fatal failure
-    checkpoint: str | None              # last completed node (for resume)
+class AgentState(TypedDict, total=False):
+    run_id: str               # analyses row id
+    dataset_id: str           # active dataset
+    question: str             # user's plain-language question
+    schema: dict              # column names + dtypes (data-derived, ALLOWED in prompt)
+    sample: list[dict]        # bounded row sample (ALLOWED in prompt)
+    aggregates: dict          # per-column aggregates (ALLOWED in prompt)
+    plan: str                 # current step's intent
+    code: str                 # latest LLM-generated pandas code
+    exec_result: dict | None  # serialized result of local execution
+    chart_spec: dict | None   # Vega-Lite spec
+    answer: str               # final prose answer
+    step: int                 # loop counter
+    max_steps: int            # step cap (env-configurable, default 4)
+    last_error: str | None    # execution/verify error fed back to codegen
+    status: str               # running | completed | failed
+    messages: list            # chat-turn history (Phase 2+)
 ```
 
----
+> The prompt builder constructs LLM input from ONLY `schema`, `sample`, `aggregates`,
+> `question`, `plan`, and `last_error` — never the full DataFrame. Raw rows live outside state,
+> loaded by the executor from disk at execution time.
 
-## Nodes / Steps
+## Nodes
 
-<!-- FILL IN: One section per node. For single-agent loops, describe each "step" or "tool call phase." -->
+| Node | Does | LLM? | Sees raw data? |
+|------|------|------|----------------|
+| `plan` | Reads schema/sample/aggregates + question (+ last_error); produces a short intent for this step. | yes | no |
+| `generate_code` | Emits pandas code that computes the answer over `df` and an optional chart spec. | yes | no |
+| `execute` | Runs the code LOCALLY in the restricted namespace against the FULL DataFrame; captures result, chart_spec, or error. | no | yes (local only) |
+| `verify` | Checks result is well-formed / non-empty / matches question shape; sets `last_error` to re-loop or routes to finalize. | no (rule-based; LLM optional later) | no |
+| `finalize` | Assembles prose `answer` + chart_spec + code; sets status `completed`; persists. | yes (prose summary) | no |
+| `handle_error` | On cap-hit or fatal error, sets status `failed` with a clear message and what was tried. | no | no |
 
-### `node_[name]`
+`plan` and `generate_code` may be merged into one LLM call to save cost; kept separate in the
+graph for traceability and split-by-config.
 
-**Reads from state:** <!-- field names -->
+## Edges
 
-**Writes to state:** <!-- field names -->
+- entry → `plan`
+- `plan` → `generate_code`
+- `generate_code` → `execute`
+- `execute` → `verify`
+- `verify` → conditional:
+  - result valid → `finalize`
+  - result invalid AND `step < max_steps` → increment `step`, set `last_error`, → `plan`
+  - result invalid AND `step >= max_steps` → `handle_error`
+  - executor raised a fatal (non-recoverable) error → `handle_error`
+- `finalize` → END
+- `handle_error` → END
 
-**LLM call:** <!-- yes/no; if yes: prompt template summary, model used, output format -->
+## Error Handler
 
-**External calls:**
+`handle_error` never crashes the agent: it records `last_error`, the final attempted `code`,
+and a human-readable "here's what I tried" message, sets status `failed`, and the run row is
+still persisted (audit holds even on failure). Recoverable execution errors (e.g. a bad column
+name) loop back through `plan` with `last_error` set; only cap-hit or sandbox-fatal errors
+terminate.
 
-| System | Operation | On Failure |
-|--------|-----------|------------|
-| <!-- system --> | <!-- what it calls --> | <!-- fatal (set error) / partial (log + continue) / retry --> |
+## Finalize
 
-**Behaviour:** <!-- One paragraph. What decision or transformation does this node perform? -->
+`finalize` produces the prose answer grounded in `exec_result` (numbers come from local
+execution, NOT from the model inventing them), attaches the `chart_spec`, includes the exact
+`code`, and updates the `analyses` row to `completed`.
 
----
+## Concurrency
 
-## Graph / Flow Topology
+One agent invocation per analyze request; the loop is sequential (each step depends on the
+prior result). Multiple requests are independent and isolated by `run_id`/`dataset_id`. The
+executor loads the DataFrame per run (cached by dataset in later phases).
 
-<!-- FILL IN: ASCII diagram of node flow. Show ALL conditional edges explicitly. -->
-
-```
-START
-  │
-  ▼
-node_a ──(error)──► node_handle_error ──► END
-  │
-  ▼
-node_b ──(condition)──► node_c
-  │                         │
-  │                         ▼
-  └──────────────────► node_finalize
-                             │
-                             ▼
-                            END
-```
-
-**Conditional edges:**
-
-| Source node | Condition | Target |
-|-------------|-----------|--------|
-| <!-- node --> | <!-- e.g. state["error"] is not None --> | <!-- target node --> |
-
----
-
-## Memory & Context
-
-<!-- FILL IN: How does the agent remember things across turns, steps, or runs? -->
-
-| Scope | Mechanism | What is stored |
-|-------|-----------|----------------|
-| **Within a run** | LangGraph state | All in-progress data |
-| **Across runs** | <!-- DB / vector store / none --> | <!-- e.g. past results, user prefs --> |
-| **Conversation** | <!-- message history / summary / none --> | <!-- if chat-style --> |
-
-**Context window management:** <!-- How is the prompt kept within limits? (summary, sliding window, RAG retrieval) -->
-
----
-
-## Human-in-the-Loop Checkpoints
-
-<!-- FILL IN: Where does execution pause for human input? Delete section if not applicable. -->
-
-| Checkpoint | What is shown to the user | Expected user action | Timeout / default |
-|------------|--------------------------|----------------------|-------------------|
-| <!-- name --> | <!-- what the agent surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
-
----
-
-## Error Handling & Recovery
-
-<!-- FILL IN: How the agent handles failures at each level. -->
-
-**Node-level:** <!-- Each node catches its own exceptions; fatal errors set state["error"] and route to handle_error node. -->
-
-**Graph-level (handle_error node):**
-- Reads: `state.error`, `state.run_id`
-- Updates DB: run status → "failed", `error_message`, `completed_at`
-- Logs error with `run_id` context
-- Terminates graph
-
-**Resume / retry strategy:** <!-- Can a failed run be resumed from its last checkpoint? How? -->
-
-**Partial failure:** <!-- If a non-critical step fails, does the agent degrade gracefully or abort? -->
-
----
-
-## Observability
-
-<!-- FILL IN: What is logged, traced, and measured? -->
-
-| Signal | What | Where |
-|--------|------|-------|
-| **Trace** | One trace per run, one span per node | <!-- OpenTelemetry / LangSmith / stdout --> |
-| **LLM calls** | Prompt tokens, completion tokens, latency, model | <!-- LangSmith / structured log --> |
-| **Tool calls** | Tool name, inputs, success/error, latency | Structured log |
-| **Run outcome** | Status, total duration, error if any | DB + structured log |
-
----
-
-## Concurrency Model
-
-<!-- FILL IN: How concurrent agent runs are handled. -->
-
-- **Run isolation:** <!-- one-at-a-time (API returns 409) / queue / parallel with run_id scoping -->
-- **Parallel nodes within a run:** <!-- which nodes run in parallel and why -->
-- **Checkpointing:** <!-- none / SqliteSaver / PostgresSaver — required if human-in-the-loop or long-running -->
-
----
-
-## Graph Assembly (`agent/graph.py`)
-
-<!-- FILL IN: Pseudocode showing how nodes and edges are wired. Must be ≤ 60 lines in the real file. -->
+## Graph Assembly (pseudocode)
 
 ```python
-graph = StateGraph(AgentState)
+def _build_graph():
+    g = StateGraph(AgentState)
+    g.add_node("plan", plan)
+    g.add_node("generate_code", generate_code)
+    g.add_node("execute", execute)
+    g.add_node("verify", verify)
+    g.add_node("finalize", finalize)
+    g.add_node("handle_error", handle_error)
 
-graph.add_node("node_a", node_a)
-graph.add_node("node_b", node_b)
-graph.add_node("finalize", node_finalize)
-graph.add_node("handle_error", node_handle_error)
+    g.set_entry_point("plan")
+    g.add_edge("plan", "generate_code")
+    g.add_edge("generate_code", "execute")
+    g.add_edge("execute", "verify")
+    g.add_conditional_edges(
+        "verify",
+        route_after_verify,   # -> "finalize" | "plan" | "handle_error"
+        {"finalize": "finalize", "plan": "plan", "handle_error": "handle_error"},
+    )
+    g.add_edge("finalize", END)
+    g.add_edge("handle_error", END)
+    return g.compile()
 
-graph.set_entry_point("node_a")
-
-graph.add_conditional_edges(
-    "node_a",
-    lambda s: "handle_error" if s.get("error") else "node_b",
-)
-
-graph.add_edge("node_b", "finalize")
-graph.add_edge("finalize", END)
-graph.add_edge("handle_error", END)
-
-compiled_graph = graph.compile()
+agentic_ai = _build_graph()
 ```
+
+`route_after_verify` enforces the step cap and the recoverable-vs-fatal distinction described
+under Edges. The runner (`src/graph/runner.py`) creates the `analyses` row, invokes the graph,
+and writes back the final state.

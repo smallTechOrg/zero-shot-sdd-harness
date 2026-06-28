@@ -1,38 +1,20 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+One file per capability — exactly one discrete thing the agent can do.
 
----
+## Phase 1 (active)
 
-## What Is a Capability?
+- [Upload and Profile Dataset](upload-and-profile.md) — accept a CSV, store it, auto-profile it.
+- [Ask and Answer (Agentic Analysis)](ask-and-answer.md) — plan→codegen→execute→verify→iterate
+  loop returning prose + chart + the code it ran; LLM sees schema/sample/aggregates only.
+- [Run-History Audit](run-history-audit.md) — durable, reproducible record of every query.
 
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+## Deferred (later phases — see [roadmap.md](../roadmap.md))
 
-## Capabilities in This Project
-
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
-
-## How to Add a New Capability
-
-Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
-1. Create a new file in this directory (`<name>.md`, no number prefix)
-2. Update this index
-3. Flag any dependencies on existing capabilities
-4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+- Persistent cross-day sessions + conversation memory (Phase 2)
+- Follow-up question suggestions (Phase 2)
+- Multi-dataset join/compare/swap + folder source (Phase 3)
+- Column annotations (Phase 3)
+- Derived-dataset library (Phase 3)
+- Tokens + cost accounting and running daily total (Phase 4)
+- Excel + external SQL-database source (Phase 4)

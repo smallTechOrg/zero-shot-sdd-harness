@@ -1,34 +1,59 @@
 # Data Model
 
-> Fill in this section — see comments below.
+SQLite via SQLAlchemy + Alembic. Phase 1 introduces two tables. The skeleton's `runs` table is
+superseded by `analyses` (the run-history audit); `datasets` is new.
 
----
+## Entities (Phase 1)
 
-## Storage Technology
+### `datasets`
 
-<!-- FILL IN: What database/storage does this project use and why? -->
+Uploaded file metadata + computed profile.
 
-## Entities
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | Text (UUID) | PK |
+| `filename` | Text | original upload name |
+| `storage_path` | Text | local path to the saved file (not exposed to LLM) |
+| `row_count` | Integer | total rows |
+| `column_count` | Integer | total columns |
+| `profile` | JSON (Text) | columns: name, dtype, min/max or top values, missing_count, distinct_count; plus the bounded row sample |
+| `size_bytes` | Integer | file size |
+| `created_at` | TIMESTAMP (tz) | UTC |
 
-<!-- FILL IN: One section per major entity. -->
+### `analyses`
 
-### Entity: <!-- Name -->
+The run-history audit — one row per query.
 
-<!-- FILL IN: What does this entity represent? -->
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | Text (UUID) | PK |
+| `dataset_id` | Text | FK → `datasets.id` |
+| `question` | Text | plain-language question |
+| `code` | Text | exact generated pandas code that produced the answer |
+| `result` | JSON (Text) | serialized execution result (the numbers) |
+| `chart_spec` | JSON (Text) | Vega-Lite spec, nullable |
+| `answer` | Text | prose answer |
+| `steps_taken` | Integer | loop iterations used |
+| `status` | Text | `running` \| `completed` \| `failed` |
+| `error_message` | Text | nullable; populated on `failed` |
+| `created_at` | TIMESTAMP (tz) | UTC |
+| `updated_at` | TIMESTAMP (tz) | UTC |
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| id | <!-- type --> | yes | Primary key |
-| <!-- field --> | <!-- type --> | <!-- yes/no --> | <!-- description --> |
+## Relationships
 
-### Relationships
+- `datasets` 1 ── N `analyses` (each analysis runs against one active dataset).
 
-<!-- FILL IN: How do entities relate to each other? -->
+## Lifecycle
 
-## Data Lifecycle
+- **Upload:** `datasets` row created with profile; file saved to `storage_path`.
+- **Ask:** `analyses` row created with `status=running`.
+- **Complete:** row updated to `completed` with `code`, `result`, `chart_spec`, `answer`,
+  `steps_taken`.
+- **Fail:** row updated to `failed` with `error_message` and the last attempted `code` — the
+  audit record persists either way.
+- Rows are immutable after terminal status (audit trail).
 
-<!-- FILL IN: When is data created, updated, and deleted? Is anything time-boxed or archived? -->
+## Deferred (later phases)
 
-## Sensitive Data
-
-<!-- FILL IN: What fields contain PII or secrets? How are they protected? -->
+- `sessions` + turn memory (Phase 2), `annotations` (Phase 3), `derived_datasets` /
+  library (Phase 3), `costs` / token accounting (Phase 4). Not modeled in Phase 1.
