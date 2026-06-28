@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +22,28 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+_database_url = get_settings().database_url
+config.set_main_option("sqlalchemy.url", _database_url)
+
+
+def _ensure_sqlite_dir(url: str) -> None:
+    """SQLite will not create a missing parent directory (e.g. data/).
+
+    The data/ dir is gitignored and created at runtime — ensure it exists
+    before the migration opens the file, so a clean checkout can upgrade.
+    """
+    prefix = "sqlite:///"
+    if not url.startswith(prefix):
+        return
+    db_path = url[len(prefix):]
+    if db_path in ("", ":memory:"):
+        return
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+_ensure_sqlite_dir(_database_url)
 
 
 def run_migrations_offline() -> None:

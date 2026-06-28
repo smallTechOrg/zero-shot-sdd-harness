@@ -1,4 +1,5 @@
 from config.settings import get_settings
+from llm.providers.gemini import LLMResult
 
 
 def _make_provider():
@@ -31,5 +32,21 @@ class LLMClient:
     def __init__(self) -> None:
         self._provider = _make_provider()
 
+    @property
+    def model(self) -> str:
+        return getattr(self._provider, "model", getattr(self._provider, "_model", ""))
+
     def call_model(self, prompt: str, *, system: str | None = None) -> str:
         return self._provider.call_model(prompt, system=system)
+
+    def call_model_usage(self, prompt: str, *, system: str | None = None) -> LLMResult:
+        """Call the model and return text + real token usage + derived cost.
+
+        Providers that expose ``call_model_usage`` (Gemini) return real usage;
+        others fall back to text-only with zero usage/cost.
+        """
+        fn = getattr(self._provider, "call_model_usage", None)
+        if fn is not None:
+            return fn(prompt, system=system)
+        text = self._provider.call_model(prompt, system=system)
+        return LLMResult(text=text, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)

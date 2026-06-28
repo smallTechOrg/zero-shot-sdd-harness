@@ -40,7 +40,7 @@ The LLM is a **planner and phraser**, not a data processor. The loop is: LLM pro
                 │                            │
                 ▼                            ▼
         Local DuckDB file              Gemini (LLM)  ◄── only schema + aggregates ever
-        (full data, never              gemini-3.1-pro     (enforced by privacy_guard)
+        (full data, never              gemini-3.1-pro-preview  (enforced by privacy_guard)
          leaves machine)
 ```
 
@@ -52,7 +52,7 @@ The LLM is a **planner and phraser**, not a data processor. The loop is: LLM pro
 | **API** (`src/api`) | HTTP endpoints, request validation, `ok(data)` / `api_error(code,msg,status)` envelope, calls the runner. |
 | **Agent** (`src/graph`) | LangGraph StateGraph: plan → privacy_guard → generate_sql → execute_sql → (retry on error) → phrase_answer → pick_chart → finalize / handle_error. |
 | **Analysis engine** (`src/analysis`) | DuckDB ingest (CSV → local DB), schema extraction, profiling, **dialect-safe local SQL execution**, chart-type heuristic. No LLM calls. |
-| **LLM** (`src/llm`) | `LLMClient` + `GeminiProvider` (default `gemini-3.1-pro`). Returns text + token-usage for cost. |
+| **LLM** (`src/llm`) | `LLMClient` + `GeminiProvider` (default `gemini-3.1-pro-preview`). Returns text + token-usage for cost. |
 | **Storage** (`src/db`) | SQLAlchemy models + session; SQLite for app state. DuckDB files live under `data/duckdb/`. |
 | **Observability** (`src/observability`) | Structured logging of each LLM call (model, prompt, output, tokens, latency) and each run outcome to stdout + the DB. |
 
@@ -82,7 +82,7 @@ See [`agent.md`](agent.md) for the full node/edge specification.
 
 | Dependency | Purpose | Failure Mode |
 |------------|---------|--------------|
-| Gemini API (`gemini-3.1-pro`) | Plan + SQL generation, answer phrasing. | Plan/phrase failure → `handle_error` sets run failed, surfaces a clear message; SQL-gen failure inside the retry loop regenerates; on exhausting retries, the run fails with the last SQL error shown. |
+| Gemini API (`gemini-3.1-pro-preview`) | Plan + SQL generation, answer phrasing. | Plan/phrase failure → `handle_error` sets run failed, surfaces a clear message; SQL-gen failure inside the retry loop regenerates; on exhausting retries, the run fails with the last SQL error shown. |
 | DuckDB (in-process, local) | Ingest + all analysis. | Ingest error → dataset status `failed` with reason; SQL execution error → retry loop (feed error back to LLM). |
 | SQLite (in-process, local) | App state persistence. | Standard DB error → 500 via `api_error`. |
 
@@ -92,7 +92,7 @@ See [`agent.md`](agent.md) for the full node/edge specification.
 
 - **Language:** Python 3.11+ (matches skeleton `requires-python = ">=3.11"`); TypeScript for the frontend.
 - **Agent framework:** LangGraph (`StateGraph`) — extends the skeleton's graph.
-- **LLM provider + model:** Gemini, `gemini-3.1-pro` (the skeleton's `GeminiProvider.DEFAULT_MODEL`). Key `AGENT_GEMINI_API_KEY`, env prefix `AGENT_`. Provider auto-detected by `LLMClient`.
+- **LLM provider + model:** Gemini, `gemini-3.1-pro-preview` (the skeleton's `GeminiProvider.DEFAULT_MODEL` — this is the ID the live Gemini API serves for the gemini-3.1-pro family; the bare `gemini-3.1-pro` returns 404). Key `AGENT_GEMINI_API_KEY`, env prefix `AGENT_`. Provider auto-detected by `LLMClient`.
 - **Backend:** FastAPI (skeleton app factory + single-origin `/app/` static serve).
 - **Database + ORM:** SQLite (`AGENT_DATABASE_URL=sqlite:///./data/agent.db`) for app state via SQLAlchemy 2.0; **DuckDB** (local file per analysis) for data — DuckDB is NOT behind SQLAlchemy, it is the analytics engine accessed directly by `src/analysis`.
 - **Frontend:** Next.js 15 + React 19, static export, Tailwind v4 (skeleton). Charts via a lightweight client lib (see key libraries).

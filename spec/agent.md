@@ -18,11 +18,11 @@
 
 | Agent / Node | Provider | Model ID | Rationale |
 |-------------|----------|----------|-----------|
-| `plan` (plan + generate SQL) | Gemini | `gemini-3.1-pro` | Needs solid SQL + reasoning over schema; one cheap call (schema only, small prompt). |
-| `generate_sql` (retry regeneration) | Gemini | `gemini-3.1-pro` | Same model; corrects SQL from the DuckDB error. |
-| `phrase_answer` | Gemini | `gemini-3.1-pro` | Phrases a concise answer from the small aggregate; small payload, low cost. |
+| `plan` (plan + generate SQL) | Gemini | `gemini-3.1-pro-preview` | Needs solid SQL + reasoning over schema; one cheap call (schema only, small prompt). |
+| `generate_sql` (retry regeneration) | Gemini | `gemini-3.1-pro-preview` | Same model; corrects SQL from the DuckDB error. |
+| `phrase_answer` | Gemini | `gemini-3.1-pro-preview` | Phrases a concise answer from the small aggregate; small payload, low cost. |
 
-> **Assumed:** A single model (`gemini-3.1-pro`, the skeleton default) is used for all nodes — kept env-configurable via `AGENT_LLM_MODEL`. No per-node tiering in Phase 1 (resource-aware tiering is a later optimization); cost is already low because payloads are schema/aggregate-only.
+> **Assumed:** A single model (`gemini-3.1-pro-preview`, the skeleton default — this is the ID the live Gemini API serves for the gemini-3.1-pro family) is used for all nodes — kept env-configurable via `AGENT_LLM_MODEL`. No per-node tiering in Phase 1 (resource-aware tiering is a later optimization); cost is already low because payloads are schema/aggregate-only.
 
 **Fallback behaviour:** On a Gemini API error (network / rate-limit) the node sets `state["error"]` and routes to `handle_error`, which persists the run as `failed` with the message and returns it via the API envelope. SQL *execution* errors are NOT LLM errors — they drive the retry loop (regenerate SQL), not `handle_error`. Tests call the real Gemini API with the `.env` key; there is no offline stub path.
 
