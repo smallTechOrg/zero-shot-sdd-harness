@@ -13,11 +13,14 @@ A capability is a single, discrete action or behavior the agent performs. Exampl
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+| Capability | Phase | File |
+|-----------|-------|------|
+| Upload & profile a CSV | 1 | [upload-dataset.md](upload-dataset.md) |
+| Answer a question by executing code locally | 1 | [analyze-question.md](analyze-question.md) |
+| Auto-profiling + follow-up suggestions | 2 | [auto-profile-followups.md](auto-profile-followups.md) |
+| Dataset library + resumable sessions | 3 | [library-sessions.md](library-sessions.md) |
+| Multi-file joins & compares | 4 | [multi-file.md](multi-file.md) |
+| Full audit-trail history + cost tracking | 5 | [history-cost.md](history-cost.md) |
 
 ## How to Add a New Capability
 
