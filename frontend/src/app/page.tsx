@@ -1,77 +1,110 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ApiError,
+  askQuestion,
+  friendlyNetworkError,
+  getQuestion,
+  type Dataset,
+  type Question,
+} from '@/lib/api'
+import UploadBar from '@/components/UploadBar'
+import QuestionBox from '@/components/QuestionBox'
+import AnswerPanel from '@/components/AnswerPanel'
+import LibrarySidebar from '@/components/LibrarySidebar'
 
 export default function Home() {
-  const [input, setInput] = useState('')
-  const [result, setResult] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [dataset, setDataset] = useState<Dataset | null>(null)
+  const [question, setQuestion] = useState<Question | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!input.trim()) return
+  // Stop polling on unmount.
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  async function handleAsk(text: string) {
+    if (!dataset) return
+    stopPolling()
     setLoading(true)
     setError(null)
-    setResult(null)
+    setQuestion(null)
     try {
-      const res = await fetch('/runs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_text: input }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail?.message ?? `Request failed (${res.status})`)
-      } else if (data.data?.error) {
-        setError(data.data.error)
+      const q = await askQuestion(dataset.id, text)
+      setQuestion(q)
+      if (q.status === 'pending') {
+        // Poll for live step updates until terminal.
+        pollRef.current = setInterval(async () => {
+          try {
+            const fresh = await getQuestion(q.id)
+            setQuestion(fresh)
+            if (fresh.status !== 'pending') {
+              stopPolling()
+              setLoading(false)
+            }
+          } catch {
+            stopPolling()
+            setLoading(false)
+            setError(friendlyNetworkError())
+          }
+        }, 1200)
       } else {
-        setResult(data.data.output_text)
+        setLoading(false)
       }
-    } catch {
-      setError('Network error — is the server running?')
-    } finally {
+    } catch (err) {
       setLoading(false)
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else {
+        setError(friendlyNetworkError())
+      }
     }
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-16">
-      <h1 className="mb-8 text-3xl font-bold tracking-tight">Agent</h1>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <textarea
-          className="w-full rounded-lg border border-gray-300 p-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          rows={4}
-          placeholder="Enter text to transform…"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          disabled={loading}
-        />
-        <button
-          type="submit"
-          disabled={loading || !input.trim()}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Running…' : 'Run'}
-        </button>
-      </form>
-
-      {error && (
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+    <div className="min-h-screen">
+      <header className="border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+              Personal Data Analyst
+            </h1>
+            <p className="text-xs text-gray-500">
+              Ask questions about your CSV in plain language — your data never leaves this machine.
+            </p>
+          </div>
+          <span className="hidden rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700 sm:inline">
+            Local &amp; private
+          </span>
         </div>
-      )}
+      </header>
 
-      {result && (
-        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 text-sm whitespace-pre-wrap shadow-sm">
-          {result}
+      <main className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[16rem_1fr]">
+        <LibrarySidebar />
+
+        <div className="space-y-4">
+          <UploadBar dataset={dataset} onUploaded={setDataset} />
+          <QuestionBox enabled={!!dataset} loading={loading} onAsk={handleAsk} />
+          <AnswerPanel
+            question={question}
+            loading={loading}
+            error={error}
+            hasDataset={!!dataset}
+          />
         </div>
-      )}
-
-      {!result && !error && !loading && (
-        <p className="mt-10 text-center text-sm text-gray-400">Results will appear here.</p>
-      )}
-    </main>
+      </main>
+    </div>
   )
 }

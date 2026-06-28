@@ -15,11 +15,27 @@ class Settings(BaseSettings):
 
     # LLM provider — auto-detected from whichever key is set if left blank
     llm_provider: str = Field(default="")   # "anthropic" | "gemini"
-    llm_model: str = Field(default="")      # uses provider default when blank
+    llm_model: str = Field(default="gemini-2.5-flash")  # Flash tier for low cost
 
     # Provider keys — set exactly one
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
+
+    # --- Privacy boundary ---
+    # Max sample rows sent to the LLM (schema + these rows only; full data stays local).
+    sample_rows: int = Field(default=10)
+
+    # --- Cost guard (hard step cap) ---
+    max_steps: int = Field(default=5)
+    # Max rows returned from any local analysis step (bounded aggregates only).
+    max_result_rows: int = Field(default=1000)
+
+    # --- Cost accounting (Gemini Flash pricing, USD per 1M tokens) ---
+    price_in_per_m: float = Field(default=0.30)
+    price_out_per_m: float = Field(default=2.50)
+
+    # --- Upload limits ---
+    max_upload_mb: int = Field(default=100)
 
 
 _settings: Settings | None = None
