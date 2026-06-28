@@ -137,9 +137,13 @@ Phase 1 is the smallest working win: real on the one core path, with clearly-lab
 1. **The server is already running** — agent-builder launched and verified it (200 + styled) before returning the handoff. Nothing to start.
 2. Load the question tool: `ToolSearch` with query `select:AskUserQuestion` (before asking).
 3. Present the handoff as **phase release notes**: the live URL, what was built this phase, what to click / type / look at, the expected result, which parts are clearly-labelled stubs vs real (a stub must never read as a bug), and what the next phase adds. No run commands in the handoff — the app is already serving.
-4. Ask via `AskUserQuestion`: **"Does Phase 1 work as you expected?"** → options **"Yes — continue to Phase 2"** / **"I hit an issue"**.
-5. **On "I hit an issue":** capture what the user saw, then invoke **qa-auditor** to diagnose and CLASSIFY the root cause (SPEC vs CODE, and which surface). Route the fix: SPEC → spec-writer rewrites the spec, then the responsible generator(s) redo the code; CODE → the responsible **code-generator** fixes the surface. Re-gate with qa-auditor, commit + push the fix yourself, then re-invoke **agent-builder** which relaunches the server and returns a fresh handoff. Re-present the gate (release notes, live link). Loop until the user is satisfied.
-6. **On "Yes":** proceed to Stage 4.
+4. Ask via `AskUserQuestion` (two questions in one call):
+   - *"Is the app loading at [URL]?"* → **"Yes, I can see it"** / **"No — error or blank page"**
+   - *"Your verdict?"* (multiSelect) → **"It works well"** / **"Output isn't right"** / **"UI feels off"** / **"Something is broken"**
+5. Route on their answers:
+   - App didn't load → qa-auditor (boot failure), fix, re-present.
+   - Any negative verdict → capture what they saw; qa-auditor diagnoses (SPEC vs CODE); responsible generator fixes; re-gate with qa-auditor; commit + push; re-invoke agent-builder; re-present. Loop until satisfied.
+   - Positive only → **"Ready for Phase 2?"** → **"Yes, let's go"** / **"One more thing first"**. "One more thing" → route as negative above. "Yes" → Stage 4.
 
 ## Stage 4 — Per remaining phase (build → gate, repeat)
 
