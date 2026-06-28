@@ -44,9 +44,13 @@ export default function TableView({ table }: TableViewProps) {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {rows.map((row, i) => (
-                <tr key={i} className="even:bg-gray-50/50">
+                <tr key={i} data-testid="table-row" className="even:bg-gray-50/50">
                   {columns.map((col) => (
-                    <td key={col} className="px-3 py-2 text-gray-700 tabular-nums">
+                    <td
+                      key={col}
+                      data-testid="table-cell"
+                      className="px-3 py-2 text-gray-700 tabular-nums"
+                    >
                       {formatCell(row[col])}
                     </td>
                   ))}

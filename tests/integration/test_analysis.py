@@ -135,3 +135,147 @@ def test_analysis_via_api_and_stream(api_client, _isolated_db):
     assert body["chart_spec"]
     assert body["table"]
     assert body["steps"]
+
+
+def _table_cell_values(table: list[dict]) -> list:
+    """Flatten every cell value across a list-of-records table."""
+    vals: list = []
+    for row in table:
+        vals.extend(row.values())
+    return vals
+
+
+@pytest.mark.usefixtures("_require_llm_key")
+def test_scalar_answer_carries_synthesized_table(_isolated_db):
+    """Defect 1: a scalar/count question (no natural groupby) still returns a
+    NON-EMPTY table — synthesized deterministically in finalize, not left null.
+
+    Asserts the actual value: the count of delivered orders must match the full
+    file (96478 in the olist sample)."""
+    import pandas as pd
+
+    dataset_id = _seed_dataset(_isolated_db, OLIST)
+    full = pd.read_csv(str(OLIST))
+    expected = int((full["order_status"] == "delivered").sum())
+
+    run_id = run_agent(
+        dataset_id,
+        "How many orders have an order_status of 'delivered'? Return a single number.",
+    )
+    with Session(_isolated_db) as s:
+        run = s.get(RunRow, run_id)
+
+    assert run.status == "completed", run.error_message
+    assert run.table_json, "scalar answer must still carry a (synthesized) table"
+    table = json.loads(run.table_json)
+    assert table, "table must be non-empty"
+    values = _table_cell_values(table)
+    # The real delivered count must appear somewhere in the table cells.
+    numeric = [int(v) for v in values if isinstance(v, (int, float))]
+    assert expected in numeric, (
+        f"expected delivered count {expected} in table cells, got {values}"
+    )
+
+
+@pytest.mark.usefixtures("_require_llm_key")
+def test_scalar_answer_table_in_final_event_and_get_run(api_client, _isolated_db):
+    """Defect 1 over HTTP: the `final` SSE event AND GET /runs/{id} both carry a
+    non-empty table for a scalar count question."""
+    with OLIST.open("rb") as fh:
+        data = fh.read()
+    up = api_client.post(
+        "/datasets", files={"file": (OLIST.name, io.BytesIO(data), "text/csv")}
+    )
+    dataset_id = up.json()["data"]["dataset_id"]
+    created = api_client.post(
+        f"/datasets/{dataset_id}/runs",
+        json={"question": "What is the total number of orders in this dataset? "
+                          "Return a single count."},
+    )
+    run_id = created.json()["data"]["run_id"]
+
+    final_payload = None
+    with api_client.stream("GET", f"/runs/{run_id}/stream") as resp:
+        cur_event = None
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            if line.startswith("event:"):
+                cur_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and cur_event:
+                if cur_event in ("final", "error"):
+                    final_payload = (cur_event, json.loads(line.split(":", 1)[1].strip()))
+                    break
+
+    assert final_payload is not None, "no terminal event"
+    kind, payload = final_payload
+    assert kind == "final", f"expected final, got {kind}: {payload}"
+    assert payload["table"], "final event must carry a non-empty table for a scalar answer"
+
+    body = api_client.get(f"/runs/{run_id}").json()["data"]
+    assert body["status"] == "completed"
+    assert body["table"], "GET /runs/{id} must carry a non-empty table for a scalar answer"
+
+
+@pytest.mark.usefixtures("_require_llm_key")
+def test_groupby_still_has_table_and_chart(_isolated_db):
+    """Regression guard: the canonical groupby still yields BOTH a non-empty
+    table and a chart_spec (Defect 1 fix must not strip the existing path)."""
+    dataset_id = _seed_dataset(_isolated_db, OLIST)
+    run_id = run_agent(dataset_id, QUESTION)
+    with Session(_isolated_db) as s:
+        run = s.get(RunRow, run_id)
+
+    assert run.status == "completed", run.error_message
+    assert run.table_json and json.loads(run.table_json), "groupby table missing"
+    assert run.chart_spec_json, "groupby chart_spec missing"
+    assert json.loads(run.chart_spec_json)["data"], "chart must have a trace"
+
+
+@pytest.mark.usefixtures("_require_llm_key")
+def test_unanswerable_question_routes_to_failure_channel(api_client, _isolated_db):
+    """Defect 2: a question about a column NOT in the olist_orders sample
+    (`freight_value`/`customer_state` live in OTHER olist files) must NOT report
+    a green success — it surfaces the unanswerable state via the `error` channel
+    with the list of AVAILABLE columns, and is distinct from a sandbox-retry
+    give-up failure."""
+    with OLIST.open("rb") as fh:
+        data = fh.read()
+    up = api_client.post(
+        "/datasets", files={"file": (OLIST.name, io.BytesIO(data), "text/csv")}
+    )
+    dataset_id = up.json()["data"]["dataset_id"]
+    created = api_client.post(
+        f"/datasets/{dataset_id}/runs",
+        json={"question": "What is the average freight_value by customer_state?"},
+    )
+    run_id = created.json()["data"]["run_id"]
+
+    terminal = None
+    with api_client.stream("GET", f"/runs/{run_id}/stream") as resp:
+        cur_event = None
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            if line.startswith("event:"):
+                cur_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and cur_event:
+                if cur_event in ("final", "error"):
+                    terminal = (cur_event, json.loads(line.split(":", 1)[1].strip()))
+                    break
+
+    assert terminal is not None, "no terminal event"
+    kind, payload = terminal
+    assert kind == "error", f"unanswerable must route to the error channel, got {kind}: {payload}"
+
+    err = payload.get("error") or ""
+    # Lists the columns that ARE available so the user can re-ask.
+    assert "order_status" in err, f"available columns not listed in: {err!r}"
+    assert "order_id" in err, f"available columns not listed in: {err!r}"
+    # Distinct from a genuine sandbox-retry give-up failure.
+    assert "gave up after" not in err, f"must not be a retry give-up: {err!r}"
+
+    body = api_client.get(f"/runs/{run_id}").json()["data"]
+    assert body["status"] == "failed", "unanswerable must persist a non-success status"
+    assert body["answer"] in (None, ""), "must NOT carry a green success answer"
+    assert "order_status" in (body["error"] or ""), "GET /runs must reflect available columns"

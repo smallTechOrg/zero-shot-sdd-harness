@@ -31,7 +31,7 @@ export default function ChartView({ chartSpec }: ChartViewProps) {
     >
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">Chart</h2>
       {hasChart ? (
-        <div className="w-full overflow-hidden">
+        <div className="w-full overflow-hidden" data-testid="chart-plot">
           <Plot
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             data={chartSpec.data as any}

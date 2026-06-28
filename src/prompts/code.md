@@ -6,10 +6,11 @@ Write pandas code that answers the user's question by computing over the FULL `d
 - When a chart makes sense, also assign a dict named `chart` describing it:
   `chart = {"type": "bar"|"line"|"pie", "x": [...], "y": [...], "title": "...", "x_label": "...", "y_label": "..."}`
   `x` and `y` must be plain Python lists derived from your computation.
-- When a summary table helps, assign a DataFrame named `table` (it will be shown to the user).
+- ALWAYS assign a summary DataFrame named `table` holding the result in tabular form (one row per group for breakdowns, or a single labelled row for a scalar). Every answer is shown with a table, so never omit it.
 
 Rules:
 - Use ONLY the columns that exist in the schema. Match column names EXACTLY.
+- If the question asks about a column that does NOT exist in the schema, do NOT invent or substitute one. Instead assign `result = "Error: column not available in this dataset"` (naming the missing column) and assign no chart/table.
 - Do NOT print, do NOT read files, do NOT import anything.
 - Return ONLY one fenced Python code block (```python ... ```). No prose before or after.
 

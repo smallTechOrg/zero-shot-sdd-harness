@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 
 // Absolute path to the sample olist CSV from the repo root. This file
 // (frontend/tests/e2e/analyst.spec.ts) is three levels below the repo root.
@@ -14,6 +14,16 @@ const SAMPLE_CSV = path.join(
 )
 
 const QUESTION = 'How many orders are there for each order_status?'
+
+// Load the app and upload the sample olist_orders CSV, waiting until the
+// dataset is ready and the question box is enabled. Shared by every test.
+async function loadSampleDataset(page: Page): Promise<void> {
+  await page.goto('/app/')
+  await expect(page.getByRole('heading', { name: 'Local CSV Analyst' })).toBeVisible()
+  await page.setInputFiles('#csv-file-input', SAMPLE_CSV)
+  await expect(page.getByText('olist_orders_dataset.csv')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByLabel('Your question')).toBeEnabled()
+}
 
 test('upload CSV, ask a question, get a real answer + chart + table + code', async ({ page }) => {
   await page.goto('/app/')
@@ -63,11 +73,32 @@ test('upload CSV, ask a question, get a real answer + chart + table + code', asy
   const answerText = (await answer.innerText()).trim()
   expect(answerText.length).toBeGreaterThan(20)
 
-  // The chart container renders.
-  await expect(page.getByTestId('chart-view')).toBeVisible()
+  // A REAL POPULATED table renders — not just the always-visible container.
+  // Assert at least one actual data ROW exists and that it carries a known
+  // status value plus a numeric count cell. (The old assertion only checked
+  // the container, which is visible even when the table is empty.)
+  const tableView = page.getByTestId('table-view')
+  await expect(tableView).toBeVisible()
+  await expect(tableView.getByTestId('table-row').first()).toBeVisible()
+  expect(await tableView.getByTestId('table-row').count()).toBeGreaterThan(0)
+  // A canonical olist order_status value must appear in a populated cell.
+  await expect(
+    tableView.getByTestId('table-cell').filter({ hasText: 'delivered' }).first(),
+  ).toBeVisible()
+  // At least one cell holds a real numeric count (digits), proving the
+  // groupby produced data rather than an empty/faked table.
+  const tableText = (await tableView.innerText()).trim()
+  expect(tableText).toMatch(/\d/)
 
-  // The table renders.
-  await expect(page.getByTestId('table-view')).toBeVisible()
+  // A REAL chart TRACE rendered — the populated-plot container only mounts when
+  // chartSpec.data is non-empty, so this distinguishes a real trace from the
+  // always-visible empty-state placeholder. We then confirm Plotly drew an SVG.
+  await expect(page.getByTestId('chart-view')).toBeVisible()
+  const chartPlot = page.getByTestId('chart-plot')
+  await expect(chartPlot).toBeVisible({ timeout: 30_000 })
+  // Plotly renders its traces into an <svg class="main-svg"> once data is laid
+  // out — assert that real SVG plot content exists inside the chart.
+  await expect(chartPlot.locator('svg.main-svg').first()).toBeVisible({ timeout: 30_000 })
 
   // The code accordion reveals real pandas when expanded.
   await expect(page.getByTestId('code-accordion')).toBeVisible()
@@ -99,4 +130,60 @@ test('upload CSV, ask a question, get a real answer + chart + table + code', asy
   // A genuinely new run produced output (content may differ from the first).
   expect(secondAnswer.length).toBeGreaterThan(0)
   void firstAnswer
+})
+
+// Defect-1 regression guard: a SCALAR answer (a single number/percentage) must
+// now ALSO carry a non-empty summary table. Before the fix, scalar questions
+// returned a green answer with an empty table — this asserts the table is
+// populated, not just that its container is visible.
+test('scalar question still renders a non-empty summary table', async ({ page }) => {
+  await loadSampleDataset(page)
+
+  // A scalar question answerable purely from olist_orders' own columns.
+  await page.getByLabel('Your question').fill(
+    "How many orders have status 'delivered'?",
+  )
+  await page.getByRole('button', { name: 'Ask' }).click()
+
+  // A real success answer renders (NOT a failure card).
+  const answer = page.getByTestId('answer-card')
+  await expect(answer).toBeVisible({ timeout: 120_000 })
+  await expect(page.getByTestId('failure-card')).toHaveCount(0)
+  const answerText = (await answer.innerText()).trim()
+  expect(answerText.length).toBeGreaterThan(10)
+
+  // The summary table must be POPULATED — at least one real data row with a
+  // numeric value. This is the Defect-1 guard: scalar answers carry a table.
+  const tableView = page.getByTestId('table-view')
+  await expect(tableView).toBeVisible()
+  await expect(tableView.getByTestId('table-row').first()).toBeVisible({ timeout: 15_000 })
+  expect(await tableView.getByTestId('table-row').count()).toBeGreaterThan(0)
+  expect((await tableView.innerText()).trim()).toMatch(/\d/)
+})
+
+// Defect-2 regression guard: a question about a column that is NOT in the
+// loaded olist_orders file (freight_value / customer_state live in OTHER olist
+// files) must surface the distinct FailureCard "couldn't answer with this
+// dataset" state — NOT a fake green answer — and must LIST the available
+// columns so the user knows what they can ask instead.
+test('out-of-scope column question shows a FailureCard listing available columns', async ({
+  page,
+}) => {
+  await loadSampleDataset(page)
+
+  // freight_value and customer_state are NOT columns of olist_orders_dataset.csv.
+  await page.getByLabel('Your question').fill(
+    'What is the average freight_value by customer_state?',
+  )
+  await page.getByRole('button', { name: 'Ask' }).click()
+
+  // The DISTINCT failure channel must render — not the success AnswerCard.
+  const failure = page.getByTestId('failure-card')
+  await expect(failure).toBeVisible({ timeout: 120_000 })
+  // It is the failure channel, not a green answer.
+  await expect(page.getByTestId('answer-card')).toHaveCount(0)
+
+  // The failure message must LIST available columns so the user can recover —
+  // assert a real olist_orders column name surfaces in the failure text.
+  await expect(failure).toContainText('order_status')
 })

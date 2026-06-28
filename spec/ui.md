@@ -40,6 +40,7 @@ A single-page web dashboard — Next.js 15 static export served at `:8001/app/`,
 - **Upload error** (non-CSV / unparseable): inline red banner with the API message; question box stays disabled.
 - **Network error**: "Network error — is the server running?" banner.
 - **Run failure** (agent gave up after retries): the StepStream shows the retry attempts + final error, and an AnswerCard-style failure card ("Couldn't answer this after N attempts — see the errors above"). Not a silent failure.
+- **Unanswerable from this dataset**: when the agent determines the question can't be answered from the loaded file's columns (e.g. the question references `freight_value` but the loaded `olist_orders` file has only its 8 columns), the UI shows a DISTINCT non-success card — routed through the existing FailureCard channel, **not** a green AnswerCard — that clearly states the question can't be answered from this dataset and **lists the columns that ARE available** in the loaded dataset so the user can re-ask. True multi-file / cross-file analysis (joining the other olist files to answer such questions) is the Phase 3 roadmap item; this state is the single-file interim UX.
 - **Loading**: while a run streams, the Ask button shows a spinner and the StepStream animates per event.
 - **Stub clarity**: every stub carries a visible "Coming soon" label and a muted style so it is never mistaken for a bug.
 

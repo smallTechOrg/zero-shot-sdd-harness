@@ -239,10 +239,177 @@ def _compose_answer(state: AgentState) -> str:
     return f'The answer to "{question}" is: {result}.'
 
 
+# Phrases that signal the model could not answer from THIS dataset (missing/unknown
+# column, or an inability to answer). Kept conservative + anchored so a legitimate
+# textual answer that merely mentions the word "column" still succeeds.
+_UNANSWERABLE_PHRASES = (
+    "column not available",
+    "not available in this dataset",
+    "not available in the dataset",
+    "no such column",
+    "unknown column",
+    "column not found",
+    "column does not exist",
+    "not in this dataset",
+    "not in the dataset",
+    "cannot be answered from this dataset",
+    "cannot answer from this dataset",
+    "can't be answered from this dataset",
+    "cannot answer this question from this dataset",
+    "not present in this dataset",
+)
+
+
+def _is_unanswerable_result(result: object) -> bool:
+    """Conservatively detect a degenerate "can't answer from this dataset" result.
+
+    Only string results qualify. We match on anchored, specific signals so a
+    normal textual answer that merely contains the word "column" still succeeds:
+      - a string that starts with "Error:" (the model self-reporting a failure), or
+      - a string containing one of the explicit unavailability phrases.
+    """
+    if not isinstance(result, str):
+        return False
+    text = result.strip().lower()
+    if not text:
+        return False
+    if text.startswith("error:"):
+        return True
+    return any(phrase in text for phrase in _UNANSWERABLE_PHRASES)
+
+
+def _available_columns(state: AgentState) -> list[str]:
+    schema = state.get("schema") or []
+    cols = [str(c.get("name")) for c in schema if c.get("name") is not None]
+    return cols
+
+
+def _unanswerable_message(state: AgentState) -> str:
+    cols = _available_columns(state)
+    cols_str = ", ".join(cols) if cols else "(none detected)"
+    return (
+        "This question can't be answered from the loaded dataset. "
+        f"Available columns: {cols_str}. "
+        "(Cross-file analysis to answer this is coming in a later phase.)"
+    )
+
+
+def _to_jsonable(obj: object) -> object:
+    """Best-effort JSON-safe coercion in the PARENT process for synthesized tables.
+
+    The sandbox already coerces its payloads; this guards values we build here
+    (NaN -> None, numpy scalars -> python). Falls back to str() for the exotic.
+    """
+    try:
+        import math
+
+        import numpy as np
+        import pandas as pd
+    except Exception:  # pragma: no cover - pandas/numpy always present in this app
+        np = None
+        pd = None
+        import math
+
+    if obj is None:
+        return None
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, int):
+        return obj
+    if isinstance(obj, float):
+        return None if math.isnan(obj) else obj
+    if np is not None:
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            val = float(obj)
+            return None if math.isnan(val) else val
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return [_to_jsonable(x) for x in obj.tolist()]
+    if pd is not None:
+        if isinstance(obj, pd.Series):
+            return {str(_to_jsonable(k)): _to_jsonable(v) for k, v in obj.items()}
+        if isinstance(obj, pd.DataFrame):
+            recs = obj.astype(object).where(pd.notnull(obj), None).to_dict(orient="records")
+            return [{str(k): _to_jsonable(v) for k, v in r.items()} for r in recs]
+    if isinstance(obj, dict):
+        return {str(k): _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(x) for x in obj]
+    try:
+        return _to_jsonable(obj.item())  # numpy/pandas scalar wrapper
+    except Exception:
+        return str(obj)
+
+
+def _metric_label(state: AgentState) -> str:
+    """A sensible single-column label for a synthesized scalar table."""
+    question = (state.get("question") or "").strip()
+    return question[:60] if question else "result"
+
+
+def synthesize_table(state: AgentState) -> list[dict] | None:
+    """Deterministically build a summary table from `result` when the code did
+    not assign one. Every successful answer must carry a table (spec/agent.md
+    finalize rule). Returns JSON-safe records, or None if nothing usable.
+
+    Shapes:
+      - scalar (int/float/str/bool/np scalar) -> [{<metric-label>: value}]
+      - dict / Series                         -> [{"key": k, "value": v}, ...]
+      - list of records / DataFrame-records   -> pass through unchanged
+    """
+    result = state.get("result")
+    if result is None:
+        return None
+
+    safe = _to_jsonable(result)
+
+    # Already a list of record dicts (DataFrame-records / passthrough).
+    if isinstance(safe, list):
+        if safe and all(isinstance(r, dict) for r in safe):
+            return safe
+        if not safe:
+            return None
+        # A plain list of scalars -> one column.
+        return [{"value": v} for v in safe]
+
+    # dict / Series -> key/value records.
+    if isinstance(safe, dict):
+        if not safe:
+            return None
+        return [{"key": str(k), "value": v} for k, v in safe.items()]
+
+    # Scalar -> one-row, one-cell table.
+    return [{_metric_label(state): safe}]
+
+
 def finalize(state: AgentState) -> AgentState:
+    result = state.get("result")
+
+    # Defect 2: a degenerate "can't answer from this dataset" result must NOT be
+    # reported as a green success. Route it to the failure channel with the list
+    # of columns that ARE available, so the frontend FailureCard renders it.
+    if _is_unanswerable_result(result):
+        message = _unanswerable_message(state)
+        _log.info("node", run_id=state.get("run_id"), node="finalize",
+                  status="failed", reason="unanswerable")
+        return {**state, "answer": None, "status": "failed", "error": message}
+
     answer = _compose_answer(state)
-    _log.info("node", run_id=state.get("run_id"), node="finalize", status="completed")
-    return {**state, "answer": answer, "status": "completed", "error": None}
+
+    # Defect 1: every successful answer carries a summary table. If the code did
+    # not assign one, synthesize it deterministically from `result`.
+    table = state.get("table")
+    if not table:
+        table = synthesize_table(state)
+
+    _log.info("node", run_id=state.get("run_id"), node="finalize", status="completed",
+              table_rows=len(table) if table else 0)
+    return {**state, "answer": answer, "table": table, "status": "completed", "error": None}
 
 
 def suggest_followups(state: AgentState) -> AgentState:
