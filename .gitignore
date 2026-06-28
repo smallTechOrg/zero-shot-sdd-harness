@@ -16,3 +16,5 @@ build/
 *.db-shm
 *.db-wal
 data/
+frontend/out/
+.pytest_cache/

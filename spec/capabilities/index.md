@@ -1,23 +1,17 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
-
----
-
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+A capability is a single, discrete behaviour the agent performs. See [roadmap.md](../roadmap.md) for the phase each maps to.
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+| Capability | Phase | File |
+|-----------|-------|------|
+| Profile Dataset | 1 | [profile-dataset.md](profile-dataset.md) |
+| Answer Question With Code | 1 | [answer-question-with-code.md](answer-question-with-code.md) |
+| Cost Accounting | 1 | [cost-accounting.md](cost-accounting.md) |
+| Run History | 2 | [run-history.md](run-history.md) |
+| Follow-up Conversation | 2 | [follow-up-conversation.md](follow-up-conversation.md) |
+| Plan-then-Execute Deep Analysis | 4 | [plan-then-execute.md](plan-then-execute.md) |
 
 ## How to Add a New Capability
 
@@ -29,10 +23,4 @@ Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-a
 
 ## Capability File Template
 
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+Each capability file answers: What it does (one sentence) · Inputs · Outputs · External calls · Business rules · Success criteria (testable).
