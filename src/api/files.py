@@ -27,18 +27,25 @@ def upload_file(
     if session is None:
         raise api_error("SESSION_NOT_FOUND", "Session not found", status_code=404)
 
-    # Validate file extension
-    filename = file.filename or ""
+    # Validate file extension (use safe name only — strip any path components)
+    raw_name = file.filename or ""
+    filename = Path(raw_name).name  # strips ../../ traversal attempts
+    if not filename:
+        raise api_error("INVALID_FILE", "File has no name")
     if not filename.lower().endswith(".csv") and not filename.lower().endswith(".xlsx"):
         raise api_error("INVALID_FILE", "Only CSV and Excel (.xlsx) files are supported")
+
+    # Enforce file size limit (50 MB)
+    _MAX_BYTES = 50 * 1024 * 1024
+    content = file.file.read()
+    if len(content) > _MAX_BYTES:
+        raise api_error("FILE_TOO_LARGE", f"File exceeds the 50 MB limit ({len(content) // (1024*1024)} MB uploaded)")
 
     # Save to temp dir
     settings = get_settings()
     temp_dir: Path = settings.get_temp_dir() / session_id
     temp_dir.mkdir(parents=True, exist_ok=True)
     temp_path = temp_dir / filename
-
-    content = file.file.read()
     temp_path.write_bytes(content)
 
     # Profile the file (pure pandas, no LLM)

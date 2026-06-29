@@ -278,6 +278,38 @@ def _strip_code_fences(code: str) -> str:
     return "\n".join(lines)
 
 
+_MAX_RESULT_ROWS = 200
+_MAX_RESULT_CHARS = 4000
+
+
+def _serialize_result(result_val) -> str:
+    """Convert exec() result to a string suitable for the format LLM."""
+    if result_val is None:
+        return "No result produced"
+    if isinstance(result_val, pd.DataFrame):
+        if result_val.empty:
+            return "Query returned an empty table."
+        rows = min(len(result_val), _MAX_RESULT_ROWS)
+        snippet = result_val.head(rows).to_string(index=False)
+        suffix = f"\n[Showing {rows} of {len(result_val)} rows]" if len(result_val) > rows else ""
+        return snippet + suffix
+    if isinstance(result_val, pd.Series):
+        rows = min(len(result_val), _MAX_RESULT_ROWS)
+        snippet = result_val.head(rows).to_string()
+        suffix = f"\n[Showing {rows} of {len(result_val)} entries]" if len(result_val) > rows else ""
+        return snippet + suffix
+    # numpy scalars → Python native
+    if hasattr(result_val, "item"):
+        try:
+            result_val = result_val.item()
+        except Exception:
+            pass
+    text = str(result_val)
+    if len(text) > _MAX_RESULT_CHARS:
+        text = text[:_MAX_RESULT_CHARS] + "\n[truncated]"
+    return text
+
+
 # ---------------------------------------------------------------------------
 # execute_code — run generated code in sandboxed exec()
 # ---------------------------------------------------------------------------
@@ -317,15 +349,22 @@ def execute_code(state: AgentState) -> AgentState:
         exec_result = _exec_with_timeout(code, namespace, _EXEC_TIMEOUT_SECONDS)
 
         if exec_result["timed_out"]:
-            return {**state, "error": f"Code execution timed out after {_EXEC_TIMEOUT_SECONDS} seconds"}
+            return {**state, "error": f"Code execution timed out after {_EXEC_TIMEOUT_SECONDS}s. Try a simpler question or a smaller slice of the data."}
 
         if exec_result["error"]:
-            return {**state, "error": exec_result["error"]}
+            exc_type = exec_result.get("exc_type", "Error")
+            exc_msg = exec_result["error"]
+            available_cols = ", ".join(
+                f'"{c["name"]}"' for f in (state.get("uploaded_files") or [])
+                for c in (f.get("profile_json") or {}).get("columns", [])
+            ) if state.get("uploaded_files") else ""
+            col_hint = f" Available columns: {available_cols}." if available_cols and exc_type in ("KeyError", "AttributeError", "ValueError") else ""
+            return {**state, "error": f"{exc_type}: {exc_msg}.{col_hint}"}
 
         result_val = namespace.get("result")
         fig_val = namespace.get("fig")
 
-        execution_result = str(result_val) if result_val is not None else "No result produced"
+        execution_result = _serialize_result(result_val)
 
         chart_json = None
         if fig_val is not None:
@@ -346,14 +385,15 @@ def execute_code(state: AgentState) -> AgentState:
 
 
 def _exec_with_timeout(code: str, namespace: dict, timeout: float) -> dict:
-    """Execute code in a thread with timeout. Returns {timed_out, error}."""
-    result: dict = {"timed_out": False, "error": None}
+    """Execute code in a thread with timeout. Returns {timed_out, error, exc_type}."""
+    result: dict = {"timed_out": False, "error": None, "exc_type": None}
 
     def _run():
         try:
             exec(code, namespace)  # noqa: S102
-        except Exception:
-            result["error"] = traceback.format_exc(limit=5)
+        except Exception as exc:
+            result["exc_type"] = type(exc).__name__
+            result["error"] = str(exc)
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_run)
@@ -382,9 +422,14 @@ def format_response(state: AgentState) -> AgentState:
 
         system_prompt = _load_prompt(_FORMAT_PROMPT_PATH)
 
+        # Truncate the result if it's enormous to avoid hitting token limits
+        result_for_llm = execution_result
+        if len(result_for_llm) > _MAX_RESULT_CHARS:
+            result_for_llm = result_for_llm[:_MAX_RESULT_CHARS] + "\n[result truncated for brevity]"
+
         prompt = (
             f"The user asked: {question}\n\n"
-            f"The computation returned: {execution_result}\n\n"
+            f"The computation returned:\n{result_for_llm}\n\n"
             "Write a clear, concise answer for a non-technical reader in 2-3 sentences."
         )
 
@@ -406,13 +451,41 @@ def format_response(state: AgentState) -> AgentState:
 # ---------------------------------------------------------------------------
 
 def handle_error(state: AgentState) -> AgentState:
-    """Return a user-friendly error message."""
+    """Return a user-friendly error message without exposing Python internals."""
     error = state.get("error", "unknown error")
     logger.bind(node="handle_error", session_id=state.get("session_id", "")).warning(
         "error_handled", error=error
     )
+    # Build a helpful, non-technical message
+    msg = _user_friendly_error(error)
     return {
         **state,
         "action": "error",
-        "answer": f"I encountered an error: {error}. Please try rephrasing your question.",
+        "answer": msg,
     }
+
+
+def _user_friendly_error(error: str) -> str:
+    """Map internal error strings to helpful user-facing messages."""
+    e = error.lower()
+    if "timed out" in e:
+        return "That question took too long to compute. Try asking for a smaller subset of the data or a simpler calculation."
+    if "keyerror" in e or "column" in e:
+        return f"I couldn't find a column needed to answer that question. {error.split('.')[0] if '.' in error else error} — please check the column names in the profile card and try again."
+    if "no result produced" in e:
+        return "The generated code ran but didn't produce a value. Try rephrasing the question to be more specific (e.g. 'What is the sum of revenue?' instead of 'Revenue')."
+    if "empty" in e:
+        return "The query returned no matching rows. Try relaxing your filter conditions."
+    if "valueerror" in e or "typeerror" in e:
+        return f"There was a data type issue computing the answer: {error.split('.')[0] if '.' in error else error}. Try specifying the column name explicitly."
+    if "syntaxerror" in e:
+        return "I had trouble generating valid code for that question. Could you rephrase it more specifically?"
+    if "no llm provider" in e or "api_key" in e.replace("-", "_"):
+        return "The AI service is not configured. Please check that an API key is set in .env."
+    if "quota" in e or "rate" in e or "429" in e:
+        return "The AI service is temporarily rate-limited. Please wait a moment and try again."
+    if "timeout" in e or "deadline" in e:
+        return "The AI service took too long to respond. Please try again."
+    # Generic fallback — show error type but not Python internals
+    first_line = error.strip().split("\n")[0][:200]
+    return f"I wasn't able to answer that question ({first_line}). Please try rephrasing or ask a more specific question."

@@ -31,6 +31,10 @@ def post_message(
     if session is None:
         raise api_error("SESSION_NOT_FOUND", "Session not found", status_code=404)
 
+    # Validate question is non-empty
+    if not body.content or not body.content.strip():
+        raise api_error("EMPTY_QUESTION", "Please enter a question before sending", status_code=400)
+
     # Check uploaded files
     stmt = select(UploadedFileRow).where(UploadedFileRow.session_id == session_id)
     file_rows = db.execute(stmt).scalars().all()
@@ -66,27 +70,23 @@ def post_message(
     )
 
     answer = result.get("answer") or ""
+    if not answer.strip():
+        answer = "I wasn't able to generate a response. Please try rephrasing your question."
     chart_json = result.get("chart_json")
 
-    # Attempt to extract a CSV representation from execution_result for later export
+    # Extract a CSV from the execution result only when it is clearly tabular
     last_result_csv = None
     exec_res = result.get("execution_result") or ""
-    if exec_res and exec_res not in ("No result produced", ""):
+    if exec_res and exec_res not in ("No result produced", "Query returned an empty table.", ""):
         import io
         import pandas as pd
         try:
-            # Try parsing as delimited text (handles space/tab-aligned pandas output)
-            df_check = pd.read_csv(io.StringIO(exec_res), sep=None, engine="python")
-            if not df_check.empty and len(df_check.columns) > 0:
+            df_check = pd.read_csv(io.StringIO(exec_res), sep=r"\s{2,}|\t", engine="python")
+            # Only treat as tabular if it has multiple columns OR multiple rows
+            if not df_check.empty and (len(df_check.columns) > 1 or len(df_check) > 1):
                 last_result_csv = df_check.to_csv(index=False)
         except Exception:
-            try:
-                # Fallback: store raw output as a single-column CSV
-                lines = [l.strip() for l in exec_res.strip().splitlines() if l.strip()]
-                if lines:
-                    last_result_csv = "result\n" + "\n".join(lines)
-            except Exception:
-                pass
+            pass
 
     # Save assistant message
     assistant_msg = MessageRow(
