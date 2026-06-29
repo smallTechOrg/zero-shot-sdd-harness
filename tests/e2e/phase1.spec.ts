@@ -64,15 +64,8 @@ test.describe("Phase 1 — CSV Analysis Agent", () => {
       // User message appears immediately
       await expect(page.locator("text=What is the total revenue?")).toBeVisible();
 
-      // Wait for assistant response (real LLM call — may take up to 30s)
-      await page.waitForFunction(() => {
-        const msgs = document.querySelectorAll('[class*="bg-white"][class*="border"]');
-        return msgs.length > 1; // at least one assistant message
-      }, { timeout: 45000 });
-
-      // Assistant replied with something
-      const assistantMsgs = page.locator('[class*="justify-start"] p');
-      await expect(assistantMsgs.first()).not.toBeEmpty({ timeout: 5000 });
+      // Wait for assistant response (real LLM call — may take up to 45s)
+      await expect(page.locator('[class*="justify-start"] p').first()).not.toBeEmpty({ timeout: 45000 });
     } finally {
       fs.unlinkSync(csvPath);
     }

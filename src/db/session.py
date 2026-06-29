@@ -1,11 +1,18 @@
 from contextlib import contextmanager
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, _connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def _get_engine() -> Engine:
