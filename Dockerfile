@@ -3,7 +3,8 @@
 # ---- Stage 1: build the Next.js static export (frontend/out) ----
 FROM node:20-slim AS frontend
 WORKDIR /build
-RUN npm install -g pnpm@10
+# Pin the exact pnpm the project builds with locally (workspace uses pnpm 10+ `allowBuilds`)
+RUN npm install -g pnpm@11.9.0
 # Copy the ENTIRE frontend (incl. pnpm-workspace.yaml) so the workspace + lockfile resolve.
 COPY frontend/ ./frontend/
 WORKDIR /build/frontend
