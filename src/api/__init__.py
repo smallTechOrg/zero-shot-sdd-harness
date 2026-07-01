@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -54,6 +54,13 @@ def create_app() -> FastAPI:
     frontend_out = Path(__file__).resolve().parent.parent.parent / "frontend" / "out"
     if frontend_out.exists():
         app.mount("/app", StaticFiles(directory=str(frontend_out), html=True), name="frontend")
+
+    # Root has no page of its own — send visitors to the UI when it's built, otherwise the API docs.
+    root_redirect = "/app" if frontend_out.exists() else "/docs"
+
+    @app.get("/", include_in_schema=False)
+    async def _root() -> RedirectResponse:
+        return RedirectResponse(url=root_redirect)
 
     return app
 
