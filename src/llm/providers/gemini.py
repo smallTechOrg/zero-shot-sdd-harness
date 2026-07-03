@@ -3,7 +3,9 @@ from google.genai import types
 
 
 class GeminiProvider:
-    DEFAULT_MODEL = "gemini-3.1-pro"
+    # Spec/agent.md names "gemini-3.1-pro"; the live API exposes that family as
+    # "gemini-3.1-pro-preview" (the bare id 404s). Use the real, available id.
+    DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
     def __init__(self, api_key: str, model: str) -> None:
         self._client = genai.Client(api_key=api_key)

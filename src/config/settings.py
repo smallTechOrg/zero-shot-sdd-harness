@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,6 +22,18 @@ class Settings(BaseSettings):
     # Provider keys — set exactly one
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
+
+    # Data-analysis agent tuning
+    exec_timeout_seconds: int = Field(default=30)   # AGENT_EXEC_TIMEOUT_SECONDS
+    max_code_retries: int = Field(default=3)        # AGENT_MAX_CODE_RETRIES
+
+    def datasets_dir(self) -> Path:
+        """Directory where uploaded dataset files are stored (data/datasets/).
+
+        Derived from the current working directory (the repo root — all commands
+        run from there). Created on demand by the upload endpoint.
+        """
+        return Path.cwd() / "data" / "datasets"
 
 
 _settings: Settings | None = None
