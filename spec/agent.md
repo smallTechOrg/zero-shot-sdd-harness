@@ -1,218 +1,273 @@
 # Agent
 
-> Required when the project uses an agent framework. Delete this file if your project has no agent framework.
->
-> If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
->
+The LangGraph agent that answers one question about one dataset by writing pandas, running it locally, retrying on error, and composing the answer.
 
 ---
 
 ## Agent Architecture Pattern
 
-<!-- FILL IN: Which pattern does this agent follow? Choose one and describe why. -->
-
 | Pattern | Use when |
 |---------|----------|
-| **Single-agent loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
-| **Graph (LangGraph)** | Multi-step pipeline with conditional edges, checkpointing, or parallel nodes. |
-| **Multi-agent** | Specialised sub-agents with distinct roles; orchestrator routes between them. |
-| **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
-| **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
+| **Graph (LangGraph)** | Multi-step pipeline with a conditional retry loop. |
 
-**Chosen:** <!-- state pattern + one-sentence rationale -->
+**Chosen:** **Graph (LangGraph)** composing three catalogue patterns from `harness/patterns/agentic-ai.md`: **LLM-Generated Code Execution (#22)** — the LLM writes executable pandas rather than mapping onto a rigid op-list; **Exception Handling & Recovery (#12)** — bounded retry when generated code errors; and **Prompt Chaining (#1)** — `generate_code → execute → write_answer` as an ordered two-LLM chain. Planning (#6) and Reflection (#4) are explicitly **deferred** (see below) — Phase 1 iterates only on hard execution errors, which is the smallest real "iterate-until-right".
+
+**Phase 1 vs later:**
+- **Phase 1:** the full skeleton below is wired — `load_context`, `generate_code`, `execute_code`, `write_answer`, `finalize`, `handle_error`, and the bounded retry edge.
+- **Phase 2:** conversation history (`messages`) threaded into `generate_code`/`write_answer`; per-node progress events (SSE); token/cost capture. Same node set, richer state.
+- **Deferred (beyond this build):** a `plan` node for big questions (Planning #6), a `reflect` node that re-runs when the result looks wrong (Reflection #4), a clarifying-question human-in-the-loop gate, and multi-dataset routing.
 
 ---
 
 ## LLM Provider & Model
 
-<!-- FILL IN: Which model drives each agent/node? State provider, model ID, and why. -->
-
 | Agent / Node | Provider | Model ID | Rationale |
 |-------------|----------|----------|-----------|
-| <!-- node --> | Anthropic | <!-- e.g. claude-sonnet-4-6 --> | <!-- latency vs. quality trade-off --> |
+| `generate_code` | Gemini | `gemini-3.1-pro` (repo default; `AGENT_LLM_MODEL` blank) | Code generation from schema needs the stronger model for correctness. |
+| `write_answer` | Gemini | same (Phase 1); Phase 2 may downgrade via `AGENT_LLM_MODEL` | Turning an aggregated result into prose/chart selection is lighter — a cheaper model is a Phase-2 cost lever. |
 
-**Fallback behaviour:** <!-- Production resilience only: retry/backoff, degraded mode, or a surfaced error if the LLM API is unavailable or rate-limited. NOT a test/offline stub path — tests call the real API with keys from `.env`. -->
+**Fallback behaviour:** each LLM node wraps `LLMClient().call_model(...)` in try/except; on API error or rate-limit it sets `state["error"]` and routes to `handle_error`, which persists the run as `failed` with the message surfaced through the API. No offline/stub path — tests call the real Gemini API with keys from `.env`.
 
-**Prompt strategy:** <!-- System/user split, few-shot examples, structured output (tool_use / JSON mode)? -->
+**Prompt strategy:** system prompt loaded from a `.md` file per node (matching the skeleton's `prompts/` convention). `generate_code` uses **structured output** — it must return only a fenced pandas code block that assigns a `result` dict; the node extracts the code. `write_answer` returns a single **JSON object** (answer, narrative, key_numbers, chart) parsed with a tolerant loader. Only schema + sample rows + question (+ prior error on retry) go to `generate_code`; only the question + aggregated result go to `write_answer`.
 
 ---
 
 ## Tools & Tool Calling
 
-<!-- FILL IN: Every tool the agent can call. -->
+The LLM does not call tools via function-calling; it **emits code that the graph executes** (pattern #22). The executable surfaces are graph-owned functions, not LLM-invoked tools:
 
-| Tool name | Description | Inputs | Output | Side-effects |
+| Function | Description | Inputs | Output | Side-effects |
 |-----------|-------------|--------|--------|--------------|
-| <!-- name --> | <!-- what it does --> | <!-- params --> | <!-- return type --> | <!-- DB write, API call, file write, etc. --> |
+| `analysis.executor.run_pandas` | Runs generated pandas in a timed subprocess against the full dataset file | `code: str`, `data_path: str`, `timeout: int` | `(result: dict \| None, error: str \| None)` | Spawns a subprocess; reads the local data file; no writes |
+| `analysis.charts.build_vega_spec` | Validates the LLM's chart selection and builds a Vega-Lite spec | `selection: dict`, `table: list[dict]` | Vega-Lite spec `dict` | None (pure) |
+| `analysis.profiler.profile` | Profiles a DataFrame (used at upload, not in the graph) | `df: DataFrame` | profile `dict` | None (pure) |
 
-**Tool selection strategy:** <!-- How does the agent decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
+**Tool selection strategy:** fixed order — the graph always generates code, always executes it, always writes the answer. No LLM routing in Phase 1.
 
-**Tool failure handling:** <!-- retry, fallback, abort — per tool or global policy? -->
+**Tool failure handling:** `run_pandas` failures (non-zero exit, timeout, traceback) become an `exec_error` string that drives the bounded retry edge; after `AGENT_MAX_CODE_RETRIES` the run fails cleanly.
 
 ---
 
 ## Agent State
 
-<!-- FILL IN: The full state type. Every field must be named, typed, and annotated with what populates it. -->
-
 ```python
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     # Identity
-    run_id: int                          # set at initialisation
+    run_id: str                     # set at initialisation by the runner
+    dataset_id: str                 # set at initialisation
 
     # Input
-    # ...                                # fields populated from the trigger
+    question: str                   # set at initialisation (the user's plain-language question)
 
-    # Pipeline data (populated progressively by nodes)
-    # ...
+    # Context (populated by load_context — NEVER the raw rows)
+    schema: list[dict]              # [{name, dtype, null_count}, ...]
+    sample_rows: list[dict]         # a few example rows for the prompt
+    row_count: int                  # exact full-data row count
+    data_path: str                  # local file path to the full dataset
 
-    # Output
-    # ...                                # final result fields
+    # Pipeline data (populated progressively)
+    code: str                       # generated pandas (generate_code)
+    exec_result: dict | None        # aggregated {value, table, columns} (execute_code)
+    exec_error: str | None          # execution error, if any (execute_code) — drives retry
+    attempts: int                   # generate→execute attempts so far
+
+    # Output (populated by write_answer)
+    answer_text: str                # plain-language answer with key numbers
+    narrative: str                  # short interpretation
+    key_numbers: list[dict]         # [{label, value}, ...]
+    chart_spec: dict                # Vega-Lite spec
+    table: list[dict]               # summary table rows (== exec_result.table)
 
     # Control
-    error: str | None                    # set by any node on fatal failure
-    checkpoint: str | None              # last completed node (for resume)
+    error: str | None               # set by any node on fatal failure → handle_error
+    status: str                     # "completed" | "failed"
+    messages: list                  # chat-turn history (Phase 2; present but unused in Phase 1)
 ```
 
 ---
 
 ## Nodes / Steps
 
-<!-- FILL IN: One section per node. For single-agent loops, describe each "step" or "tool call phase." -->
-
-### `node_[name]`
-
-**Reads from state:** <!-- field names -->
-
-**Writes to state:** <!-- field names -->
-
-**LLM call:** <!-- yes/no; if yes: prompt template summary, model used, output format -->
-
+### `load_context`
+**Reads from state:** `dataset_id`
+**Writes to state:** `schema`, `sample_rows`, `row_count`, `data_path`, `attempts` (0)
+**LLM call:** no.
 **External calls:**
-
 | System | Operation | On Failure |
 |--------|-----------|------------|
-| <!-- system --> | <!-- what it calls --> | <!-- fatal (set error) / partial (log + continue) / retry --> |
+| SQLite | Load the `datasets` row (profile JSON + file path) | fatal — set `error`, route to `handle_error` (dataset missing) |
 
-**Behaviour:** <!-- One paragraph. What decision or transformation does this node perform? -->
+**Behaviour:** hydrates the prompt context from the stored profile only. Never reads the full data file — that stays for the subprocess. Sets `attempts=0`.
+
+### `generate_code`
+**Reads from state:** `schema`, `sample_rows`, `row_count`, `question`, `exec_error` (on retry), `messages` (Phase 2)
+**Writes to state:** `code`, `attempts` (+1)
+**LLM call:** yes — Gemini, prompt `prompts/generate_code.md`. Output: a fenced pandas block assigning `result = {"value": ..., "table": [...], "columns": [...]}`. On retry the prior `code` + `exec_error` are appended so the model fixes its mistake.
+**External calls:**
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| Gemini | Generate pandas code | fatal — set `error`, route to `handle_error` |
+
+**Behaviour:** produces code that computes a **compact aggregated** result (≤ ~200 rows) suitable for both the summary table and the chart. Only schema + sample rows leave the machine.
+
+### `execute_code`
+**Reads from state:** `code`, `data_path`
+**Writes to state:** `exec_result` or `exec_error`
+**LLM call:** no.
+**External calls:**
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| pandas subprocess | `run_pandas(code, data_path, timeout)` on the FULL dataset | non-fatal — capture as `exec_error` (drives retry), do not set `error` |
+
+**Behaviour:** runs the generated code locally against all rows in a timed subprocess. Success → `exec_result`; any error/timeout → `exec_error` string. Raw data stays in the subprocess.
+
+### `write_answer`
+**Reads from state:** `question`, `exec_result`
+**Writes to state:** `answer_text`, `narrative`, `key_numbers`, `chart_spec`, `table`
+**LLM call:** yes — Gemini, prompt `prompts/write_answer.md`. Output: JSON `{answer, narrative, key_numbers, chart}`. `charts.build_vega_spec` turns the chart selection into a Vega-Lite spec using the aggregated table.
+**External calls:**
+| System | Operation | On Failure |
+|--------|-----------|------------|
+| Gemini | Compose answer + choose chart | fatal — set `error`, route to `handle_error` |
+
+**Behaviour:** only the aggregated result (never raw rows) is sent. If chart selection is invalid, `build_vega_spec` falls back to a sensible default (bar of the first categorical vs first numeric column) rather than failing the run.
+
+### `finalize`
+**Reads:** all output fields, `run_id`. **Writes:** `status="completed"`. Persists the run row with code, result, answer, narrative, key numbers, chart, table.
+
+### `handle_error`
+**Reads:** `error`, `run_id`. **Writes:** `status="failed"`. Persists `error_message`; logs with `run_id` context; terminates.
 
 ---
 
 ## Graph / Flow Topology
 
-<!-- FILL IN: ASCII diagram of node flow. Show ALL conditional edges explicitly. -->
-
 ```
 START
   │
   ▼
-node_a ──(error)──► node_handle_error ──► END
+load_context ──(error)──► handle_error ──► END
   │
   ▼
-node_b ──(condition)──► node_c
-  │                         │
-  │                         ▼
-  └──────────────────► node_finalize
-                             │
-                             ▼
-                            END
+generate_code ──(error)──► handle_error
+  │
+  ▼
+execute_code
+  │
+  ├─(exec_error and attempts < MAX)──► generate_code   [retry loop]
+  ├─(exec_error and attempts >= MAX)─► handle_error ──► END
+  │
+  └─(ok)──► write_answer ──(error)──► handle_error
+                 │
+                 ▼
+              finalize ──► END
 ```
 
 **Conditional edges:**
 
 | Source node | Condition | Target |
 |-------------|-----------|--------|
-| <!-- node --> | <!-- e.g. state["error"] is not None --> | <!-- target node --> |
+| `load_context` | `state.get("error")` | `handle_error` |
+| `load_context` | else | `generate_code` |
+| `generate_code` | `state.get("error")` | `handle_error` |
+| `generate_code` | else | `execute_code` |
+| `execute_code` | `exec_error` and `attempts < AGENT_MAX_CODE_RETRIES` | `generate_code` |
+| `execute_code` | `exec_error` and `attempts >= AGENT_MAX_CODE_RETRIES` | `handle_error` |
+| `execute_code` | no `exec_error` | `write_answer` |
+| `write_answer` | `state.get("error")` | `handle_error` |
+| `write_answer` | else | `finalize` |
 
 ---
 
 ## Memory & Context
 
-<!-- FILL IN: How does the agent remember things across turns, steps, or runs? -->
-
 | Scope | Mechanism | What is stored |
 |-------|-----------|----------------|
-| **Within a run** | LangGraph state | All in-progress data |
-| **Across runs** | <!-- DB / vector store / none --> | <!-- e.g. past results, user prefs --> |
-| **Conversation** | <!-- message history / summary / none --> | <!-- if chat-style --> |
+| **Within a run** | LangGraph state (`AgentState`) | schema, sample rows, generated code, result, answer |
+| **Across runs** | SQLite (`runs`, `datasets`) | every question's code/result/answer/chart + the dataset profiles |
+| **Conversation** | `messages` in state + `sessions` table (Phase 2) | prior question/answer turns for follow-ups; **unused in Phase 1** |
 
-**Context window management:** <!-- How is the prompt kept within limits? (summary, sliding window, RAG retrieval) -->
+**Context window management:** only schema + a few sample rows + the question (+ prior error on retry) are ever in the `generate_code` prompt — never the full data — so the prompt stays small regardless of dataset size. Phase 2 caps threaded history to the last N turns.
 
 ---
 
 ## Human-in-the-Loop Checkpoints
 
-<!-- FILL IN: Where does execution pause for human input? Delete section if not applicable. -->
-
-| Checkpoint | What is shown to the user | Expected user action | Timeout / default |
-|------------|--------------------------|----------------------|-------------------|
-| <!-- name --> | <!-- what the agent surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
+None in Phase 1 or Phase 2 — the run is fully autonomous. (A clarifying-question gate before running is deferred beyond this build; see roadmap out-of-scope.)
 
 ---
 
 ## Error Handling & Recovery
 
-<!-- FILL IN: How the agent handles failures at each level. -->
+**Node-level:** each LLM/DB node catches its own exceptions; fatal errors set `state["error"]` and route to `handle_error`. `execute_code` is deliberately non-fatal — a code error becomes `exec_error` and feeds the retry loop.
 
-**Node-level:** <!-- Each node catches its own exceptions; fatal errors set state["error"] and route to handle_error node. -->
-
-**Graph-level (handle_error node):**
+**Graph-level (`handle_error` node):**
 - Reads: `state.error`, `state.run_id`
-- Updates DB: run status → "failed", `error_message`, `completed_at`
+- Updates DB: run `status` → `failed`, `error_message`
 - Logs error with `run_id` context
-- Terminates graph
+- Terminates the graph
 
-**Resume / retry strategy:** <!-- Can a failed run be resumed from its last checkpoint? How? -->
+**Resume / retry strategy:** the bounded generate→execute retry (`AGENT_MAX_CODE_RETRIES`, default 3) is the recovery mechanism — the model sees its prior code + error and fixes it. No cross-run checkpointing (runs are short).
 
-**Partial failure:** <!-- If a non-critical step fails, does the agent degrade gracefully or abort? -->
+**Partial failure:** if `write_answer`'s chart selection is invalid, the chart degrades to a default spec rather than failing the whole run — the answer, narrative, table, and code still return.
 
 ---
 
 ## Observability
 
-<!-- FILL IN: What is logged, traced, and measured? -->
-
 | Signal | What | Where |
 |--------|------|-------|
-| **Trace** | One trace per run, one span per node | <!-- OpenTelemetry / LangSmith / stdout --> |
-| **LLM calls** | Prompt tokens, completion tokens, latency, model | <!-- LangSmith / structured log --> |
-| **Tool calls** | Tool name, inputs, success/error, latency | Structured log |
-| **Run outcome** | Status, total duration, error if any | DB + structured log |
+| **Trace** | One structured log context per run keyed by `run_id`, one line per node entry/exit | structlog → stdout (JSON) |
+| **LLM calls** | Node name, model, latency, prompt/response sizes (Phase 2 adds token counts + $ estimate) | structlog; Phase 2 also persists to the run row |
+| **Code execution** | Generated code, subprocess exit status, retry count, error string | structlog + `runs` row |
+| **Run outcome** | Status, total duration, error if any | `runs` row + structlog |
+
+Structured logging is wired in Phase 1 (day one) via the existing `src/observability`. LangSmith is not used because the Gemini call goes directly through `google-genai` (not LangChain), so structured stdout logging is the Phase-1 observability surface; token/cost accounting is added in Phase 2.
 
 ---
 
 ## Concurrency Model
 
-<!-- FILL IN: How concurrent agent runs are handled. -->
-
-- **Run isolation:** <!-- one-at-a-time (API returns 409) / queue / parallel with run_id scoping -->
-- **Parallel nodes within a run:** <!-- which nodes run in parallel and why -->
-- **Checkpointing:** <!-- none / SqliteSaver / PostgresSaver — required if human-in-the-loop or long-running -->
+- **Run isolation:** one question at a time per user; the API handles a run synchronously and returns the full result. `run_id`-scoped state; no cross-run shared mutable state.
+- **Parallel nodes within a run:** none — the pipeline is strictly sequential (each step depends on the prior).
+- **Subprocess:** `execute_code` spawns one child process per execution with a timeout; it is joined/killed before the node returns.
+- **Checkpointing:** none (runs are short-lived; no human-in-the-loop pause).
 
 ---
 
-## Graph Assembly (`agent/graph.py`)
-
-<!-- FILL IN: Pseudocode showing how nodes and edges are wired. Must be ≤ 60 lines in the real file. -->
+## Graph Assembly (`src/graph/agent.py`)
 
 ```python
-graph = StateGraph(AgentState)
-
-graph.add_node("node_a", node_a)
-graph.add_node("node_b", node_b)
-graph.add_node("finalize", node_finalize)
-graph.add_node("handle_error", node_handle_error)
-
-graph.set_entry_point("node_a")
-
-graph.add_conditional_edges(
-    "node_a",
-    lambda s: "handle_error" if s.get("error") else "node_b",
+from langgraph.graph import StateGraph, END
+from graph.state import AgentState
+from graph.nodes import (
+    load_context, generate_code, execute_code, write_answer, finalize, handle_error,
 )
+from graph.edges import after_load, after_generate, after_execute, after_answer
 
-graph.add_edge("node_b", "finalize")
-graph.add_edge("finalize", END)
-graph.add_edge("handle_error", END)
+def _build_graph():
+    g = StateGraph(AgentState)
+    g.add_node("load_context", load_context)
+    g.add_node("generate_code", generate_code)
+    g.add_node("execute_code", execute_code)
+    g.add_node("write_answer", write_answer)
+    g.add_node("finalize", finalize)
+    g.add_node("handle_error", handle_error)
 
-compiled_graph = graph.compile()
+    g.set_entry_point("load_context")
+    g.add_conditional_edges("load_context", after_load,
+                            {"generate_code": "generate_code", "handle_error": "handle_error"})
+    g.add_conditional_edges("generate_code", after_generate,
+                            {"execute_code": "execute_code", "handle_error": "handle_error"})
+    g.add_conditional_edges("execute_code", after_execute,
+                            {"generate_code": "generate_code",   # bounded retry
+                             "write_answer": "write_answer",
+                             "handle_error": "handle_error"})
+    g.add_conditional_edges("write_answer", after_answer,
+                            {"finalize": "finalize", "handle_error": "handle_error"})
+    g.add_edge("finalize", END)
+    g.add_edge("handle_error", END)
+    return g.compile()
+
+agentic_ai = _build_graph()
 ```

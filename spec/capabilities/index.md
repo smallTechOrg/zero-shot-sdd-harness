@@ -1,38 +1,26 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
-
----
-
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+One file per discrete thing the agent can do. See [roadmap.md](../roadmap.md) for how these map to phases.
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
+| Capability | Phase | File |
+|-----------|-------|------|
+| Profile a dataset on upload | 1 | [profile_dataset.md](profile_dataset.md) |
+| Analyze a dataset by question (core path) | 1 | [analyze_dataset.md](analyze_dataset.md) |
+| Conversation sessions (turn memory + follow-ups) | 2 | [conversation_sessions.md](conversation_sessions.md) |
+| Run history (save / revisit / re-run) | 2 | [run_history.md](run_history.md) |
+| Cost + live progress (tokens/$/steps) | 2 | [cost_and_progress.md](cost_and_progress.md) |
 
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+## Deferred beyond this build (no capability files yet)
+
+Explicitly out of scope for Phases 1–2 (see [roadmap.md](../roadmap.md) → Out of Scope):
+- Dataset library management: projects, rename, per-column annotations the agent uses.
+- Multi-dataset targeting + auto-detection + cross-file joins/compare.
+- Clarifying-question gate before ambiguous runs; explicit out-of-scope detection.
+- Proactive follow-up-question suggestions and quality nudges beyond upload-time flags.
+- Token-by-token answer streaming.
 
 ## How to Add a New Capability
 
-Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
-1. Create a new file in this directory (`<name>.md`, no number prefix)
-2. Update this index
-3. Flag any dependencies on existing capabilities
-4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+Run `/zero-shot-build [description]` on the existing spec. The spec-writer creates a new `<name>.md`, updates this index, flags dependencies, and self-reviews against the architecture and data model.
