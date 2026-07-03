@@ -20,4 +20,15 @@ class GeminiProvider:
             contents=prompt,
             config=config,
         )
+        # Capture per-call token usage for the cost accumulator. Degrade
+        # gracefully — if usage_metadata is absent the run must not fail.
+        try:
+            usage = response.usage_metadata
+            self.last_usage = {
+                "input_tokens": int(usage.prompt_token_count or 0),
+                "output_tokens": int(usage.candidates_token_count or 0),
+                "total_tokens": int(usage.total_token_count or 0),
+            }
+        except Exception:  # noqa: BLE001
+            self.last_usage = None
         return response.text

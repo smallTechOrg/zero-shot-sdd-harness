@@ -50,41 +50,6 @@ export function LibrarySidebar() {
   )
 }
 
-export function HistoryPanel() {
-  return (
-    <StubShell title="History" testid="stub-history">
-      <ul className="space-y-1.5 text-sm text-gray-400">
-        <li className="rounded bg-gray-100 px-2 py-1.5">Past questions appear here</li>
-        <li className="rounded bg-gray-100 px-2 py-1.5">Revisit · re-run</li>
-      </ul>
-    </StubShell>
-  )
-}
-
-export function CostMeter() {
-  return (
-    <StubShell title="Cost meter" testid="stub-cost">
-      <div className="flex items-baseline justify-between text-sm text-gray-400">
-        <span>Tokens · est. $ per question</span>
-        <span className="font-mono">— / —</span>
-      </div>
-    </StubShell>
-  )
-}
-
-export function ProgressSteps() {
-  return (
-    <StubShell title="Live step progress" testid="stub-progress">
-      <ol className="space-y-1 text-xs text-gray-400">
-        <li>○ Planning…</li>
-        <li>○ Running code…</li>
-        <li>○ Retrying…</li>
-        <li>○ Writing answer…</li>
-      </ol>
-    </StubShell>
-  )
-}
-
 export function DatasetSelector() {
   return (
     <StubShell title="Multi-dataset selector" testid="stub-dataset-selector">

@@ -34,6 +34,18 @@ class DatasetRow(Base):
     )
 
 
+class SessionRow(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    dataset_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("datasets.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+
 class RunRow(Base):
     __tablename__ = "runs"
 

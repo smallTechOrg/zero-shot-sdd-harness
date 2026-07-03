@@ -112,6 +112,25 @@ def _format_schema(schema: list[dict]) -> str:
     return "\n".join(lines) if lines else "  (no columns)"
 
 
+def _build_memory(messages: list | None) -> str:
+    """Render prior conversation turns (oldest→newest) for the prompt.
+
+    PRIVACY: only prior questions + prior aggregated answer text ever appear
+    here — NEVER raw rows. Each ``messages`` entry is a
+    ``{"question": ..., "answer": ...}`` dict.
+    """
+    if not messages:
+        return "(no prior turns)"
+    lines: list[str] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        q = str(m.get("question", "") or "").strip()
+        a = str(m.get("answer", "") or "").strip()
+        lines.append(f"Q: {q}\nA: {a}")
+    return "\n\n".join(lines) if lines else "(no prior turns)"
+
+
 def generate_code(state: AgentState) -> AgentState:
     run_id = state.get("run_id")
     attempts = state.get("attempts", 0) + 1
@@ -135,6 +154,7 @@ def generate_code(state: AgentState) -> AgentState:
         schema=_format_schema(state.get("schema", [])),
         sample_rows=json.dumps(state.get("sample_rows", []), default=str, indent=2),
         question=state.get("question", ""),
+        memory_section=_build_memory(state.get("messages", [])),
         retry_section=retry_section,
     )
 
@@ -232,6 +252,7 @@ def write_answer(state: AgentState) -> AgentState:
     prompt = _fill(
         _load_prompt("write_answer.md"),
         question=state.get("question", ""),
+        memory_section=_build_memory(state.get("messages", [])),
         result_json=json.dumps(exec_result, default=str, indent=2),
     )
 

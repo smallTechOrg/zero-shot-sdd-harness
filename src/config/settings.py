@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     exec_timeout_seconds: int = Field(default=30)   # AGENT_EXEC_TIMEOUT_SECONDS
     max_code_retries: int = Field(default=3)        # AGENT_MAX_CODE_RETRIES
 
+    # Cost accounting (Phase 2) — Gemini pricing is an ESTIMATE, labelled as such.
+    # USD per 1,000,000 tokens. Read from .env as AGENT_GEMINI_INPUT_PRICE_PER_1M etc.
+    gemini_input_price_per_1m: float = Field(default=1.25)   # AGENT_GEMINI_INPUT_PRICE_PER_1M
+    gemini_output_price_per_1m: float = Field(default=5.0)   # AGENT_GEMINI_OUTPUT_PRICE_PER_1M
+    cost_warn_threshold_usd: float = Field(default=0.05)     # AGENT_COST_WARN_THRESHOLD_USD
+
     def datasets_dir(self) -> Path:
         """Directory where uploaded dataset files are stored (data/datasets/).
 

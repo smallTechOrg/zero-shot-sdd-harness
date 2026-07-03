@@ -1,15 +1,16 @@
-"""Run endpoints: ask a question (synchronous agent run) + fetch a saved run."""
+"""Run endpoints: ask a question, fetch/list saved runs, and re-run a saved one."""
 from __future__ import annotations
 
 import json
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api._common import ok, api_error
 from db.session import get_session
 from db.models import RunRow, DatasetRow
-from domain.run import RunRequest, RunOut, KeyNumber
+from domain.run import RunRequest, RunOut, RunSummary, KeyNumber
 from graph.runner import run_analysis
 
 router = APIRouter()
@@ -43,6 +44,21 @@ def _run_out(run: RunRow) -> dict:
         code=run.generated_code or "",
         attempts=run.attempts or 0,
         error=run.error_message,
+        session_id=run.session_id,
+        tokens_used=run.tokens_used,
+        cost_estimate_usd=run.cost_estimate_usd,
+        created_at=run.created_at.isoformat() if run.created_at else None,
+    ).model_dump()
+
+
+def _run_summary(run: RunRow) -> dict:
+    return RunSummary(
+        run_id=run.id,
+        question=run.question,
+        status=run.status,
+        created_at=run.created_at.isoformat() if run.created_at else None,
+        tokens_used=run.tokens_used,
+        cost_estimate_usd=run.cost_estimate_usd,
     ).model_dump()
 
 
@@ -55,7 +71,12 @@ def create_run(req: RunRequest, session: Session = Depends(get_session)) -> dict
     if dataset is None:
         raise api_error("NOT_FOUND", f"Dataset {req.dataset_id} not found", 404)
 
-    run_id = run_analysis(req.dataset_id, req.question)
+    run_id = run_analysis(
+        req.dataset_id,
+        req.question,
+        session_id=req.session_id,
+        run_id=req.run_id,
+    )
 
     # The graph runs in its own DB sessions; expire this session's view so we
     # re-read the freshly-persisted run row.
@@ -68,9 +89,46 @@ def create_run(req: RunRequest, session: Session = Depends(get_session)) -> dict
     return ok(_run_out(run))
 
 
+@router.get("/runs")
+def list_runs(
+    dataset_id: str | None = None,
+    session_id: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    query = select(RunRow)
+    if dataset_id:
+        query = query.where(RunRow.dataset_id == dataset_id)
+    if session_id:
+        query = query.where(RunRow.session_id == session_id)
+    query = query.order_by(RunRow.created_at.desc())
+    rows = session.execute(query).scalars().all()
+    return ok([_run_summary(r) for r in rows])
+
+
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, session: Session = Depends(get_session)) -> dict:
     run = session.get(RunRow, run_id)
     if run is None:
         raise api_error("NOT_FOUND", f"Run {run_id} not found", 404)
     return ok(_run_out(run))
+
+
+@router.post("/runs/{run_id}/rerun")
+def rerun_run(run_id: str, session: Session = Depends(get_session)) -> dict:
+    saved = session.get(RunRow, run_id)
+    if saved is None:
+        raise api_error("NOT_FOUND", f"Run {run_id} not found", 404)
+
+    # Create a NEW run (new id) against the current data — the original is never
+    # mutated so results can be compared over time.
+    new_run_id = run_analysis(
+        saved.dataset_id,
+        saved.question,
+        session_id=saved.session_id,
+    )
+
+    session.expire_all()
+    new_run = session.get(RunRow, new_run_id)
+    if new_run is None:
+        raise api_error("RUN_NOT_FOUND", "Run not found after execution", 500)
+    return ok(_run_out(new_run))
