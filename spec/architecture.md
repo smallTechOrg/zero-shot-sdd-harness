@@ -64,7 +64,7 @@ src/analysis            Gemini (google-genai)   Local pandas       Gemini
 
 - **Language:** Python 3.11+ (backend), TypeScript (frontend).
 - **Agent framework:** LangGraph (`StateGraph`, already wired) — the `transform_text` slot is replaced by the analysis graph.
-- **LLM provider + model:** Google Gemini via `google-genai`; Phase 1 uses the repo default `gemini-3.1-pro` (leave `AGENT_LLM_MODEL` blank). Provider auto-detected from `AGENT_GEMINI_API_KEY`. Phase 2 may set a cheaper Gemini model via `AGENT_LLM_MODEL` for cost-awareness.
+- **LLM provider + model:** Google Gemini via `google-genai`; Phase 1 uses the repo default `gemini-3.1-pro-preview` (leave `AGENT_LLM_MODEL` blank). Provider auto-detected from `AGENT_GEMINI_API_KEY`. Phase 2 may set a cheaper Gemini model via `AGENT_LLM_MODEL` for cost-awareness.
 - **Backend:** FastAPI (single-origin: serves the static UI at `/app` and the JSON API).
 - **Database + ORM:** SQLite (production DB here IS SQLite) at `AGENT_DATABASE_URL=sqlite:///./data/agent.db`, SQLAlchemy 2.0 declarative + Alembic migrations.
 - **Frontend:** Next.js 15 static export (`output: 'export'`, `basePath: '/app'`) + React 19 + Tailwind v4, served by FastAPI.

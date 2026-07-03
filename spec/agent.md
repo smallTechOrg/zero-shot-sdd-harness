@@ -23,7 +23,7 @@ The LangGraph agent that answers one question about one dataset by writing panda
 
 | Agent / Node | Provider | Model ID | Rationale |
 |-------------|----------|----------|-----------|
-| `generate_code` | Gemini | `gemini-3.1-pro` (repo default; `AGENT_LLM_MODEL` blank) | Code generation from schema needs the stronger model for correctness. |
+| `generate_code` | Gemini | `gemini-3.1-pro-preview` (repo default; `AGENT_LLM_MODEL` blank) | Code generation from schema needs the stronger model for correctness. |
 | `write_answer` | Gemini | same (Phase 1); Phase 2 may downgrade via `AGENT_LLM_MODEL` | Turning an aggregated result into prose/chart selection is lighter — a cheaper model is a Phase-2 cost lever. |
 
 **Fallback behaviour:** each LLM node wraps `LLMClient().call_model(...)` in try/except; on API error or rate-limit it sets `state["error"]` and routes to `handle_error`, which persists the run as `failed` with the message surfaced through the API. No offline/stub path — tests call the real Gemini API with keys from `.env`.

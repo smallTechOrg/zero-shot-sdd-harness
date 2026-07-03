@@ -12,10 +12,43 @@ from __future__ import annotations
 
 import asyncio
 import io
+import threading
 
 import pytest
 
 pytestmark = pytest.mark.usefixtures("_require_llm_key")
+
+
+def _run_async(make_coro):
+    """Run an async coroutine on a fresh event loop in a dedicated thread.
+
+    The whole-tree run keeps a live event loop in the main thread (the
+    pytest-playwright e2e suite), which makes both ``asyncio.run()`` and
+    pytest-asyncio's per-test Runner raise "cannot be called from a running
+    event loop". Driving the coroutine on its own loop in a separate thread is
+    fully isolated from whatever the main thread is doing.
+
+    ``make_coro`` is a zero-arg callable returning a fresh coroutine, so the
+    coroutine is created inside the worker thread's loop context.
+    """
+    box: dict = {}
+
+    def _worker() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            box["result"] = loop.run_until_complete(make_coro())
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller thread
+            box["error"] = exc
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_worker)
+    t.start()
+    t.join()
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
 
 
 _CSV = (
@@ -130,7 +163,7 @@ def test_progress_bus_orders_events_and_terminates():
             events.append(event)
         return events
 
-    events = asyncio.run(_collect())
+    events = _run_async(_collect)
 
     assert [e["step"] for e in events] == [
         "planning",
@@ -150,8 +183,9 @@ def test_progress_bus_subscribe_before_publish():
 
     async def _run():
         agen = bus.subscribe(run_id)
-        # Publish AFTER the subscriber exists — the lazily-created queue must
-        # already be present, so no events are lost.
+        # Publish AFTER the subscriber's generator exists — the per-run queue is
+        # created lazily by whichever of subscribe/publish touches it first, so
+        # no events are lost.
         bus.publish(run_id, "planning", "Planning…")
         bus.finish(run_id)
         collected = []
@@ -159,5 +193,5 @@ def test_progress_bus_subscribe_before_publish():
             collected.append(event)
         return collected
 
-    events = asyncio.run(_run())
+    events = _run_async(_run)
     assert [e["step"] for e in events] == ["planning", "done"]

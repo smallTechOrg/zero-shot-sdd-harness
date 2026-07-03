@@ -58,9 +58,7 @@ A working conversation over one loaded dataset — groups runs and carries turn 
 |-------|------|----------|-------------|
 | id | str (uuid) | yes | Primary key |
 | dataset_id | str (fk → Dataset.id) | yes | The loaded dataset |
-| title | str | no | Auto-derived from the first question |
 | created_at | datetime | yes | Session start |
-| updated_at | datetime | yes | Last activity |
 
 ### Relationships
 

@@ -53,7 +53,9 @@ class RunRow(Base):
     dataset_id: Mapped[str] = mapped_column(
         Text, ForeignKey("datasets.id"), nullable=False
     )
-    session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("sessions.id"), nullable=True
+    )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     generated_code: Mapped[str | None] = mapped_column(Text, nullable=True)
