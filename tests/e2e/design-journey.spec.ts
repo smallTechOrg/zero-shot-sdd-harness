@@ -6,7 +6,7 @@ const CANONICAL_PROMPT =
 const step = (page: Page, name: string) => page.locator(`[data-testid="step-${name}"]`)
 
 test.describe('primary design journey (real backend + Gemini)', () => {
-  test('canonical prompt: styled render, live tracker, calc sheet, drawing, proof-check, stubs, cost badge', async ({
+  test('canonical prompt: styled render, live tracker, calc sheet, drawing, proof-check, 3D model, chips, library, cost badge', async ({
     page,
     request,
   }) => {
@@ -77,8 +77,8 @@ test.describe('primary design journey (real backend + Gemini)', () => {
     await expect(step(page, 'Check')).toHaveAttribute('data-status', 'done', { timeout: 180_000 })
     await expect(step(page, 'Review')).toHaveAttribute('data-status', 'done', { timeout: 180_000 })
 
-    // Regression (F1): model3d publishes a Draw "skipped" tag AFTER draw marked
-    // it done — the live tracker must keep Draw done, never downgrade it.
+    // Regression (F1): whatever order later step events arrive in, the live
+    // tracker must keep Draw done — never downgrade a done/failed step.
     await expect(step(page, 'Draw')).toHaveAttribute('data-status', 'done', { timeout: 180_000 })
 
     // --- 5. Real inline SVG drawing with pan/zoom-ready DOM -----------------
@@ -116,14 +116,56 @@ test.describe('primary design journey (real backend + Gemini)', () => {
     const dxfBody = await dxfResponse.body()
     expect(dxfBody.length, 'DXF must be a non-trivial file').toBeGreaterThan(5 * 1024)
 
-    // --- 8. Remaining stubs are unmistakable roadmap panels, not bugs -------
+    // --- 8. 3D Model tab: interactive viewer loads + genuine STEP download --
     await page.getByTestId('tab-3d-model').click()
-    await expect(page.getByTestId('stub-3d-model')).toContainText('Coming in Phase 3 — nothing to try here yet')
-    await page.getByTestId('tab-library').click()
-    await expect(page.getByTestId('stub-library')).toContainText('Coming in Phase 3 — nothing to try here yet')
-    await expect(page.getByTestId('suggestion-stub-chip')).toContainText('coming in Phase 3')
+    const viewer = page.getByTestId('model3d-viewer')
+    await expect(viewer).toBeVisible({ timeout: 30_000 })
+    // Headless WebGL runs on SwiftShader — GLB parse + first render is slow.
+    await expect(viewer).toHaveAttribute('data-model-loaded', 'true', { timeout: 120_000 })
+    await expect(page.getByTestId('model3d-caption')).toContainText(
+      'Generated from the same BoxGeometry as the drawing and calc sheet',
+    )
+    await expect(page.getByTestId('download-step')).toBeEnabled()
 
-    // --- 9. Token/cost badge shows a real, non-zero token count -------------
+    const stepResponse = await request.get(`/api/designs/${runId}/artifacts/model.step`)
+    expect(stepResponse.status()).toBe(200)
+    expect(stepResponse.headers()['content-disposition'] ?? '').toContain('attachment')
+    const stepBody = await stepResponse.body()
+    expect(stepBody.length, 'STEP must be a non-trivial solid').toBeGreaterThan(5 * 1024)
+
+    // --- 9. Suggestion chips: render after completion; a click fills the box -
+    const chips = page.getByTestId('suggestion-chip')
+    await expect(chips.first()).toBeVisible({ timeout: 30_000 })
+    const chipCount = await chips.count()
+    expect(chipCount, 'a completed run suggests 1–3 refinements').toBeGreaterThanOrEqual(1)
+    expect(chipCount).toBeLessThanOrEqual(3)
+    const chipText = ((await chips.first().textContent()) ?? '').trim()
+    expect(chipText.length, 'a chip must carry real suggestion text').toBeGreaterThan(0)
+    await chips.first().click()
+    // Fill-only, never auto-submit: the text lands in the focused prompt box.
+    await expect(page.getByTestId('prompt-input')).toHaveValue(chipText)
+    await expect(page.getByTestId('prompt-input')).toBeFocused()
+    await expect(page.getByTestId('prompt-submit')).toHaveText('Refine')
+
+    // --- 10. Library tab: populated table; a row click replays the run ------
+    await page.getByTestId('tab-library').click()
+    const rows = page.getByTestId('library-row')
+    await expect(rows.first()).toBeVisible({ timeout: 30_000 })
+    await expect(rows.first().getByTestId('library-verdict')).toBeVisible()
+    await expect(page.getByTestId('library-range')).toContainText(/of \d+/)
+
+    const rowRunId = await rows.first().getAttribute('data-run-id')
+    expect(rowRunId, 'library rows must carry their run id').toBeTruthy()
+    await rows.first().click()
+    // The replay repaints the tracker with the selected run…
+    await expect(page.getByTestId('step-tracker')).toHaveAttribute('data-run-id', rowRunId!, { timeout: 15_000 })
+    // …and the Drawing tab (auto-selected on replay) re-renders the stored SVG.
+    await expect(page.locator('[data-testid="drawing-svg"] svg')).toBeVisible({ timeout: 30_000 })
+
+    // --- 11. Page-wide stub sweep: nothing reads as unfinished anymore ------
+    await expect(page.locator('text=/Coming in Phase/i')).toHaveCount(0)
+
+    // --- 12. Token/cost badge shows a real, non-zero token count ------------
     const badgeText = (await page.getByTestId('token-cost-badge').textContent()) ?? ''
     expect(badgeText).toMatch(/tok · \$[\d.]+ run · \$[\d.]+ session/)
     const tokenMatch = badgeText.match(/^([\d.]+)(k?) tok/)

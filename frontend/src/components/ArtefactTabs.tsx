@@ -12,15 +12,14 @@ export type TabId = 'drawing' | 'calc-sheet' | 'proof-check' | '3d-model' | 'lib
 interface TabDef {
   id: TabId
   label: string
-  phaseBadge: string | null
 }
 
 const TABS: TabDef[] = [
-  { id: 'drawing', label: 'Drawing', phaseBadge: null },
-  { id: 'calc-sheet', label: 'Calc Sheet', phaseBadge: null },
-  { id: 'proof-check', label: 'Proof-Check', phaseBadge: null },
-  { id: '3d-model', label: '3D Model', phaseBadge: 'Phase 3' },
-  { id: 'library', label: 'Library', phaseBadge: 'Phase 3' },
+  { id: 'drawing', label: 'Drawing' },
+  { id: 'calc-sheet', label: 'Calc Sheet' },
+  { id: 'proof-check', label: 'Proof-Check' },
+  { id: '3d-model', label: '3D Model' },
+  { id: 'library', label: 'Library' },
 ]
 
 interface ArtefactTabsProps {
@@ -40,6 +39,11 @@ interface ArtefactTabsProps {
   drawActive: boolean
   runFailed: boolean
   hasRun: boolean
+  glbUrl: string | null
+  stepUrl: string | null
+  onSelectRun: (runId: string) => void
+  activeRunId: string | null
+  libraryRefreshKey: number
 }
 
 export default function ArtefactTabs({
@@ -59,6 +63,11 @@ export default function ArtefactTabs({
   drawActive,
   runFailed,
   hasRun,
+  glbUrl,
+  stepUrl,
+  onSelectRun,
+  activeRunId,
+  libraryRefreshKey,
 }: ArtefactTabsProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -82,11 +91,6 @@ export default function ArtefactTabs({
               }`}
             >
               {tab.label}
-              {tab.phaseBadge && (
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
-                  {tab.phaseBadge}
-                </span>
-              )}
             </button>
           )
         })}
@@ -129,8 +133,17 @@ export default function ArtefactTabs({
             hasRun={hasRun}
           />
         )}
-        {activeTab === '3d-model' && <Model3DViewer />}
-        {activeTab === 'library' && <LibraryPanel />}
+        {activeTab === '3d-model' && (
+          <Model3DViewer glbUrl={glbUrl} stepUrl={stepUrl} isRunning={isRunning} runFailed={runFailed} hasRun={hasRun} />
+        )}
+        {activeTab === 'library' && (
+          <LibraryPanel
+            onSelectRun={onSelectRun}
+            selectionDisabled={isRunning}
+            activeRunId={activeRunId}
+            refreshKey={libraryRefreshKey}
+          />
+        )}
       </div>
     </div>
   )

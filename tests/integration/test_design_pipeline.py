@@ -3,10 +3,12 @@
 Phase 2: the canonical run exercises the WHOLE pipeline (sizing, frame
 analysis, IRS CBC checks + calc sheet, GA drawing, FE cross-check, 12-item
 proof-check, grounded memo, verdict) and the under-design demo act proves the
-user-triggered design → review → revise loop.
+user-triggered design → review → revise loop. Phase 3 adds the real 3D solid
+(model.glb + model.step, non-fatal) and the finalize refinement suggestions.
 """
 
 import json
+import re
 from pathlib import Path
 
 import ezdxf
@@ -31,6 +33,24 @@ PHASE2_ARTEFACTS = (
     "ga.dxf", "ga.svg", "calc_sheet.json", "compliance.json",
     "proof_memo.md", "bmd.svg", "sfd.svg",
 )
+PHASE3_ARTEFACTS = PHASE2_ARTEFACTS + ("model.glb", "model.step")
+ARTIFACT_KINDS = {
+    "ga_dxf", "ga_svg", "calc_sheet", "compliance", "proof_memo",
+    "bmd_svg", "sfd_svg", "model_glb", "model_step",
+}
+
+
+def _assert_suggestions_valid(row: dict) -> list[str]:
+    """2–3 persisted chips, each non-empty, ≤160 chars, no list prefix — the
+    deterministic contract only; LLM prose is never over-asserted."""
+    assert row["suggestions_json"], "completed run has no suggestions_json"
+    suggestions = json.loads(row["suggestions_json"])
+    assert 2 <= len(suggestions) <= 3, suggestions
+    for chip in suggestions:
+        assert isinstance(chip, str) and chip.strip(), suggestions
+        assert len(chip) <= 160, chip
+        assert not re.match(r"^\s*(?:[-*•]|\(\d+\)|\d+\s*[.)\]:])", chip), chip
+    return suggestions
 
 
 def _params(row: dict) -> dict:
@@ -100,12 +120,12 @@ def test_canonical_prompt_completes_end_to_end(
     assert params["gauge"] == "BG"
     assert params["loading_standard"] == "25t-2008"
 
-    # Accounting: 3 real LLM calls (understand + extract + review memo)
+    # Accounting: 4 real LLM calls (understand + extract + review memo + suggestions)
     assert row["prompt_tokens"] > 0
     assert row["cost_usd"] > 0
     assert row["completed_at"] is not None
     token_events = [e["data"] for e in events if e["event"] == "tokens"]
-    assert len(token_events) >= 4  # understand + extract + review + finalize total
+    assert len(token_events) >= 5  # understand + extract + review + suggestions + finalize total
     assert token_events[-1]["cost_usd"] > 0
     assert token_events[-1]["session_total_cost_usd"] >= token_events[-1]["cost_usd"]
 
@@ -113,38 +133,58 @@ def test_canonical_prompt_completes_end_to_end(
     print(f"\ncanonical full-run duration: {row['duration_ms']} ms")
     assert 0 < row["duration_ms"] < 60_000
 
-    # Step tracker: every real step done, only the Phase-3 3D tag remains skipped
+    # Step tracker: every real step done; the Phase-2 'Draw skipped' tag is GONE
     steps = _steps(row)
     for name in ("Understand", "Extract", "Analyse", "Check", "Draw", "Review"):
         assert steps[name] == "done", f"{name}: {steps[name]}"
+    step_events = [e["data"] for e in events if e["event"] == "step"]
+    assert not any(s["status"] == "skipped" for s in step_events), step_events
 
-    # Artefacts on disk: the full Phase-2 set; the DXF still audits clean
+    # Artefacts on disk: the full Phase-3 set; the DXF still audits clean
     art_dir = _artifact_dir(_integration_settings, run_id)
-    for filename in PHASE2_ARTEFACTS:
+    for filename in PHASE3_ARTEFACTS:
         path = art_dir / filename
         assert path.exists() and path.stat().st_size > 0, filename
     auditor = ezdxf.readfile(art_dir / "ga.dxf").audit()
     assert not auditor.has_errors, [str(e) for e in auditor.errors]
 
+    # The 3D artefacts are genuine: binary glTF magic + STEP ISO-10303-21 header
+    assert (art_dir / "model.glb").read_bytes()[:4] == b"glTF"
+    step_head = (art_dir / "model.step").read_text(encoding="utf-8", errors="replace")
+    assert step_head.startswith("ISO-10303-21")
+
     # Artefact DB rows + SSE events with the API-contract URL shape
     artifacts = get_artifacts(run_id)
-    assert {a["kind"] for a in artifacts} == {
-        "ga_dxf", "ga_svg", "calc_sheet", "compliance", "proof_memo",
-        "bmd_svg", "sfd_svg",
-    }
+    assert {a["kind"] for a in artifacts} == ARTIFACT_KINDS
     assert all(a["size_bytes"] > 0 for a in artifacts)
+    mimes = {a["kind"]: a["mime"] for a in artifacts}
+    assert mimes["model_glb"] == "model/gltf-binary"
+    assert mimes["model_step"] == "application/step"
     artefact_events = [e["data"] for e in events if e["event"] == "artefact"]
     for data in artefact_events:
         assert data["url"] == f"/api/designs/{run_id}/artifacts/{data['filename']}"
 
-    # SSE ordering: the calc sheet streams BEFORE the drawing, which streams
-    # BEFORE the proof-check outputs (calc-sheet.md success criterion)
+    # SSE ordering: the calc sheet streams BEFORE the drawing, then the 3D pair,
+    # then the proof-check outputs (calc-sheet.md success criterion)
     kinds = [a["kind"] for a in artefact_events]
     assert kinds == [
-        "calc_sheet", "ga_dxf", "ga_svg", "bmd_svg", "sfd_svg",
-        "compliance", "proof_memo",
+        "calc_sheet", "ga_dxf", "ga_svg", "model_glb", "model_step",
+        "bmd_svg", "sfd_svg", "compliance", "proof_memo",
     ]
     assert kinds.index("calc_sheet") < kinds.index("ga_svg") < kinds.index("compliance")
+
+    # Phase 3: 2–3 valid refinement suggestions persisted AND served in the snapshot
+    suggestions = _assert_suggestions_valid(row)
+    from fastapi.testclient import TestClient
+
+    from api import app
+
+    with TestClient(app) as client:
+        snapshot = client.get(f"/api/designs/{run_id}").json()["data"]
+    assert snapshot["suggestions"] == suggestions
+    assert {a["kind"] for a in snapshot["artefacts"]} == ARTIFACT_KINDS
+    # `done` itself stays the exact spec/api.md payload (no suggestions field)
+    assert set(events[-1]["data"]) == {"status", "verdict"}
 
     # checks_json: 13 IRS CBC rows, all PASS, exactly the api.md keys
     checks = json.loads(row["checks_json"])
@@ -221,6 +261,10 @@ def test_under_design_is_caught_then_revised_to_approval(
     assert "top slab" in memo.lower()
     _assert_memo_is_grounded(row, art_dir)
 
+    # A return_for_revision run still gets its chips (content not over-asserted —
+    # suggest.md steers the first one at the failing member).
+    _assert_suggestions_valid(row)
+
     # The revise loop: a corrective refinement in the SAME session recovers
     revise_id, revise_events = run_and_wait(session_id, "increase the top slab to 450 mm")
 
@@ -264,9 +308,9 @@ def test_refinement_turn_carries_params_forward_and_regenerates(
     assert params["clear_span_m"] == 4.0         # carried forward
     assert params["clear_height_m"] == 3.0       # carried forward
 
-    # Full regeneration: the new run has its own Phase-2 artefact set on disk
+    # Full regeneration: the new run has its own FULL Phase-3 artefact set on disk
     art_dir = _artifact_dir(_integration_settings, second_id)
-    for filename in PHASE2_ARTEFACTS:
+    for filename in PHASE3_ARTEFACTS:
         assert (art_dir / filename).exists(), filename
 
     # History intact: both runs keep their own params (audit trail)
@@ -297,6 +341,52 @@ def test_clarification_answer_completes_the_original_request(
     assert params["cushion_m"] == 2.0            # from the original request
     assert (_artifact_dir(_integration_settings, second_id) / "ga.dxf").exists()
     assert (_artifact_dir(_integration_settings, second_id) / "proof_memo.md").exists()
+
+
+def test_model3d_failure_is_nonfatal_and_2d_artefacts_stand(
+    require_gemini, drawing_ready, make_session, run_and_wait, get_run,
+    get_artifacts, _integration_settings, monkeypatch,
+):
+    """model-3d.md hard case: simulated export failure → warning event, run
+    completes with verdict intact, NO model rows, Drawing/Calc/Proof-Check and
+    the suggestions all unaffected."""
+    import model3d as model3d_pkg
+
+    def boom(geometry, out_dir):
+        raise model3d_pkg.ModelExportError("simulated export failure (injected by test)")
+
+    monkeypatch.setattr(model3d_pkg, "generate_solid", boom)
+    session_id = make_session()
+
+    run_id, events = run_and_wait(session_id, CANONICAL_PROMPT)
+
+    # The run's status and rule-computed verdict are untouched by the 3D failure
+    assert events[-1]["data"] == {
+        "status": "completed", "verdict": "recommended_for_approval",
+    }
+    row = get_run(run_id)
+    assert row["status"] == "completed"
+    assert row["verdict"] == "recommended_for_approval"
+    assert row["error_message"] is None
+
+    # Exactly the non-fatal warning, naming the reason
+    warning_events = [e["data"]["message"] for e in events if e["event"] == "warning"]
+    failures = [m for m in warning_events if "3D model generation failed" in m]
+    assert len(failures) == 1
+    assert "2D artefacts stand" in failures[0]
+    assert "simulated export failure" in failures[0]
+
+    # No model rows, no model files — the 2D set stands complete
+    kinds = {a["kind"] for a in get_artifacts(run_id)}
+    assert kinds == ARTIFACT_KINDS - {"model_glb", "model_step"}
+    art_dir = _artifact_dir(_integration_settings, run_id)
+    for filename in PHASE2_ARTEFACTS:
+        assert (art_dir / filename).exists(), filename
+    assert not (art_dir / "model.glb").exists()
+    assert not (art_dir / "model.step").exists()
+
+    # Finalize still ran its suggestions call — the run is fully completed
+    _assert_suggestions_valid(row)
 
 
 def test_abnormally_high_cushion_is_flagged_and_run_proceeds(

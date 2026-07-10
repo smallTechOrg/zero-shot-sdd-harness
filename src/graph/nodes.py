@@ -1,13 +1,16 @@
 """The ten pipeline nodes per spec/agent.md.
 
-LLM nodes (understand, extract, and the review memo narration) orchestrate and
-narrate; every engineering computation is deterministic. Phase 2: analyse runs
-the full IRS engine (sizing + load cases + frame analysis), check runs the IRS
-CBC member checks and streams the calc sheet, review runs the automatic
-proof-check (FE cross-check, 12-item checklist, grounded memo). model3d stays
-a labelled Phase-3 skip-stub. Every node body is wrapped — exceptions set
-state["error"] and route to handle_error (clarify/finalize/handle_error
-propagate to the runner's catch-all).
+LLM nodes (understand, extract, the review memo narration, and the finalize
+suggestions call) orchestrate and narrate; every engineering computation is
+deterministic. Phase 2: analyse runs the full IRS engine (sizing + load cases
++ frame analysis), check runs the IRS CBC member checks and streams the calc
+sheet, review runs the automatic proof-check (FE cross-check, 12-item
+checklist, grounded memo). Phase 3: model3d builds the real GLB + STEP solid
+(NON-FATAL — any failure is a warning and the 2D artefacts stand) and finalize
+adds ONE Gemini call for 2–3 refinement suggestions (also non-fatal: swallowed,
+log only). Every other node body is wrapped — exceptions set state["error"]
+and route to handle_error (clarify/finalize/handle_error propagate to the
+runner's catch-all).
 """
 
 import functools
@@ -39,6 +42,7 @@ from graph.extraction import (
 )
 from graph.state import AgentState
 from graph.steps import StepTracker, duration_ms
+from graph.suggestions import SuggestionsResult, run_summary, sanitize_suggestions
 from llm.client import LLMClient, LLMResult
 from observability.events import get_logger
 from observability.progress import publish
@@ -53,6 +57,8 @@ _ARTIFACT_MIME = {
     "proof_memo": "text/markdown",
     "bmd_svg": "image/svg+xml",
     "sfd_svg": "image/svg+xml",
+    "model_glb": "model/gltf-binary",
+    "model_step": "application/step",
 }
 _ARTIFACT_ORDER = ("ga_dxf", "ga_svg")
 
@@ -486,14 +492,38 @@ def draw(state: AgentState) -> dict:
 
 @_node
 def model3d(state: AgentState) -> dict:
-    """Phases 1–2 labelled skip-stub (3D lives inside the Draw UI step) — non-fatal by design."""
-    tracker = StepTracker(state)
+    """Phase 3: build123d solid → model.glb + model.step from the SAME BoxGeometry.
+
+    NON-FATAL BY DESIGN (spec/agent.md): on ANY failure — structlog error, one
+    `warning` event, and the run continues to review with no model artefacts;
+    the 2D artefacts stand alone and the verdict/status are unaffected. The
+    Draw UI step is already 'done' from the draw node, so success publishes NO
+    extra step event (the Phase-2 skipped tag is gone).
+    """
+    artefacts = list(state.get("artefacts") or [])
     try:
-        tracker.mark("Draw", "skipped", detail="3D model — coming in Phase 3")
-    except Exception as exc:  # never fatal per spec/agent.md
-        publish(state["run_id"], "warning", {"message": f"3D model step degraded: {exc}"})
-        _log(state, "model3d").warning("model3d_degraded", error=str(exc))
-    return {"steps": tracker.steps}
+        from model3d import generate_solid  # heavy CAD kernel loads lazily
+
+        geometry = BoxGeometry(**state["geometry"])
+        out_dir = _artifacts_dir(state)
+        _narrate(state, "Building the 3D solid — GLB for the viewer, STEP for CAD…")
+        paths = generate_solid(geometry, out_dir)
+        for kind in ("model_glb", "model_step"):
+            _emit_artifact(state, artefacts, kind, paths[kind], "model3d")
+        return {"artefacts": artefacts}
+    except Exception as exc:  # never fatal, never an `error` state
+        _log(state, "model3d").error("model3d_failed", error=str(exc))
+        publish(
+            state["run_id"],
+            "warning",
+            {
+                "message": (
+                    "3D model generation failed — the 2D artefacts stand "
+                    f"alone: {exc}"
+                )
+            },
+        )
+        return {"artefacts": artefacts}
 
 
 @_node
@@ -610,11 +640,45 @@ def review(state: AgentState) -> dict:
         return {"steps": tracker.steps, "error": f"The automatic proof-check failed: {exc}"}
 
 
+def _refinement_suggestions(state: AgentState) -> tuple[list[str], list[dict]]:
+    """ONE Gemini call for 2–3 refinement chips — NON-FATAL (spec: swallowed, log only).
+
+    Returns (suggestions, token_usage). The LLM proposes against the compact
+    run summary; deterministic sanitisation decides what survives. Any failure
+    on this path — transport, schema, validation — degrades to an empty list
+    and the run still completes.
+    """
+    token_usage = list(state.get("token_usage") or [])
+    try:
+        result = LLMClient().generate(
+            run_summary(state),
+            system=_load_prompt("suggest.md"),
+            schema=SuggestionsResult,
+            temperature=0.4,
+        )
+        token_usage = _record_llm_call(state, "finalize", result)
+        suggestions = sanitize_suggestions(result.parsed.suggestions)
+        if len(suggestions) < 2:
+            _log(state, "finalize").warning(
+                "suggestions_below_minimum", kept=len(suggestions)
+            )
+        return suggestions, token_usage
+    except Exception as exc:  # invisible-degrading per session-refinement.md
+        _log(state, "finalize").warning("suggestions_failed", error=str(exc))
+        return [], token_usage
+
+
 @_node
 def finalize(state: AgentState) -> dict:
     status = "completed" if state.get("in_scope", True) else "out_of_scope"
     verdict = state.get("verdict")
-    prompt_tokens, completion_tokens = run_totals(state.get("token_usage") or [])
+    # Phase 3: refinement suggestions for COMPLETED designs only (out_of_scope
+    # runs never get chips; clarify never reaches finalize).
+    suggestions: list[str] = []
+    token_usage = list(state.get("token_usage") or [])
+    if status == "completed":
+        suggestions, token_usage = _refinement_suggestions(state)
+    prompt_tokens, completion_tokens = run_totals(token_usage)
     cost_usd = compute_cost_usd(prompt_tokens, completion_tokens)
     # checks_json rows carry EXACTLY the spec/api.md keys.
     check_rows = [
@@ -632,6 +696,7 @@ def finalize(state: AgentState) -> dict:
         checks=check_rows or None,
         checklist=state.get("checklist") or None,
         verdict=verdict,
+        suggestions=suggestions if status == "completed" else None,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=cost_usd,
@@ -649,17 +714,20 @@ def finalize(state: AgentState) -> dict:
             ),
         },
     )
+    # `done` stays exactly the spec/api.md payload — no suggestions field; the
+    # frontend re-fetches the snapshot, which carries `suggestions[]`.
     publish(state["run_id"], "done", {"status": status, "verdict": verdict})
     _log(state, "finalize").info(
         "run_outcome",
         status=status,
         verdict=verdict,
+        suggestions=len(suggestions),
         duration_ms=duration_ms(state),
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=round(cost_usd, 6),
     )
-    return {"status": status}
+    return {"status": status, "suggestions": suggestions, "token_usage": token_usage}
 
 
 @_node

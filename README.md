@@ -2,7 +2,7 @@
 
 > **All commands run from the repo root.** The repo root IS the project — there is no subdirectory to `cd` into (the only exception is the explicit `cd frontend` step in the frontend build).
 
-An agentic AI demonstrator for Indian Railways civil engineering: it designs single-cell RCC box culverts from natural-language requests and proof-checks its own design. From one prompt it streams a visible plan, extracts typed parameters with Gemini, runs a deterministic IRS engineering core (no LLM in the maths — 25t Loading-2008 EUDL + CDA, all load cases, closed-form rigid-frame analysis, IRS CBC member checks), and produces: a clause-cited calculation sheet with a drill-down trail, a dimensioned GA drawing as genuine DXF plus in-browser SVG, and an automatic proof-check — independent anaStruct FE cross-check with BMD/SFD diagrams, a 12-item compliance matrix, and a severity-graded memo with a rule-computed verdict. The 3D model and design library land in Phase 3. Everything runs on your laptop; the only network call is the Gemini API.
+An agentic AI demonstrator for Indian Railways civil engineering: it designs single-cell RCC box culverts from natural-language requests and proof-checks its own design. From one prompt it streams a visible plan, extracts typed parameters with Gemini, runs a deterministic IRS engineering core (no LLM in the maths — 25t Loading-2008 EUDL + CDA, all load cases, closed-form rigid-frame analysis, IRS CBC member checks), and produces: a clause-cited calculation sheet with a drill-down trail, a dimensioned GA drawing as genuine DXF plus in-browser SVG, an interactive 3D solid (GLB viewer + STEP download from the same geometry), and an automatic proof-check — independent anaStruct FE cross-check with BMD/SFD diagrams, a 12-item compliance matrix, and a severity-graded memo with a rule-computed verdict. After every completed run it offers 2–3 grounded refinement suggestions, and the design library keeps every run replayable. Everything runs on your laptop; the only network call is the Gemini API.
 
 ## Setup
 
@@ -47,15 +47,17 @@ Try the canonical prompt:
 single box culvert, 4 m clear span, 3 m height, 2.5 m cushion, BG single line, 25t loading
 ```
 
-Watch the six-step tracker: the Calc Sheet tab fills first (click any number to expand its formula and inputs), then the Drawing tab (pan/zoom, **Download DXF** — opens in AutoCAD and free viewers), then the Proof-Check tab (verdict banner, memo, 12-row compliance matrix, BMD/SFD). A follow-up like `increase the fill to 4 m` regenerates everything in the same session.
+Watch the six-step tracker: the Calc Sheet tab fills first (click any number to expand its formula and inputs), then the Drawing tab (pan/zoom, **Download DXF** — opens in AutoCAD and free viewers), then the 3D Model tab (orbit/zoom the culvert; **Download STEP** — opens in FreeCAD), then the Proof-Check tab (verdict banner, memo, 12-row compliance matrix, BMD/SFD). After completion 2–3 suggestion chips appear — click one and it fills the prompt box. A follow-up like `increase the fill to 4 m` regenerates everything in the same session, and every run stays browsable in the Library tab (including editing the default preset's values for future runs).
 
 The demo money-shot: add `, top slab only 200 mm` to the canonical prompt → FAIL rows in the calc sheet and a red "Return for revision" verdict naming the thin slab; then type `increase the top slab to 450 mm` → the verdict recovers.
+
+If 3D generation ever fails, the run still completes — a warning event fires and the 2D artefacts stand alone (the 3D tab shows a designed "unavailable" state, never an error page).
 
 ## Test
 
 ```bash
 uv run pytest tests/unit -q                                # no API key needed
-uv run pytest tests/unit tests/validation tests/integration -q   # the Phase-2 gate: fixtures V1–V4 + real-Gemini full pipeline (needs AGENT_GEMINI_API_KEY in .env)
+uv run pytest tests/unit tests/validation tests/integration -q   # the full gate: fixtures V1–V4 + real-Gemini full pipeline incl. 3D artefacts + suggestions (needs AGENT_GEMINI_API_KEY in .env)
 npx playwright test tests/e2e              # E2E — boots the server itself via `uv run python -m src`
 ```
 
@@ -70,8 +72,9 @@ npx playwright test tests/e2e              # E2E — boots the server itself via
 | GA drawing — genuine DXF + pan/zoom SVG in the browser | **Real (Phase 1)** |
 | Session turn memory + refinement regeneration (the review → revise loop) | **Real (Phase 1–2)** |
 | Live step tracker, narration, tokens/cost display (SSE), structlog JSON logs | **Real (Phase 1–2)** |
-| 3D Model tab (GLB viewer + STEP download) | Labelled stub — coming in Phase 3 |
-| Library tab (all past runs, presets editing) + suggestion chips | Labelled stub — coming in Phase 3 |
+| 3D model — build123d solid from the same geometry as the drawing → `model.glb` (in-browser viewer) + `model.step` (**Download STEP**); non-fatal: a 3D failure warns and the 2D artefacts stand | **Real (Phase 3)** |
+| Refinement suggestions — 2–3 grounded chips after every completed run (one Gemini call at finalize; failure is invisible-degrading) | **Real (Phase 3)** |
+| Design library — every run listed with verdicts/costs, run replay, preset editing (`PUT /api/presets/{id}` with range validation; new runs pick up edited defaults, old runs keep their snapshot) | **Real (Phase 3)** |
 
 ## Environment variables
 
@@ -93,9 +96,9 @@ All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required.
 
 ```
 src/            FastAPI API (api/), LangGraph agent (graph/), Gemini client (llm/),
-                deterministic IRS core (engine/, drawing/, proofcheck/), SQLite audit
-                trail (db/), settings (config/), typed domain models (domain/),
-                observability/ (structlog JSON + SSE progress bus)
+                deterministic IRS core (engine/, drawing/, model3d/, proofcheck/),
+                SQLite audit trail (db/), settings (config/), typed domain models
+                (domain/), observability/ (structlog JSON + SSE progress bus)
 frontend/       Next.js static export (served at /app)
 alembic/        DB migrations (0002 = culvert schema + seeded default preset)
 tests/          unit/ (no key), integration/ (real Gemini), e2e/ (Playwright)

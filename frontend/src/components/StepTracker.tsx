@@ -73,7 +73,7 @@ export default function StepTracker({ steps, runId, elapsedMs, isRunning }: Step
                 </span>
                 {step.status === 'skipped' && (
                   <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                    {step.detail || 'Coming soon'}
+                    {step.detail || 'Skipped'}
                   </span>
                 )}
               </div>

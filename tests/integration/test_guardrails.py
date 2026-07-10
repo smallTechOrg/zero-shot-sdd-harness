@@ -21,6 +21,7 @@ def test_out_of_scope_request_gets_a_graceful_scope_statement(
     assert row["status"] == "out_of_scope"
     assert row["scope_message"] and len(row["scope_message"]) > 20
     assert row["error_message"] is None  # informational, never an error
+    assert row["suggestions_json"] is None  # chips are for COMPLETED designs only
 
     # Zero engine/drawing calls: no artefact events, no artefact directory.
     assert [e for e in events if e["event"] == "artefact"] == []
@@ -51,6 +52,7 @@ def test_missing_span_asks_exactly_one_pointed_question(
     assert row["status"] == "needs_input"
     assert "span" in row["clarification_question"].lower()
     assert row["params_json"] is None  # nothing guessed, nothing defaulted
+    assert row["suggestions_json"] is None  # clarify never reaches finalize
     assert row["prompt_tokens"] > 0  # the LLM calls really ran
 
     # No artefacts were generated for an unanswered run.

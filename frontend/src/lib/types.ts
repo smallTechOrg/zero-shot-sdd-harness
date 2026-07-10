@@ -195,6 +195,25 @@ export interface SessionInfo {
   created_at: string
 }
 
+/** `GET /api/sessions` listing row (spec/api.md). */
+export interface SessionSummary {
+  session_id: string
+  title: string
+  created_at: string
+  run_count: number
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_cost_usd: number
+}
+
+/** `GET /api/presets` item / `PUT /api/presets/{id}` response (spec/api.md). */
+export interface Preset {
+  preset_id: string
+  name: string
+  is_default: boolean
+  values: Record<string, string | number>
+}
+
 export interface RunListItem {
   run_id: string
   session_id: string

@@ -61,7 +61,8 @@ class StepTracker:
         )
         entry = next(step for step in self._steps if step["name"] == name)
         if status == "skipped" and entry["status"] == "done":
-            # model3d publishes a Draw "skipped" tag, but the real 2D drawing stands.
+            # Never downgrade a completed step — a late "skipped" tag after the
+            # real work is done is recorded as an event but not as state.
             return
         entry["status"] = status
         if detail:

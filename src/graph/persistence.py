@@ -146,6 +146,7 @@ def finish_run(
     checks: list[dict] | None = None,
     checklist: list[dict] | None = None,
     verdict: str | None = None,
+    suggestions: list[str] | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     cost_usd: float = 0.0,
@@ -171,6 +172,9 @@ def finish_run(
         row.checks_json = json.dumps(checks) if checks is not None else None
         row.checklist_json = json.dumps(checklist) if checklist is not None else None
         row.verdict = verdict
+        # Completed runs persist their (possibly empty) suggestions honestly;
+        # non-completed terminals stay NULL → the snapshot serves [].
+        row.suggestions_json = json.dumps(suggestions) if suggestions is not None else None
         row.prompt_tokens = prompt_tokens
         row.completion_tokens = completion_tokens
         row.cost_usd = cost_usd

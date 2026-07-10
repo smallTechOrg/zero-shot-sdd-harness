@@ -39,11 +39,11 @@ def test_mark_active_then_done_records_timestamps():
 
 
 def test_skipped_never_downgrades_a_done_step():
-    """model3d publishes a Draw 'skipped' event, but the real GA drawing is done."""
+    """The guard stays post-Phase 3: a late 'skipped' tag never undoes real work."""
     tracker = StepTracker(_state())
     tracker.mark("Draw", "active")
     tracker.mark("Draw", "done")
-    tracker.mark("Draw", "skipped", detail="3D model — coming in Phase 3")
+    tracker.mark("Draw", "skipped", detail="a late skipped tag")
     entry = next(s for s in tracker.steps if s["name"] == "Draw")
     assert entry["status"] == "done"
 
@@ -83,7 +83,7 @@ def test_skipped_event_still_published_even_when_state_keeps_done():
 
     tracker = StepTracker(state)
     tracker.mark("Draw", "done")
-    tracker.mark("Draw", "skipped", detail="3D model — coming in Phase 3")
+    tracker.mark("Draw", "skipped", detail="a late skipped tag")
     progress.publish(run_id, "done", {"status": "completed", "verdict": None})
 
     statuses = [

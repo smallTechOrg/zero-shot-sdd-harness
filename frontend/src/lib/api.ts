@@ -1,4 +1,4 @@
-import type { DesignListing, RunSnapshot, SessionInfo, SubmitDesignResponse } from './types'
+import type { DesignListing, Preset, RunSnapshot, SessionInfo, SessionSummary, SubmitDesignResponse } from './types'
 
 // All paths are root-relative on purpose: the app is served by FastAPI at /app,
 // and a relative path would be corrupted by the basePath.
@@ -63,8 +63,37 @@ export function getRunSnapshot(runId: string): Promise<RunSnapshot> {
   return apiFetch<RunSnapshot>(`/api/designs/${runId}`)
 }
 
-export function listDesigns(sessionId: string): Promise<DesignListing> {
-  return apiFetch<DesignListing>(`/api/designs?session_id=${encodeURIComponent(sessionId)}`)
+export interface ListDesignsOptions {
+  sessionId?: string
+  limit?: number
+  offset?: number
+}
+
+export function listDesigns(options: ListDesignsOptions = {}): Promise<DesignListing> {
+  const query = new URLSearchParams()
+  if (options.sessionId) query.set('session_id', options.sessionId)
+  if (options.limit != null) query.set('limit', String(options.limit))
+  if (options.offset != null) query.set('offset', String(options.offset))
+  const qs = query.toString()
+  return apiFetch<DesignListing>(`/api/designs${qs ? `?${qs}` : ''}`)
+}
+
+export function listSessions(): Promise<{ sessions: SessionSummary[] }> {
+  return apiFetch<{ sessions: SessionSummary[] }>('/api/sessions')
+}
+
+export function listPresets(): Promise<{ presets: Preset[] }> {
+  return apiFetch<{ presets: Preset[] }>('/api/presets')
+}
+
+export function updatePreset(
+  presetId: string,
+  body: { name?: string; values?: Record<string, string | number> },
+): Promise<Preset> {
+  return apiFetch<Preset>(`/api/presets/${presetId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
 }
 
 export function runEventsUrl(runId: string): string {

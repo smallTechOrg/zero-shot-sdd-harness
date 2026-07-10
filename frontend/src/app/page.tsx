@@ -34,15 +34,6 @@ import {
 
 const SESSION_STORAGE_KEY = 'culvert.session_id'
 
-// Fallback tags for skipped steps rehydrated from a snapshot (the live SSE
-// `step` event carries the tag in `detail`; the snapshot may not). Check and
-// Review are real from Phase 2 — these tags only cover legacy Phase-1 runs
-// replayed from the library.
-const SKIPPED_STEP_TAG: Partial<Record<StepName, string>> = {
-  Check: 'Coming in Phase 2',
-  Review: 'Coming in Phase 2',
-}
-
 interface RunView {
   runId: string
   prompt: string
@@ -58,6 +49,9 @@ interface RunView {
   memoMarkdown: string | null
   bmdSvg: string | null
   sfdSvg: string | null
+  glbUrl: string | null
+  stepUrl: string | null
+  suggestions: string[]
   verdict: Verdict | null
   runTokens: number
   runCostUsd: number
@@ -77,7 +71,9 @@ function stepsFromSnapshot(snap: RunSnapshot): Record<StepName, StepState> {
     steps[s.name] = {
       name: s.name,
       status: s.status,
-      detail: s.detail ?? (s.status === 'skipped' ? (SKIPPED_STEP_TAG[s.name] ?? 'Coming soon') : null),
+      // Replayed skipped steps always show a neutral tag: stored details from
+      // early-phase runs carried roadmap copy that must never render now.
+      detail: s.status === 'skipped' ? 'Skipped for this run' : (s.detail ?? null),
     }
   }
   return steps
@@ -121,6 +117,9 @@ function viewFromSnapshot(snap: RunSnapshot): RunView {
     memoMarkdown: null,
     bmdSvg: null,
     sfdSvg: null,
+    glbUrl: snap.artefacts?.find(a => a.kind === 'model_glb')?.url ?? null,
+    stepUrl: snap.artefacts?.find(a => a.kind === 'model_step')?.url ?? null,
+    suggestions: snap.suggestions ?? [],
     verdict: snap.verdict,
     runTokens: (tokens.prompt_tokens ?? 0) + (tokens.completion_tokens ?? 0),
     runCostUsd: tokens.cost_usd ?? 0,
@@ -141,6 +140,10 @@ export default function DesignStudio() {
   const [submitting, setSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('drawing')
   const [toast, setToast] = useState<string | null>(null)
+  // Bumped when a run starts/finishes so an open Library tab refreshes live.
+  const [libraryVersion, setLibraryVersion] = useState(0)
+  // First-visit hero offers "browse the library" — that forces the tabs view.
+  const [tabsForced, setTabsForced] = useState(false)
 
   const subscriptionRef = useRef<RunSubscription | null>(null)
   const elapsedBaseRef = useRef({ baseMs: 0, wallStart: Date.now() })
@@ -207,8 +210,14 @@ export default function DesignStudio() {
           .then(svg => patch({ sfdSvg: svg }))
           .catch(() => {})
         break
+      case 'model_glb':
+        // The viewer streams the GLB itself — only the URL is stored here.
+        patch({ glbUrl: url })
+        break
+      case 'model_step':
+        patch({ stepUrl: url })
+        break
       default:
-        // Future artefact kinds (model_glb/model_step) land in Phase 3.
         break
     }
   }, [])
@@ -222,7 +231,7 @@ export default function DesignStudio() {
 
   const refreshTurns = useCallback(async (sid: string) => {
     try {
-      const listing = await listDesigns(sid)
+      const listing = await listDesigns({ sessionId: sid })
       setTurns(listing.runs)
     } catch {
       // listing refresh is cosmetic — the live view already has the run
@@ -246,6 +255,8 @@ export default function DesignStudio() {
             memoMarkdown: prev.memoMarkdown,
             bmdSvg: prev.bmdSvg,
             sfdSvg: prev.sfdSvg,
+            glbUrl: prev.glbUrl ?? final.glbUrl,
+            stepUrl: prev.stepUrl ?? final.stepUrl,
             verdict: final.verdict ?? prev.verdict,
             narration: terminalNarration(snap.status) ?? prev.narration,
           }
@@ -256,6 +267,7 @@ export default function DesignStudio() {
         // snapshot fetch failure — the SSE-built state stands
       }
       await refreshTurns(sid)
+      setLibraryVersion(v => v + 1)
     },
     [loadRunArtefacts, refreshTurns, storeTurnDetail],
   )
@@ -274,6 +286,8 @@ export default function DesignStudio() {
           memoMarkdown: prev?.memoMarkdown ?? null,
           bmdSvg: prev?.bmdSvg ?? null,
           sfdSvg: prev?.sfdSvg ?? null,
+          glbUrl: prev?.glbUrl ?? next.glbUrl,
+          stepUrl: prev?.stepUrl ?? next.stepUrl,
           verdict: next.verdict ?? prev?.verdict ?? null,
           narration: prev?.narration || next.narration,
         }
@@ -293,8 +307,8 @@ export default function DesignStudio() {
           setRun(prev => {
             if (!prev || prev.runId !== runId) return prev
             // Mirror src/graph/steps.py: a step already done/failed is never
-            // downgraded by a later skipped/pending/active event (model3d
-            // publishes a Draw "skipped" tag after draw marked it done).
+            // downgraded by a later skipped/pending/active event, whatever
+            // order the publisher emits in (regression guard F1).
             const current = prev.steps[event.step]
             if (
               current &&
@@ -396,6 +410,10 @@ export default function DesignStudio() {
         memoMarkdown: null,
         bmdSvg: null,
         sfdSvg: null,
+        glbUrl: null,
+        stepUrl: null,
+        // Chips from the previous run clear the moment a new run starts.
+        suggestions: [],
         verdict: null,
         runTokens: 0,
         runCostUsd: 0,
@@ -415,6 +433,7 @@ export default function DesignStudio() {
         },
         ...prev,
       ])
+      setLibraryVersion(v => v + 1)
       openStream(runId, sid)
     },
     [openStream],
@@ -506,7 +525,7 @@ export default function DesignStudio() {
         return
       }
       try {
-        const listing = await listDesigns(sid)
+        const listing = await listDesigns({ sessionId: sid })
         if (cancelled) return
         setSessionId(sid)
         setTurns(listing.runs)
@@ -577,12 +596,21 @@ export default function DesignStudio() {
       : 'design'
 
   const promptDisabled = submitting || isRunning
-  const showHero = !booting && turns.length === 0 && !run
+  const showHero = !booting && turns.length === 0 && !run && !tabsForced
 
   const handleTryAgain = () => {
     if (run) setPromptValue(run.prompt)
     document.getElementById('prompt-input')?.focus()
   }
+
+  // A chip only fills the prompt box — the user still presses Refine.
+  const handleSuggestionPick = (text: string) => {
+    setPromptValue(text)
+    setFormError(null)
+    document.getElementById('prompt-input')?.focus()
+  }
+
+  const suggestions = run?.status === 'completed' ? run.suggestions : []
 
   return (
     <div className="flex h-screen flex-col bg-slate-100 text-slate-900">
@@ -608,6 +636,7 @@ export default function DesignStudio() {
             />
           </div>
           <div className="space-y-3 border-t border-slate-200 bg-white p-4">
+            <SuggestionChips suggestions={suggestions} onPick={handleSuggestionPick} disabled={promptDisabled} />
             <PromptPanel
               value={promptValue}
               onChange={value => {
@@ -621,7 +650,6 @@ export default function DesignStudio() {
               formError={formError}
               clarificationQuestion={pendingQuestion}
             />
-            <SuggestionChips />
           </div>
         </aside>
 
@@ -654,7 +682,8 @@ export default function DesignStudio() {
               <p className="text-lg leading-relaxed text-slate-700">
                 Describe the crossing — clear span, height, cushion, gauge, loading standard — and watch the agent
                 plan, extract the parameters, run the full IRS load checks, draft a dimensioned GA drawing you can
-                download as genuine DXF, and proof-check its own design with a clause-cited memo and verdict.
+                download as genuine DXF, build an interactive 3D model with a STEP download, and proof-check its own
+                design with a clause-cited memo and verdict.
               </p>
               <button
                 type="button"
@@ -671,9 +700,20 @@ export default function DesignStudio() {
                 </span>
               </button>
               <p className="text-base text-slate-500">
-                The clause-cited calc sheet and automatic proof-check are live; the interactive 3D model and design
-                library arrive in Phase 3.
+                Every run is stored in the design library with its verdict, cost and artefacts — replay any past
+                design or tune the standards presets there.
               </p>
+              <button
+                type="button"
+                data-testid="hero-library-link"
+                onClick={() => {
+                  setTabsForced(true)
+                  setActiveTab('library')
+                }}
+                className="text-base font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              >
+                Browse the design library →
+              </button>
             </section>
           ) : (
             <>
@@ -714,6 +754,11 @@ export default function DesignStudio() {
                   drawActive={run?.steps.Draw.status === 'active'}
                   runFailed={run?.status === 'failed'}
                   hasRun={!!run}
+                  glbUrl={run?.glbUrl ?? null}
+                  stepUrl={run?.stepUrl ?? null}
+                  onSelectRun={runId => void loadPastRun(runId)}
+                  activeRunId={run?.runId ?? null}
+                  libraryRefreshKey={libraryVersion}
                 />
               </section>
             </>
