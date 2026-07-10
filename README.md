@@ -78,7 +78,7 @@ npx playwright test tests/e2e              # E2E — boots the server itself via
 
 ## Environment variables
 
-All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required.
+All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required. The LLM provider is Gemini only (fixed, not configurable).
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
@@ -86,7 +86,6 @@ All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required.
 | `AGENT_PORT` | no | `8001` | Server port for `uv run python -m src` (host stays 127.0.0.1) |
 | `AGENT_DATABASE_URL` | no | `sqlite:///./data/agent.db` | SQLite audit-trail DB (SQLite IS production for this local demo) |
 | `AGENT_ARTIFACTS_DIR` | no | `data/artifacts` | Root for generated artefact files (`<run_id>/ga.dxf`, `ga.svg`, ...) |
-| `AGENT_LLM_PROVIDER` | no | auto-detected | `gemini` for this project |
 | `AGENT_LLM_MODEL` | no | `gemini-2.5-pro` | Model for all agent nodes |
 | `AGENT_GEMINI_INPUT_COST_PER_MTOK` | no | `1.25` | USD per million prompt tokens (cost display) |
 | `AGENT_GEMINI_OUTPUT_COST_PER_MTOK` | no | `10.0` | USD per million completion tokens (cost display) |

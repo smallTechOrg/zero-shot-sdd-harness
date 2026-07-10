@@ -78,6 +78,7 @@ class AgentState(TypedDict, total=False):
     # Deterministic pipeline (populated progressively)
     geometry: dict | None            # BoxGeometry
     assumptions: list[dict]          # explicit Assumption records (value + source)
+    trail_segments: list[dict]       # engine trail segments, in engine order — input to the calc-sheet composer
     analysis: dict | None            # AnalysisResult (Phase 2)
     checks: list[dict]               # CheckResult rows (Phase 2)
     fe_comparison: dict | None       # FE-vs-closed-form diff (Phase 2)
@@ -92,6 +93,8 @@ class AgentState(TypedDict, total=False):
     # Control
     status: str                      # running | needs_input | out_of_scope | completed | failed
     error: str | None                # set by any node on fatal failure
+    steps: list[dict]                # six-step tracker snapshot (persisted as steps_json at finish_run)
+    started_monotonic: float         # monotonic clock at run start — elapsed-time base for step timings
 ```
 
 ---
@@ -130,7 +133,7 @@ UI step-tracker mapping (fixed six steps): **Understand**=`understand` · **Extr
 
 ### `review`
 **Reads:** run record, `checks`, `geometry`, `params`, ga.dxf path. **Writes:** `fe_comparison`, `checklist`, `verdict`, memo artefact, `token_usage`. **LLM:** yes — memo narration only (`memo.md`).
-**Behaviour:** *Phase 1: labelled stub.* Phase 2: automatic proof-check after every design — `fe.cross_check` (anaStruct re-solve, diff, BMD/SFD) then `proofcheck.run_checklist` (12 deterministic items incl. DXF read-back and FE-agreement), then one Gemini call narrates the severity-graded memo (`proof_memo.md`) from the deterministic results. Verdict is computed by rule (any major non-conformity → `return_for_revision`), never by the LLM.
+**Behaviour:** *Phase 1: labelled stub.* Phase 2: automatic proof-check after every design — `fe.cross_check` (anaStruct re-solve, diff, BMD/SFD) then `proofcheck.run_checklist` (12 deterministic items incl. DXF read-back and FE-agreement), then one Gemini call narrates the severity-graded memo (`proof_memo.md`) from the deterministic results. A narration that fails the deterministic grounding validator is discarded (warning event) and the memo composes fully deterministically; only LLM transport failure (after 1 retry) is fatal. Verdict is computed by rule (any major non-conformity → `return_for_revision`), never by the LLM.
 
 ### `finalize`
 **Reads:** everything. **Writes:** `status="completed"`, `suggestions`, DB persistence. **LLM:** Phase 3 only — 2–3 refinement suggestions.

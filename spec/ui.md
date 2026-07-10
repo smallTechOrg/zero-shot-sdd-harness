@@ -75,4 +75,4 @@ Per `harness/patterns/ui-ux.md`: real buttons, keyboard reachable, visible focus
 
 See [architecture.md](architecture.md#stack) — Next.js 15 static export + Tailwind v4 (existing skeleton), `react-zoom-pan-pinch` for the drawing viewer, `@google/model-viewer` for GLB, `react-markdown` + `remark-gfm` for memo/narration rendering, native `EventSource` for SSE.
 
-**Key files (frontend slice surface):** `frontend/src/app/page.tsx` (studio layout), `frontend/src/components/{StepTracker,StatusLine,PromptPanel,TurnHistory,SuggestionChips,ArtefactTabs,DrawingViewer,CalcSheet,ProofCheckPanel,Model3DViewer,LibraryPanel,TokenCostBadge,StubPanel}.tsx`, `frontend/src/lib/{api.ts,sse.ts,types.ts}`.
+**Key files (frontend slice surface):** `frontend/src/app/page.tsx` (studio layout), `frontend/src/components/{StepTracker,StatusLine,PromptPanel,TurnHistory,SuggestionChips,ArtefactTabs,DrawingViewer,CalcSheet,ProofCheckPanel,Model3DViewer,LibraryPanel,PresetsEditor,TokenCostBadge}.tsx`, `frontend/src/lib/{api.ts,sse.ts,types.ts}`.

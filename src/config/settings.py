@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     # Artefact files (DXF/SVG/JSON/...) live under <artifacts_dir>/<run_id>/.
     artifacts_dir: str = Field(default="data/artifacts")
 
-    # LLM provider — this project pins Gemini for ALL agent steps.
-    llm_provider: str = Field(default="")   # "gemini"
+    # LLM model — Gemini is the sole provider for ALL agent steps
+    # (hardcoded in src/llm/client.py per spec/architecture.md).
     llm_model: str = Field(default="gemini-2.5-pro")
 
     # Gemini API key — required at runtime; lives only in .env (never in code).

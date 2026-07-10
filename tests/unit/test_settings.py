@@ -60,16 +60,14 @@ def test_gemini_key_detected_from_env(monkeypatch, tmp_path):
         monkeypatch,
         tmp_path,
         AGENT_GEMINI_API_KEY="AIza-fake",
-        AGENT_LLM_PROVIDER="",
     )
     assert s.gemini_api_key == "AIza-fake"
 
 
-def test_explicit_provider_setting(monkeypatch, tmp_path):
+def test_llm_model_env_override(monkeypatch, tmp_path):
     s = _fresh_settings(
         monkeypatch,
         tmp_path,
-        AGENT_GEMINI_API_KEY="AIza-fake",
-        AGENT_LLM_PROVIDER="gemini",
+        AGENT_LLM_MODEL="gemini-2.5-flash",
     )
-    assert s.llm_provider == "gemini"
+    assert s.llm_model == "gemini-2.5-flash"

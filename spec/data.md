@@ -15,7 +15,7 @@ A design conversation — the container for turns, the unit of cost totalling, a
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | id | TEXT (uuid) | yes | Primary key |
-| title | TEXT | yes | Auto-derived from the first prompt (first ~60 chars); editable later |
+| title | TEXT | yes | Auto-derived from the first prompt (first ~60 chars); not editable in the POC (no rename endpoint) |
 | created_at | TIMESTAMP | yes | |
 | updated_at | TIMESTAMP | yes | Touched on every run |
 
@@ -37,7 +37,7 @@ One agent run = one turn: prompt in, artefacts + proof-check out. This is the au
 | params_json | TEXT (JSON) | no | Validated `CulvertParams` used for this run |
 | assumptions_json | TEXT (JSON) | no | `Assumption[]` — every defaulted value with its source (preset / engine default) |
 | warnings_json | TEXT (JSON) | no | Unusual-value flags raised at extraction |
-| steps_json | TEXT (JSON) | no | Step-tracker snapshot: per step {name, status, started_at, ended_at} — reload recovery + audit |
+| steps_json | TEXT (JSON) | no | Step-tracker snapshot: per step {name, status, started_at, ended_at} — written once at terminal `finish_run` (audit + completed-state snapshot); mid-run reload recovery comes from the SSE replay buffer, not this column |
 | checks_json | TEXT (JSON) | no | `CheckResult[]` rows (Phase 2) |
 | checklist_json | TEXT (JSON) | no | 12-item proof-check results (Phase 2) |
 | verdict | TEXT | no | `recommended_for_approval` \| `return_for_revision` (Phase 2) |
@@ -133,8 +133,8 @@ Fixed filenames (whitelisted for serving — no user-controlled paths). `data/` 
 
 ## Data Lifecycle
 
-- **Create:** session on first prompt; run row at submission; artefact rows as files are written; steps_json updated as the run progresses.
-- **Update:** runs are append-only after completion (audit trail) — only `title` (session) and presets (Phase 3) are editable.
+- **Create:** session on first prompt; run row at submission; artefact rows as files are written; steps_json written once at terminal `finish_run`. Mid-run reload recovery is delivered by the SSE replay buffer (`src/observability/progress.py` replays the full channel on reconnect); the snapshot endpoint serves completed state.
+- **Update:** runs are append-only after completion (audit trail) — presets (Phase 3) are the only editable record.
 - **Delete:** nothing is deleted in the POC. No archival, no time-boxing — the design library is the point.
 
 ## Sensitive Data

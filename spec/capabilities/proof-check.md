@@ -22,7 +22,7 @@ Automatically reviews every completed design like an independent Proof Checking 
 | System | Operation | On Failure |
 |--------|-----------|------------|
 | FE solver (see [architecture.md](../architecture.md#stack)) | independent 2D frame re-solve + diff vs closed-form | fatal for the run (transparent) |
-| LLM (see [agent.md](../agent.md#llm-provider--model)) | narrate the memo from deterministic results ONLY | 1 retry, then fatal |
+| LLM (see [agent.md](../agent.md#llm-provider--model)) | narrate the memo from deterministic results ONLY | transport failure: 1 retry, then fatal; failed grounding: narration discarded (warning), memo composes deterministically |
 
 ## Business Rules
 - **The 12 checklist items (fixed set for the box culvert):** (1) loading standard correct & ACS level current; (2) EUDL for the loaded length matches the cited table; (3) CDA applied incl. cushion reduction; (4) load cases complete (DL, SIDL, LL+impact, earth pressure at-rest/active, LL surcharge, box empty/full); (5) cushion dispersal applied correctly; (6) concrete grade & clear cover per IRS CBC exposure; (7) flexure adequacy (σcbc, σst within permissible); (8) shear adequacy; (9) min steel / max spacing / haunch & distribution steel; (10) crack width / SLS limits; (11) **independent FE re-solve agrees with closed-form within ±5%** — agreement is itself a check item; (12) **calc-vs-drawing consistency** — dimensions read back from the produced DXF match the designed geometry.
@@ -30,7 +30,7 @@ Automatically reviews every completed design like an independent Proof Checking 
 - Severity grading: PASS / OBSERVATION / NON-CONFORMITY (minor | major). Verdict is computed by rule — any major non-conformity → `return_for_revision`; the LLM narrates, it never grades or decides.
 - The proof-check runs automatically after every design; **revision is user-triggered** ("increase slab to 450 mm" as a new turn) — the agent never auto-iterates until pass.
 - The memo is styled as a Proof Checking Consultant memo (structure: reference, scope of check, observations by severity, recommendation) and flags any IS-456-style citation as a defect.
-- All 12 items evaluate deterministically; the memo must not introduce any number or judgement absent from the checklist results.
+- All 12 items evaluate deterministically; the memo must not introduce any number or judgement absent from the checklist results — enforced by a deterministic grounding validator: a narration that fails it is discarded (warning event) and the memo composes fully deterministically.
 
 ## Success Criteria
 - [ ] A sound canonical design yields all 12 items PASS/OBSERVATION, verdict `recommended_for_approval`, and an FE agreement figure ≤ 5% shown in the matrix.

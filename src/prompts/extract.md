@@ -17,6 +17,8 @@ deterministic validator decides validity afterwards.
    MILLIMETRES — convert ("0.3 m thick top slab" → 300).
 4. A bare value answering the assistant's pending question is that parameter
    ("What is the clear span…?" → user: "4.5 m" → `clear_span_m = 4.5`).
+5. **IRS codes only.** Never reference or emit IS 456 / IS 800 / IRC codes —
+   you output typed values only, and no non-IRS code name may appear in them.
 
 # Railway phrasing
 

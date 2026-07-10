@@ -69,7 +69,7 @@ Routers: `src/api/sessions.py`, `src/api/designs.py` (submit + snapshot + SSE + 
 | `done` | `{"status": "completed"\|"needs_input"\|"out_of_scope", "verdict": "recommended_for_approval"\|"return_for_revision"\|null}` |
 | `error` | `{"code": "RUN_FAILED", "message": "what was tried and why it failed"}` |
 
-**Error cases:** 404 unknown run. Reconnecting to a finished run yields `snapshot` + `done` and closes.
+**Error cases:** 404 unknown run. Reconnecting to a finished run yields `snapshot` + `done` (completed / needs_input / out_of_scope) or `snapshot` + `error` (failed runs) and closes.
 
 ### `GET /api/designs/{run_id}`
 
@@ -86,7 +86,7 @@ Routers: `src/api/sessions.py`, `src/api/designs.py` (submit + snapshot + SSE + 
   "warnings": ["..."],
   "steps": [{"name": "Understand", "status": "done", "started_at": "...", "ended_at": "..."}],
   "checks": [{"clause": "...", "requirement": "...", "computed": "...", "limit": "...", "status": "PASS"}],
-  "checklist": [{"item": 1, "title": "Loading standard & ACS level", "severity": "PASS", "detail": "..."}],
+  "checklist": [{"item": 1, "title": "Loading standard & ACS level", "clause": "...", "requirement": "...", "computed": "...", "limit": "...", "severity": "PASS", "detail": "..."}],
   "verdict": "recommended_for_approval",
   "suggestions": ["Increase cushion to 4 m", "..."],
   "artefacts": [{"kind": "ga_dxf", "filename": "ga.dxf", "url": ".../artifacts/ga.dxf", "size_bytes": 12345}],

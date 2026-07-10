@@ -67,7 +67,7 @@ There are **no** other external services: no hosted CAD APIs, no licensed softwa
 - **Language:** Python (skeleton `requires-python >=3.11`; developed on 3.12)
 - **Agent framework:** LangGraph (existing skeleton graph, extended in place)
 - **LLM provider + model:** Google Gemini, **`gemini-2.5-pro` for ALL agent nodes** (binding intake constraint; key already in `.env` as `AGENT_GEMINI_API_KEY`). Configured via `AGENT_LLM_MODEL=gemini-2.5-pro`; the settings default `llm_model` is changed to `gemini-2.5-pro` for this project.
-- **Backend:** FastAPI + uvicorn, port 8001, single origin (frontend static export mounted at `/app`)
+- **Backend:** FastAPI + uvicorn, single origin (frontend static export mounted at `/app`). Port is configurable via `AGENT_PORT` (settings field `port`, default 8001); tests set `E2E_PORT` to run gates on 8002 without touching a live 8001 server
 - **Database + ORM:** SQLite + SQLAlchemy 2.0 + Alembic. SQLite **is** the production database for this project — a local, single-user, on-laptop demo (binding: the brief mandates extending the SQLite skeleton). Tests run against SQLite, the same driver as production.
 - **Frontend:** Next.js 15 static export (existing `frontend/`), React 19, Tailwind v4
 - **Dependency management:** uv (`pyproject.toml`) / pnpm (`frontend/`)
@@ -82,7 +82,7 @@ There are **no** other external services: no hosted CAD APIs, no licensed softwa
 | `matplotlib` | `>=3.9,<4` | BMD/SFD diagram rendering (SVG/PNG) and any raster/PDF output. **Replaces PyMuPDF everywhere** — PyMuPDF is AGPL and is banned |
 | `google-genai` | `>=2.9.0` (existing) | Gemini SDK behind the provider abstraction |
 | `react-zoom-pan-pinch` | `^4.0.3` | Pan/zoom wrapper around the inline drawing SVG |
-| `@google/model-viewer` | `^4.2.0` | GLB display web component (dynamic import, `ssr: false`) |
+| `@google/model-viewer` | `^4.3.1` | GLB display web component (dynamic import, `ssr: false`) |
 | `react-markdown` + `remark-gfm` | latest | Render the proof-check memo and agent narration as markdown (never raw text) |
 | `@playwright/test` | latest 1.x | Headless E2E smoke of the primary journey (`tests/e2e/`, root `playwright.config.ts`) |
 

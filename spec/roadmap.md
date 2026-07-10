@@ -30,7 +30,7 @@ IR bridge design and independent proof-checking (DDC → Proof Checking Consulta
 - Loading standards beyond 25t Loading-2008 (the loading layer is pluggable; DFC 32.5t is a later drop-in, not built now).
 - Hydraulic design computation (vent area, HFL, afflux, scour per RBF-16) — echoed as user-supplied inputs in the proof-check, honestly marked "not verified".
 - Reinforcement detailing drawings and bar-bending schedules — the GA drawing is the drawing deliverable.
-- Auto-iterate-until-pass — revision is always user-triggered.
+- Auto-iterate-until-pass — revision is always user-triggered. (This refers to the agent-level design → review → revise loop; engine-internal check-governed sizing of AUTO-sized members is in scope — see [irs-engine.md](capabilities/irs-engine.md).)
 - LLM-generated CAD/drawing code, DWG output, hosted deployment, authentication/multi-user, licensed-software integration (OpenSTAAD/OpenRail stay on the pitch slide).
 
 ## Key Constraints

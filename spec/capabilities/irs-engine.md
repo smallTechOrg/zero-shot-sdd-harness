@@ -31,6 +31,7 @@ Deterministically sizes and analyses a single-cell RCC box culvert to IRS standa
 - Load cases (Phase 2): dead load, SIDL (ballast/track), EUDL + CDA dispersed through the cushion, earth pressure (at-rest and active), live-load surcharge, box empty/full — combined per IRS practice.
 - Analysis: closed-form rigid-frame (moment distribution on the closed box) — member end/mid-span moments, shears per load case, and envelopes.
 - Checks (Phase 2) per **IRS Concrete Bridge Code** (never IS 456): flexure as working stress (σcbc, σst vs permissible), shear, minimum steel, clear cover, crack width as applicable.
+- **Check-governed sizing:** sizing starts from the RDSO-family heuristic, then iterates analyse → check → bump-50 mm on AUTO-sized members until the design passes its own IRS CBC checks — bounded and deterministic, with every bump recorded as a cited CalcStep. User-overridden thicknesses are NEVER bumped.
 - Sizing respects user thickness overrides but records a warning when the override is thinner than the sized value (the deliberate under-design demo case must flow through to a failing check, not be silently corrected).
 - Every computed quantity appends a CalcStep — there is no number in any artefact that lacks a trail entry.
 - Barrel length is computed from formation width + side slopes + fill height (defaults per data.md) and recorded as an assumption.
