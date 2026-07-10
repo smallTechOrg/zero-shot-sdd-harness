@@ -165,6 +165,9 @@ def submit_design(
     )
 
 
+LIST_LIMIT_MAX = 200
+
+
 @router.get("/designs")
 def list_designs(
     session_id: str | None = None,
@@ -172,6 +175,10 @@ def list_designs(
     offset: int = 0,
     session: Session = Depends(get_session),
 ) -> dict:
+    # Clamp rather than reject: limit -> 1..200, offset -> >= 0. Keeps old callers
+    # working while ruling out unbounded/negative queries.
+    limit = max(1, min(limit, LIST_LIMIT_MAX))
+    offset = max(0, offset)
     filters = [DesignRunRow.session_id == session_id] if session_id else []
     total = session.execute(
         select(func.count()).select_from(DesignRunRow).where(*filters)

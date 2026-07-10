@@ -45,6 +45,32 @@ def make_run_row(_isolated_db):
 
 
 @pytest.fixture
+def make_preset_row(_isolated_db):
+    def _make(
+        name: str = "IR standard defaults",
+        is_default: bool = True,
+        values: dict | None = None,
+        updated_at: datetime | None = None,
+    ) -> str:
+        from db.models import PresetRow
+
+        with Session(_isolated_db) as s:
+            row = PresetRow(
+                name=name,
+                is_default=is_default,
+                values_json=json.dumps(values if values is not None else {"clear_cover_mm": 50}),
+            )
+            if updated_at is not None:
+                row.created_at = updated_at
+                row.updated_at = updated_at
+            s.add(row)
+            s.commit()
+            return row.id
+
+    return _make
+
+
+@pytest.fixture
 def make_artifact_row(_isolated_db):
     def _make(run_id: str, kind: str, filename: str, mime: str, size_bytes: int = 100) -> str:
         from db.models import ArtifactRow
