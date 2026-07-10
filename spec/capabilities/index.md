@@ -1,38 +1,20 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
-
----
-
-## What Is a Capability?
-
-A capability is a single, discrete action or behavior the agent performs. Examples:
-- "Search the web for companies matching criteria X"
-- "Draft a personalized email given a lead profile"
-- "Send a Slack notification when a threshold is crossed"
+One file per capability — each describes exactly one discrete thing the agent does. Phasing lives in [roadmap.md](../roadmap.md#phases-of-development); the graph that orchestrates them lives in [agent.md](../agent.md).
 
 ## Capabilities in This Project
 
-<!-- FILL IN: List capabilities here as they are defined. Each entry links to its spec file (no number prefix). -->
-
-| Capability | File |
-|-----------|------|
-| <!-- name --> | [name.md](name.md) |
+| Capability | File | Phase |
+|-----------|------|-------|
+| NL Design Intake (scope gate, extraction, one clarifying question, unusual-value flags) | [nl-design-intake.md](nl-design-intake.md) | 1 |
+| IRS Design Engine (sizing → loads → frame analysis → IRS CBC checks, pluggable loading standard) | [irs-engine.md](irs-engine.md) | 1 (sizing) / 2 (full) |
+| GA Drawing (parametric DXF + server-rendered SVG, pan/zoom, DXF download) | [ga-drawing.md](ga-drawing.md) | 1 |
+| Calculation Sheet (clause-cited, drill-down calc trail, assumptions block) | [calc-sheet.md](calc-sheet.md) | 2 |
+| Proof-Check (12-item checklist, FE cross-check, compliance matrix, severity-graded memo, verdict) | [proof-check.md](proof-check.md) | 2 |
+| 3D Model (parametric solid → GLB viewer + STEP download) | [model-3d.md](model-3d.md) | 3 |
+| Design Library (audit trail browsing, run replay, presets) | [design-library.md](design-library.md) | 3 (records from 1) |
+| Session Refinement (turn memory, refinement regeneration, revise loop, suggestions) | [session-refinement.md](session-refinement.md) | 1 (memory/refine) / 3 (suggestions) |
 
 ## How to Add a New Capability
 
-Run `/zero-shot-build [description]` on the existing spec. The spec-writer sub-agent will:
-1. Create a new file in this directory (`<name>.md`, no number prefix)
-2. Update this index
-3. Flag any dependencies on existing capabilities
-4. Self-review that it fits the architecture and data model before returning
-
-## Capability File Template
-
-Each capability file should answer:
-- **What it does** (one sentence)
-- **Inputs** (what data it receives)
-- **Outputs** (what it produces)
-- **External calls** (APIs, LLMs, databases it touches)
-- **Error cases** (what can go wrong and how it's handled)
-- **Success criteria** (how we test it)
+Run `/zero-shot-build [description]` on the existing spec. The spec-writer will create `<name>.md` here (no number prefix), update this index, flag dependencies, and self-review the fit against architecture and data model.
