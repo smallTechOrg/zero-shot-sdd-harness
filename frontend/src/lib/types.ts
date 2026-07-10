@@ -45,9 +45,11 @@ export interface TokensEvent {
   session_total_cost_usd: number
 }
 
+export type Verdict = 'recommended_for_approval' | 'return_for_revision'
+
 export interface DoneEvent {
   status: 'completed' | 'needs_input' | 'out_of_scope'
-  verdict: string | null
+  verdict: Verdict | null
 }
 
 export interface RunErrorEvent {
@@ -77,6 +79,85 @@ export interface Assumption {
   note?: string | null
 }
 
+// ---------------------------------------------------------------------------
+// calc_sheet.json — pinned Phase-2 artefact shape (SSE artefact kind
+// `calc_sheet`, also re-fetchable from the artifacts URL).
+// ---------------------------------------------------------------------------
+
+export type CalcLineStatus = 'PASS' | 'FAIL' | null
+
+export interface CalcLine {
+  description: string
+  value: number | string | null
+  unit: string | null
+  citation: string | null
+  /** Links the line into the drill-down trail; null = no expansion. */
+  trail_ref?: string | null
+  status?: CalcLineStatus
+}
+
+export interface CalcSection {
+  /** design_basis | loading | analysis | member_checks */
+  id: string
+  title: string
+  lines: CalcLine[]
+}
+
+export type TrailInputValue = number | string
+
+/** A trail input is a plain value, or a {ref, value} link to another step. */
+export type TrailInput = TrailInputValue | { ref: string; value: TrailInputValue }
+
+export interface TrailStep {
+  step_id: string
+  description: string
+  formula: string
+  inputs: Record<string, TrailInput>
+  value: number | string
+  unit: string | null
+  citation: string | null
+}
+
+export interface CalcSheetData {
+  sections: CalcSection[]
+  assumptions: Assumption[]
+  warnings: string[]
+  trail: TrailStep[]
+}
+
+// ---------------------------------------------------------------------------
+// compliance.json — pinned Phase-2 artefact shape (SSE artefact kind
+// `compliance`); the run snapshot's `checklist[]` mirrors `items`.
+// ---------------------------------------------------------------------------
+
+export type ComplianceSeverity = 'PASS' | 'OBSERVATION' | 'NON_CONFORMITY_MINOR' | 'NON_CONFORMITY_MAJOR'
+
+export interface ComplianceItem {
+  item: number
+  title: string
+  clause: string
+  requirement: string
+  computed: string
+  limit: string
+  severity: ComplianceSeverity
+  detail: string
+}
+
+export interface ComplianceData {
+  items: ComplianceItem[]
+  verdict: Verdict | null
+  fe_agreement_pct: number | null
+}
+
+/** Snapshot `checks[]` row (spec/api.md). */
+export interface CheckRow {
+  clause: string
+  requirement: string
+  computed: string
+  limit: string
+  status: 'PASS' | 'FAIL' | string
+}
+
 export interface RunSnapshot {
   run_id: string
   session_id: string
@@ -89,9 +170,9 @@ export interface RunSnapshot {
   assumptions: Assumption[] | null
   warnings: string[] | null
   steps: SnapshotStep[]
-  checks: unknown[] | null
-  checklist: unknown[] | null
-  verdict: string | null
+  checks: CheckRow[] | null
+  checklist: ComplianceItem[] | null
+  verdict: Verdict | null
   suggestions: string[] | null
   artefacts: ArtefactRecord[]
   tokens: { prompt_tokens: number; completion_tokens: number; cost_usd: number } | null

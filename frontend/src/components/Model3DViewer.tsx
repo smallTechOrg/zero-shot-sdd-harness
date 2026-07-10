@@ -6,7 +6,7 @@ export default function Model3DViewer() {
       testId="stub-3d-model"
       title="3D Model"
       phase={3}
-      description="An interactive 3D culvert model built from the same parameters — orbit and zoom in the browser, plus a STEP download that opens in FreeCAD — lands in Phase 3."
+      description="This panel will show an interactive 3D model of the culvert (orbit/zoom in the browser) built from the same parameters, with a STEP download that opens in FreeCAD."
       icon={
         <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M12 2.5 21 7v10l-9 4.5L3 17V7l9-4.5Z" />

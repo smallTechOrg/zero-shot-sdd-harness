@@ -5,6 +5,7 @@ import DrawingViewer from './DrawingViewer'
 import LibraryPanel from './LibraryPanel'
 import Model3DViewer from './Model3DViewer'
 import ProofCheckPanel from './ProofCheckPanel'
+import type { CalcSheetData, ComplianceData, Verdict } from '@/lib/types'
 
 export type TabId = 'drawing' | 'calc-sheet' | 'proof-check' | '3d-model' | 'library'
 
@@ -16,8 +17,8 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: 'drawing', label: 'Drawing', phaseBadge: null },
-  { id: 'calc-sheet', label: 'Calc Sheet', phaseBadge: 'Phase 2' },
-  { id: 'proof-check', label: 'Proof-Check', phaseBadge: 'Phase 2' },
+  { id: 'calc-sheet', label: 'Calc Sheet', phaseBadge: null },
+  { id: 'proof-check', label: 'Proof-Check', phaseBadge: null },
   { id: '3d-model', label: '3D Model', phaseBadge: 'Phase 3' },
   { id: 'library', label: 'Library', phaseBadge: 'Phase 3' },
 ]
@@ -27,6 +28,14 @@ interface ArtefactTabsProps {
   onTabChange: (tab: TabId) => void
   svgMarkup: string | null
   dxfUrl: string | null
+  calcSheet: CalcSheetData | null
+  calcComposing: boolean
+  compliance: ComplianceData | null
+  memoMarkdown: string | null
+  bmdSvg: string | null
+  sfdSvg: string | null
+  verdict: Verdict | null
+  reviewActive: boolean
   isRunning: boolean
   drawActive: boolean
   runFailed: boolean
@@ -38,6 +47,14 @@ export default function ArtefactTabs({
   onTabChange,
   svgMarkup,
   dxfUrl,
+  calcSheet,
+  calcComposing,
+  compliance,
+  memoMarkdown,
+  bmdSvg,
+  sfdSvg,
+  verdict,
+  reviewActive,
   isRunning,
   drawActive,
   runFailed,
@@ -90,8 +107,28 @@ export default function ArtefactTabs({
             hasRun={hasRun}
           />
         )}
-        {activeTab === 'calc-sheet' && <CalcSheet />}
-        {activeTab === 'proof-check' && <ProofCheckPanel />}
+        {activeTab === 'calc-sheet' && (
+          <CalcSheet
+            sheet={calcSheet}
+            isRunning={isRunning}
+            composing={calcComposing}
+            runFailed={runFailed}
+            hasRun={hasRun}
+          />
+        )}
+        {activeTab === 'proof-check' && (
+          <ProofCheckPanel
+            compliance={compliance}
+            memoMarkdown={memoMarkdown}
+            bmdSvg={bmdSvg}
+            sfdSvg={sfdSvg}
+            verdict={verdict}
+            isRunning={isRunning}
+            reviewActive={reviewActive}
+            runFailed={runFailed}
+            hasRun={hasRun}
+          />
+        )}
         {activeTab === '3d-model' && <Model3DViewer />}
         {activeTab === 'library' && <LibraryPanel />}
       </div>

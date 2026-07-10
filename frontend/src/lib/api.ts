@@ -78,3 +78,11 @@ export async function fetchArtefactText(url: string): Promise<string> {
   }
   return res.text()
 }
+
+export async function fetchArtefactJson<T>(url: string): Promise<T> {
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new ApiError('ARTEFACT_FETCH', `Could not load artefact (${res.status})`, res.status)
+  }
+  return (await res.json()) as T
+}

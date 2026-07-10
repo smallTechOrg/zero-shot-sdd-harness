@@ -8,21 +8,36 @@ import StepTracker from '@/components/StepTracker'
 import SuggestionChips from '@/components/SuggestionChips'
 import TokenCostBadge from '@/components/TokenCostBadge'
 import TurnHistory, { type TurnDetail } from '@/components/TurnHistory'
-import { ApiError, createSession, fetchArtefactText, getRunSnapshot, listDesigns, runEventsUrl, submitDesign } from '@/lib/api'
+import {
+  ApiError,
+  createSession,
+  fetchArtefactJson,
+  fetchArtefactText,
+  getRunSnapshot,
+  listDesigns,
+  runEventsUrl,
+  submitDesign,
+} from '@/lib/api'
 import { subscribeToRun, type RunSubscription } from '@/lib/sse'
 import {
   STEP_NAMES,
+  type ArtefactRecord,
+  type CalcSheetData,
+  type ComplianceData,
   type RunListItem,
   type RunSnapshot,
   type RunStatus,
   type StepName,
   type StepState,
+  type Verdict,
 } from '@/lib/types'
 
 const SESSION_STORAGE_KEY = 'culvert.session_id'
 
 // Fallback tags for skipped steps rehydrated from a snapshot (the live SSE
-// `step` event carries the tag in `detail`; the snapshot may not).
+// `step` event carries the tag in `detail`; the snapshot may not). Check and
+// Review are real from Phase 2 — these tags only cover legacy Phase-1 runs
+// replayed from the library.
 const SKIPPED_STEP_TAG: Partial<Record<StepName, string>> = {
   Check: 'Coming in Phase 2',
   Review: 'Coming in Phase 2',
@@ -38,6 +53,12 @@ interface RunView {
   clarificationQuestion: string | null
   svgMarkup: string | null
   dxfUrl: string | null
+  calcSheet: CalcSheetData | null
+  compliance: ComplianceData | null
+  memoMarkdown: string | null
+  bmdSvg: string | null
+  sfdSvg: string | null
+  verdict: Verdict | null
   runTokens: number
   runCostUsd: number
   errorMessage: string | null
@@ -65,7 +86,7 @@ function stepsFromSnapshot(snap: RunSnapshot): Record<StepName, StepState> {
 function terminalNarration(status: RunStatus): string | null {
   switch (status) {
     case 'completed':
-      return 'Design complete — the GA drawing is ready in the Drawing tab.'
+      return 'Design complete — the drawing, calculation sheet and proof-check verdict are ready in the artefact tabs.'
     case 'needs_input':
       return 'The agent needs one more detail — answer the question in the session panel.'
     case 'out_of_scope':
@@ -73,6 +94,14 @@ function terminalNarration(status: RunStatus): string | null {
     default:
       return null
   }
+}
+
+// The snapshot's checklist[] mirrors compliance.json items — use it as an
+// instant fallback so a reload paints the matrix before the artefact fetch
+// (which then overrides with the full compliance.json incl. fe_agreement_pct).
+function complianceFromSnapshot(snap: RunSnapshot): ComplianceData | null {
+  if (!snap.checklist || snap.checklist.length === 0) return null
+  return { items: snap.checklist, verdict: snap.verdict, fe_agreement_pct: null }
 }
 
 function viewFromSnapshot(snap: RunSnapshot): RunView {
@@ -87,6 +116,12 @@ function viewFromSnapshot(snap: RunSnapshot): RunView {
     clarificationQuestion: snap.clarification_question,
     svgMarkup: null,
     dxfUrl: snap.artefacts?.find(a => a.kind === 'ga_dxf')?.url ?? null,
+    calcSheet: null,
+    compliance: complianceFromSnapshot(snap),
+    memoMarkdown: null,
+    bmdSvg: null,
+    sfdSvg: null,
+    verdict: snap.verdict,
     runTokens: (tokens.prompt_tokens ?? 0) + (tokens.completion_tokens ?? 0),
     runCostUsd: tokens.cost_usd ?? 0,
     errorMessage: snap.error_message,
@@ -133,13 +168,57 @@ export default function DesignStudio() {
     }))
   }, [])
 
-  const loadSvgArtefact = useCallback((runId: string, url: string) => {
-    fetchArtefactText(url)
-      .then(svg => setRun(prev => (prev && prev.runId === runId ? { ...prev, svgMarkup: svg } : prev)))
-      .catch(() => {
-        // artefact fetch failure is non-fatal; the tab keeps its waiting state
-      })
+  // Applies one artefact (live SSE event or snapshot record) to the run view.
+  // Fetch failures are non-fatal: the owning tab keeps its waiting state.
+  const applyArtefact = useCallback((runId: string, kind: string, url: string) => {
+    const patch = (fields: Partial<RunView>) =>
+      setRun(prev => (prev && prev.runId === runId ? { ...prev, ...fields } : prev))
+    switch (kind) {
+      case 'ga_svg':
+        fetchArtefactText(url)
+          .then(svg => patch({ svgMarkup: svg }))
+          .catch(() => {})
+        break
+      case 'ga_dxf':
+        patch({ dxfUrl: url })
+        break
+      case 'calc_sheet':
+        fetchArtefactJson<CalcSheetData>(url)
+          .then(sheet => patch({ calcSheet: sheet }))
+          .catch(() => {})
+        break
+      case 'compliance':
+        fetchArtefactJson<ComplianceData>(url)
+          .then(compliance => patch({ compliance }))
+          .catch(() => {})
+        break
+      case 'proof_memo':
+        fetchArtefactText(url)
+          .then(memo => patch({ memoMarkdown: memo }))
+          .catch(() => {})
+        break
+      case 'bmd_svg':
+        fetchArtefactText(url)
+          .then(svg => patch({ bmdSvg: svg }))
+          .catch(() => {})
+        break
+      case 'sfd_svg':
+        fetchArtefactText(url)
+          .then(svg => patch({ sfdSvg: svg }))
+          .catch(() => {})
+        break
+      default:
+        // Future artefact kinds (model_glb/model_step) land in Phase 3.
+        break
+    }
   }, [])
+
+  const loadRunArtefacts = useCallback(
+    (runId: string, artefacts: ArtefactRecord[] | null | undefined) => {
+      for (const artefact of artefacts ?? []) applyArtefact(runId, artefact.kind, artefact.url)
+    },
+    [applyArtefact],
+  )
 
   const refreshTurns = useCallback(async (sid: string) => {
     try {
@@ -158,17 +237,27 @@ export default function DesignStudio() {
         setRun(prev => {
           if (!prev || prev.runId !== runId) return prev
           const final = viewFromSnapshot(snap)
-          return { ...final, svgMarkup: prev.svgMarkup, narration: terminalNarration(snap.status) ?? prev.narration }
+          return {
+            ...final,
+            // Keep artefacts already streamed in — loadRunArtefacts refreshes them.
+            svgMarkup: prev.svgMarkup,
+            calcSheet: prev.calcSheet ?? final.calcSheet,
+            compliance: prev.compliance ?? final.compliance,
+            memoMarkdown: prev.memoMarkdown,
+            bmdSvg: prev.bmdSvg,
+            sfdSvg: prev.sfdSvg,
+            verdict: final.verdict ?? prev.verdict,
+            narration: terminalNarration(snap.status) ?? prev.narration,
+          }
         })
         if (snap.duration_ms != null) setElapsedMs(snap.duration_ms)
-        const svgArt = snap.artefacts?.find(a => a.kind === 'ga_svg')
-        if (svgArt) loadSvgArtefact(runId, svgArt.url)
+        loadRunArtefacts(runId, snap.artefacts)
       } catch {
         // snapshot fetch failure — the SSE-built state stands
       }
       await refreshTurns(sid)
     },
-    [loadSvgArtefact, refreshTurns, storeTurnDetail],
+    [loadRunArtefacts, refreshTurns, storeTurnDetail],
   )
 
   const applyLiveSnapshot = useCallback(
@@ -177,12 +266,21 @@ export default function DesignStudio() {
       setRun(prev => {
         if (prev && prev.runId !== snap.run_id) return prev
         const next = viewFromSnapshot(snap)
-        return { ...next, svgMarkup: prev?.svgMarkup ?? null, narration: prev?.narration || next.narration }
+        return {
+          ...next,
+          svgMarkup: prev?.svgMarkup ?? null,
+          calcSheet: prev?.calcSheet ?? next.calcSheet,
+          compliance: prev?.compliance ?? next.compliance,
+          memoMarkdown: prev?.memoMarkdown ?? null,
+          bmdSvg: prev?.bmdSvg ?? null,
+          sfdSvg: prev?.sfdSvg ?? null,
+          verdict: next.verdict ?? prev?.verdict ?? null,
+          narration: prev?.narration || next.narration,
+        }
       })
-      const svgArt = snap.artefacts?.find(a => a.kind === 'ga_svg')
-      if (svgArt) loadSvgArtefact(snap.run_id, svgArt.url)
+      loadRunArtefacts(snap.run_id, snap.artefacts)
     },
-    [loadSvgArtefact, storeTurnDetail],
+    [loadRunArtefacts, storeTurnDetail],
   )
 
   const openStream = useCallback(
@@ -225,11 +323,7 @@ export default function DesignStudio() {
           setRun(prev => (prev && prev.runId === runId ? { ...prev, clarificationQuestion: event.question } : prev))
         },
         onArtefact: event => {
-          if (event.kind === 'ga_svg') {
-            loadSvgArtefact(runId, event.url)
-          } else if (event.kind === 'ga_dxf') {
-            setRun(prev => (prev && prev.runId === runId ? { ...prev, dxfUrl: event.url } : prev))
-          }
+          applyArtefact(runId, event.kind, event.url)
         },
         onTokens: event => {
           setRun(prev =>
@@ -246,7 +340,12 @@ export default function DesignStudio() {
         onDone: event => {
           setRun(prev =>
             prev && prev.runId === runId
-              ? { ...prev, status: event.status, narration: terminalNarration(event.status) ?? prev.narration }
+              ? {
+                  ...prev,
+                  status: event.status,
+                  verdict: event.verdict ?? prev.verdict,
+                  narration: terminalNarration(event.status) ?? prev.narration,
+                }
               : prev,
           )
           void finalizeRun(runId, sid)
@@ -274,7 +373,7 @@ export default function DesignStudio() {
         onReconnected: () => setToast('Reconnected — live updates resumed'),
       })
     },
-    [applyLiveSnapshot, finalizeRun, loadSvgArtefact],
+    [applyArtefact, applyLiveSnapshot, finalizeRun],
   )
 
   const beginLiveRun = useCallback(
@@ -292,6 +391,12 @@ export default function DesignStudio() {
         clarificationQuestion: null,
         svgMarkup: null,
         dxfUrl: null,
+        calcSheet: null,
+        compliance: null,
+        memoMarkdown: null,
+        bmdSvg: null,
+        sfdSvg: null,
+        verdict: null,
         runTokens: 0,
         runCostUsd: 0,
         errorMessage: null,
@@ -377,13 +482,12 @@ export default function DesignStudio() {
         setRun(viewFromSnapshot(snap))
         setElapsedMs(snap.duration_ms ?? 0)
         setActiveTab('drawing')
-        const svgArt = snap.artefacts?.find(a => a.kind === 'ga_svg')
-        if (svgArt) loadSvgArtefact(runId, svgArt.url)
+        loadRunArtefacts(runId, snap.artefacts)
       } catch {
         setToast('Could not load that run — try again')
       }
     },
-    [loadSvgArtefact, storeTurnDetail],
+    [loadRunArtefacts, storeTurnDetail],
   )
 
   // Reload / SSE-drop rehydration: restore the stored session, its turn
@@ -413,8 +517,7 @@ export default function DesignStudio() {
           if (cancelled) return
           storeTurnDetail(snap)
           setRun(viewFromSnapshot(snap))
-          const svgArt = snap.artefacts?.find(a => a.kind === 'ga_svg')
-          if (svgArt) loadSvgArtefact(snap.run_id, svgArt.url)
+          loadRunArtefacts(snap.run_id, snap.artefacts)
           if (snap.status === 'running') {
             const startedMs = snap.started_at ? Date.now() - Date.parse(snap.started_at) : 0
             elapsedBaseRef.current = { baseMs: Math.max(startedMs, 0), wallStart: Date.now() }
@@ -550,8 +653,8 @@ export default function DesignStudio() {
               </h2>
               <p className="text-lg leading-relaxed text-slate-700">
                 Describe the crossing — clear span, height, cushion, gauge, loading standard — and watch the agent
-                plan, extract the parameters, size the barrel to IRS practice and draft a dimensioned GA drawing you
-                can download as genuine DXF.
+                plan, extract the parameters, run the full IRS load checks, draft a dimensioned GA drawing you can
+                download as genuine DXF, and proof-check its own design with a clause-cited memo and verdict.
               </p>
               <button
                 type="button"
@@ -568,8 +671,8 @@ export default function DesignStudio() {
                 </span>
               </button>
               <p className="text-base text-slate-500">
-                Full EUDL + CDA load checks and the proof-check memo arrive in Phase 2; the 3D model and library in
-                Phase 3.
+                The clause-cited calc sheet and automatic proof-check are live; the interactive 3D model and design
+                library arrive in Phase 3.
               </p>
             </section>
           ) : (
@@ -599,6 +702,14 @@ export default function DesignStudio() {
                   onTabChange={setActiveTab}
                   svgMarkup={run?.svgMarkup ?? null}
                   dxfUrl={run?.dxfUrl ?? null}
+                  calcSheet={run?.calcSheet ?? null}
+                  calcComposing={run?.steps.Analyse.status === 'active' || run?.steps.Check.status === 'active'}
+                  compliance={run?.compliance ?? null}
+                  memoMarkdown={run?.memoMarkdown ?? null}
+                  bmdSvg={run?.bmdSvg ?? null}
+                  sfdSvg={run?.sfdSvg ?? null}
+                  verdict={run?.verdict ?? null}
+                  reviewActive={run?.steps.Review.status === 'active'}
                   isRunning={isRunning}
                   drawActive={run?.steps.Draw.status === 'active'}
                   runFailed={run?.status === 'failed'}
