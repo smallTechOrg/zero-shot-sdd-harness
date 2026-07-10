@@ -138,9 +138,13 @@ def test_put_out_of_range_value_rejected(api_client, make_preset_row, _isolated_
     assert r.status_code == 422
     detail = r.json()["detail"]
     assert detail["code"] == "INVALID_VALUE"
-    # Human-readable: names the field and the limit (40–75 per spec/data.md).
+    # Human-readable: names the field, the offending value, and the FULL valid
+    # range — BOTH bounds (40–75 per spec/data.md / design-library.md).
     assert "clear_cover_mm" in detail["message"]
+    assert "30" in detail["message"]
     assert "40" in detail["message"]
+    assert "75" in detail["message"]
+    assert "outside the valid range" in detail["message"]
     assert _db_preset(_isolated_db, preset_id)[2] == {"clear_cover_mm": 50}
 
 
@@ -155,6 +159,8 @@ def test_put_bad_enum_rejected(api_client, make_preset_row):
 
 
 def test_put_invalid_thickness_rejected(api_client, make_preset_row):
+    # Thickness overrides carry no declared ge/le bounds (None = auto-size); the
+    # custom validator's message states the rule, so it passes through unchanged.
     preset_id = make_preset_row()
     r = api_client.put(
         f"/api/presets/{preset_id}", json={"values": {"top_slab_thickness_mm": -100}}
@@ -163,6 +169,7 @@ def test_put_invalid_thickness_rejected(api_client, make_preset_row):
     detail = r.json()["detail"]
     assert detail["code"] == "INVALID_VALUE"
     assert "top_slab_thickness_mm" in detail["message"]
+    assert "positive" in detail["message"]
 
 
 def test_put_null_on_non_nullable_field_rejected(api_client, make_preset_row):
