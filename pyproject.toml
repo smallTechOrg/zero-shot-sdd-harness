@@ -13,6 +13,7 @@ dependencies = [
     "structlog>=24.1",
     "langgraph>=0.1",
     "google-genai>=2.9.0",
+    "ezdxf==1.4.4",
 ]
 
 [project.optional-dependencies]
