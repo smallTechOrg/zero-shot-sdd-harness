@@ -194,6 +194,18 @@ export default function DesignStudio() {
           elapsedBaseRef.current = { baseMs: event.elapsed_ms, wallStart: Date.now() }
           setRun(prev => {
             if (!prev || prev.runId !== runId) return prev
+            // Mirror src/graph/steps.py: a step already done/failed is never
+            // downgraded by a later skipped/pending/active event (model3d
+            // publishes a Draw "skipped" tag after draw marked it done).
+            const current = prev.steps[event.step]
+            if (
+              current &&
+              (current.status === 'done' || current.status === 'failed') &&
+              event.status !== 'done' &&
+              event.status !== 'failed'
+            ) {
+              return prev
+            }
             const steps = {
               ...prev.steps,
               [event.step]: { name: event.step, status: event.status, detail: event.detail ?? null },

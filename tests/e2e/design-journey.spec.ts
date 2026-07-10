@@ -45,6 +45,10 @@ test.describe('primary design journey (real backend + Gemini)', () => {
     await expect(step(page, 'Review')).toHaveAttribute('data-status', 'skipped', { timeout: 180_000 })
     await expect(step(page, 'Review')).toContainText('Coming in Phase')
 
+    // Regression (F1): model3d publishes a Draw "skipped" tag AFTER draw marked
+    // it done — the live tracker must keep Draw done, never downgrade it.
+    await expect(step(page, 'Draw')).toHaveAttribute('data-status', 'done', { timeout: 180_000 })
+
     // --- 3. Real inline SVG drawing with pan/zoom-ready DOM -----------------
     await page.getByTestId('tab-drawing').click()
     const svg = page.locator('[data-testid="drawing-svg"] svg')
