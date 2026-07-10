@@ -76,7 +76,7 @@ There are **no** other external services: no hosted CAD APIs, no licensed softwa
 
 | Key library | Version | Purpose |
 |-------------|---------|---------|
-| `ezdxf[draw]` | `==1.4.4` (exact pin) | Parametric GA drawing template → genuine DXF; `drawing` add-on SVGBackend renders the same DXF to SVG server-side; DXF read-back for the calc-vs-drawing proof-check item |
+| `ezdxf` | `==1.4.4` (exact pin, **no `[draw]` extra**) | Parametric GA drawing template → genuine DXF; `drawing` add-on SVGBackend renders the same DXF to SVG server-side (pure Python — needs no extra); DXF read-back for the calc-vs-drawing proof-check item. The `[draw]` extra is deliberately NOT used: it pulls in AGPL-3.0 PyMuPDF and ~420 MB Qt (PySide6), while SVGBackend works with the plain install |
 | `build123d` | `==0.11.1` (exact pin — pre-1.0 API drift) | 3D solid from the same parameters; `export_gltf(binary=True)` → GLB; `export_step()` → STEP |
 | `anastruct` | `==1.7.0` | Independent 2D FE cross-check of the box frame (Phase 2); BMD/SFD via matplotlib |
 | `matplotlib` | `>=3.9,<4` | BMD/SFD diagram rendering (SVG/PNG) and any raster/PDF output. **Replaces PyMuPDF everywhere** — PyMuPDF is AGPL and is banned |
