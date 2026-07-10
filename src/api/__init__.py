@@ -7,16 +7,31 @@ from fastapi.staticfiles import StaticFiles
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from config.settings import get_settings
     from db.session import init_db
+
+    artifacts_dir = Path(get_settings().artifacts_dir)
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Artifacts directory '{artifacts_dir}' is not creatable ({exc}). "
+            "Set AGENT_ARTIFACTS_DIR to a writable path."
+        ) from exc
     init_db()
     yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Agent", version="0.1.0", lifespan=_lifespan)
-    from api import health, runs
+    app = FastAPI(
+        title="IR Box Culvert Design & Proof-Check Agent", version="0.1.0", lifespan=_lifespan
+    )
+    from api import designs, health, presets, sessions
+
     app.include_router(health.router)
-    app.include_router(runs.router)
+    app.include_router(sessions.router)
+    app.include_router(designs.router)
+    app.include_router(presets.router)
 
     # Serve the built Next.js static export at /app
     # Run `cd frontend && pnpm build` to generate frontend/out/ before starting.

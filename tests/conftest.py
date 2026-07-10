@@ -36,8 +36,16 @@ def _require_llm_key():
 
 
 @pytest.fixture
-def api_client(_isolated_db):
-    """FastAPI test client with isolated DB."""
+def artifacts_dir(tmp_path, monkeypatch):
+    """Isolated artefact root — the lifespan and artifact routes read it from settings."""
+    root = tmp_path / "artifacts"
+    monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(root))
+    return root
+
+
+@pytest.fixture
+def api_client(_isolated_db, artifacts_dir):
+    """FastAPI test client with isolated DB and artefact dir."""
     from fastapi.testclient import TestClient
     from api import app
     with TestClient(app) as client:

@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,11 +9,20 @@ _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
 
 
+def _ensure_sqlite_dir(url: str) -> None:
+    """SQLite does not create parent directories — do it before connecting."""
+    prefix = "sqlite:///"
+    if url.startswith(prefix) and not url.endswith(":memory:"):
+        Path(url.removeprefix(prefix)).parent.mkdir(parents=True, exist_ok=True)
+
+
 def _get_engine() -> Engine:
     global _engine
     if _engine is None:
         from config.settings import get_settings
-        _engine = create_engine(get_settings().database_url, echo=False)
+        url = get_settings().database_url
+        _ensure_sqlite_dir(url)
+        _engine = create_engine(url, echo=False)
     return _engine
 
 
