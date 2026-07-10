@@ -253,9 +253,12 @@ def test_refinement_turn_carries_params_forward_and_regenerates(
 
     done = second_events[-1]["data"]
     assert done["status"] == "completed"
-    assert done["verdict"] in VERDICTS  # graded either way — never None in Phase 2
+    # Check-governed sizing (Phase-2 audit fix): the engine's own design at
+    # 4 m fill passes its own checks (slabs 400 -> 450 mm), so the scripted
+    # refinement the user already tested stays green.
+    assert done["verdict"] == "recommended_for_approval"
     second = get_run(second_id)
-    assert second["verdict"] == done["verdict"]
+    assert second["verdict"] == "recommended_for_approval"
     params = _params(second)
     assert params["cushion_m"] == 4.0            # the one named change
     assert params["clear_span_m"] == 4.0         # carried forward

@@ -55,11 +55,13 @@ def test_tall_narrow_box_one_by_six_sizes_without_error():
 
     g = size_culvert(params).geometry
 
-    assert g.top_slab_thickness_mm == 300.0
-    assert g.bottom_slab_thickness_mm == 300.0
-    assert g.wall_thickness_mm == 500.0  # height governs
-    assert g.external_width_m == 2.0
-    assert g.external_height_m == 6.6
+    # heuristic start 300/300/500 (height governs the wall); the 5 m fill on the
+    # tall box is check-governed up to 450/450/600
+    assert g.top_slab_thickness_mm == 450.0
+    assert g.bottom_slab_thickness_mm == 450.0
+    assert g.wall_thickness_mm == 600.0
+    assert g.external_width_m == 2.2
+    assert g.external_height_m == 6.9
 
 
 def test_wide_flat_box_eight_by_one_sizes_without_error():
@@ -79,8 +81,10 @@ def test_zero_cushion_completes_and_barrel_length_stays_positive():
 
     g = size_culvert(params).geometry
 
-    # 6.85 + 2 * 2.0 * (0.0 + 3.8) = 22.05 m
-    assert g.barrel_length_m == 22.05
+    # zero cushion = undispersed live load: slabs check-governed 400 -> 450 mm,
+    # so H_ext = 3.9 m and L = 6.85 + 2 * 2.0 * (0.0 + 3.9) = 22.45 m
+    assert g.external_height_m == 3.9
+    assert g.barrel_length_m == 22.45
     assert g.barrel_length_m > 0
 
 

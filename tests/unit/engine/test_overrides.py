@@ -77,3 +77,53 @@ def test_external_dimensions_follow_the_overridden_thicknesses():
 
     assert g.external_width_m == 4.8  # 4.0 + 2 * 0.4
     assert g.external_height_m == 4.0  # 3.0 + 0.5 + 0.5
+
+
+# --- check-governed sizing never touches an override -----------------------------
+
+
+def test_user_override_is_never_bumped_even_when_it_fails_the_checks():
+    """The deliberate under-design demo at 4 m fill: the 200 mm top slab stays
+    200 mm (FAIL rows + red verdict downstream) while the AUTO members are
+    check-governed around it — bottom slab 400 -> 450, wall 350 -> 400."""
+    params = CulvertParams(
+        clear_span_m=4.0, clear_height_m=3.0, cushion_m=4.0, top_slab_thickness_mm=200.0
+    )
+
+    result = size_culvert(params)
+    g = result.geometry
+
+    assert g.top_slab_thickness_mm == 200.0  # honoured, never bumped
+    assert g.bottom_slab_thickness_mm == 450.0
+    assert g.wall_thickness_mm == 400.0
+    assert not any(
+        s.description.startswith("Top slab governed by") for s in result.trail
+    )
+    assert any("thinner" in w.lower() for w in result.warnings)
+
+
+def test_thinner_warning_compares_against_the_final_check_governed_size():
+    """At 4 m fill the check-governed auto size for the top slab is 450 mm, not
+    the 400 mm heuristic — a 400 mm override must be warned against 450."""
+    params = CulvertParams(
+        clear_span_m=4.0, clear_height_m=3.0, cushion_m=4.0, top_slab_thickness_mm=400.0
+    )
+
+    result = size_culvert(params)
+
+    assert result.geometry.top_slab_thickness_mm == 400.0
+    assert len(result.warnings) == 1
+    assert "400" in result.warnings[0]
+    assert "450" in result.warnings[0]
+    assert "thinner than the auto-sized" in result.warnings[0]
+
+
+def test_override_matching_the_check_governed_size_raises_no_warning():
+    params = CulvertParams(
+        clear_span_m=4.0, clear_height_m=3.0, cushion_m=4.0, top_slab_thickness_mm=450.0
+    )
+
+    result = size_culvert(params)
+
+    assert result.geometry.top_slab_thickness_mm == 450.0
+    assert result.warnings == []

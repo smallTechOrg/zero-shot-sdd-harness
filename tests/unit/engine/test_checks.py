@@ -298,6 +298,16 @@ def test_sizing_analysis_and_checks_complete_in_under_two_seconds():
 # family values were NOT read digit-for-digit from the printed B-10152/R
 # sheets — verify each against the actual RDSO drawings before demo day
 # (IR engineer pre-review required per spec).
+#
+# CHECK-GOVERNED SIZING (Phase-2 audit fix): size_culvert now bumps auto-sized
+# members 50 mm at a time until the design passes its own IRS CBC checks.
+# Post-bump sized values against the family:
+#   (4.0, 3.0, 2.5) -> 400/400/350 — no bump (exactly the family values)
+#   (3.0, 3.0, 2.0) -> 300/300/300 — no bump (exactly the family values)
+#   (5.0, 4.0, 3.0) -> 500/550/450 — bottom slab shear-governed 500 -> 550 mm
+#                      (tau was 0.601 vs 0.60 permissible); 550 vs the family
+#                      500 sits EXACTLY at the +10 % tolerance edge — kept
+#                      honest below with <=, not rounded away.
 # ==============================================================================
 
 V2_TOLERANCE = 0.10  # +/-10 % per the V2 fixture contract
