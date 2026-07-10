@@ -143,6 +143,9 @@ def finish_run(
     assumptions: list[dict] | None = None,
     warnings: list[str] | None = None,
     steps: list[dict] | None = None,
+    checks: list[dict] | None = None,
+    checklist: list[dict] | None = None,
+    verdict: str | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     cost_usd: float = 0.0,
@@ -165,6 +168,9 @@ def finish_run(
         row.assumptions_json = json.dumps(assumptions) if assumptions is not None else None
         row.warnings_json = json.dumps(warnings) if warnings is not None else None
         row.steps_json = json.dumps(steps) if steps is not None else None
+        row.checks_json = json.dumps(checks) if checks is not None else None
+        row.checklist_json = json.dumps(checklist) if checklist is not None else None
+        row.verdict = verdict
         row.prompt_tokens = prompt_tokens
         row.completion_tokens = completion_tokens
         row.cost_usd = cost_usd

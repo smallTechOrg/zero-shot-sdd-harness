@@ -7,5 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import uvicorn
 
+from config.settings import get_settings
+
 if __name__ == "__main__":
-    uvicorn.run("api:app", host="127.0.0.1", port=8001, reload=False)
+    uvicorn.run("api:app", host="127.0.0.1", port=get_settings().port, reload=False)

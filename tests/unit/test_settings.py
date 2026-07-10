@@ -1,4 +1,4 @@
-"""Settings — defaults, env overrides, provider key detection. No LLM key required.
+"""Settings — defaults, env overrides, Gemini key detection. No LLM key required.
 
 (LLM client provider-construction behaviour is covered by the graph slice's tests.)
 """
@@ -18,6 +18,7 @@ def test_project_defaults(monkeypatch):
     for var in (
         "AGENT_LLM_MODEL",
         "AGENT_ARTIFACTS_DIR",
+        "AGENT_PORT",
         "AGENT_GEMINI_INPUT_COST_PER_MTOK",
         "AGENT_GEMINI_OUTPUT_COST_PER_MTOK",
     ):
@@ -27,6 +28,7 @@ def test_project_defaults(monkeypatch):
     s = Settings(_env_file=None)  # pure code defaults — ignore the developer's .env
     assert s.llm_model == "gemini-2.5-pro"
     assert s.artifacts_dir == "data/artifacts"
+    assert s.port == 8001
     assert s.gemini_input_cost_per_mtok == 1.25
     assert s.gemini_output_cost_per_mtok == 10.0
     assert s.database_url == "sqlite:///./data/agent.db"
@@ -35,6 +37,11 @@ def test_project_defaults(monkeypatch):
 def test_artifacts_dir_env_override(monkeypatch, tmp_path):
     s = _fresh_settings(monkeypatch, tmp_path, AGENT_ARTIFACTS_DIR="/tmp/somewhere/else")
     assert s.artifacts_dir == "/tmp/somewhere/else"
+
+
+def test_port_env_override(monkeypatch, tmp_path):
+    s = _fresh_settings(monkeypatch, tmp_path, AGENT_PORT="8003")
+    assert s.port == 8003
 
 
 def test_cost_rates_env_override(monkeypatch, tmp_path):
@@ -52,19 +59,16 @@ def test_gemini_key_detected_from_env(monkeypatch, tmp_path):
     s = _fresh_settings(
         monkeypatch,
         tmp_path,
-        AGENT_ANTHROPIC_API_KEY="",
         AGENT_GEMINI_API_KEY="AIza-fake",
         AGENT_LLM_PROVIDER="",
     )
     assert s.gemini_api_key == "AIza-fake"
-    assert s.anthropic_api_key == ""
 
 
-def test_explicit_provider_wins(monkeypatch, tmp_path):
+def test_explicit_provider_setting(monkeypatch, tmp_path):
     s = _fresh_settings(
         monkeypatch,
         tmp_path,
-        AGENT_ANTHROPIC_API_KEY="sk-ant-fake",
         AGENT_GEMINI_API_KEY="AIza-fake",
         AGENT_LLM_PROVIDER="gemini",
     )

@@ -1,7 +1,9 @@
-"""Full-pipeline runs — real Gemini, tmp DB, real DXF/SVG artefacts on disk.
+"""Full-pipeline runs — real Gemini, tmp DB, real artefacts on disk.
 
-Needs all three backend slices (domain-engine, drawing, graph-llm); the drawing
-guard skips with a precise reason while the sibling slice is still landing.
+Phase 2: the canonical run exercises the WHOLE pipeline (sizing, frame
+analysis, IRS CBC checks + calc sheet, GA drawing, FE cross-check, 12-item
+proof-check, grounded memo, verdict) and the under-design demo act proves the
+user-triggered design → review → revise loop.
 """
 
 import json
@@ -12,6 +14,22 @@ import ezdxf
 CANONICAL_PROMPT = (
     "single box culvert, 4 m clear span, 3 m height, 2.5 m cushion, "
     "BG single line, 25t loading"
+)
+UNDER_DESIGN_PROMPT = (
+    "single box culvert, 4 m clear span, 3 m height, 2.5 m cushion, "
+    "BG single line, 25t loading, top slab only 200 mm"
+)
+
+VERDICTS = {"recommended_for_approval", "return_for_revision"}
+# spec/api.md checks[] row shape — exactly these keys are persisted.
+CHECK_ROW_KEYS = {"clause", "requirement", "computed", "limit", "status"}
+# The pinned full checklist item shape (frontend pre-paints its matrix from these).
+CHECKLIST_ITEM_KEYS = {
+    "item", "title", "clause", "requirement", "computed", "limit", "severity", "detail",
+}
+PHASE2_ARTEFACTS = (
+    "ga.dxf", "ga.svg", "calc_sheet.json", "compliance.json",
+    "proof_memo.md", "bmd.svg", "sfd.svg",
 )
 
 
@@ -28,6 +46,35 @@ def _artifact_dir(settings, run_id: str) -> Path:
     return Path(settings.artifacts_dir) / run_id
 
 
+def _assert_memo_is_grounded(row: dict, art_dir: Path) -> None:
+    """The memo on disk passes the grounding validator against the STORED
+    checklist — end-to-end proof that no LLM-invented number reached the memo."""
+    from domain.culvert import Assumption, CulvertParams
+    from engine import size_culvert
+    from proofcheck import memo_facts, validate_narration
+    from proofcheck.checklist import ChecklistItem, ProofCheckResult, reference_lines
+
+    params = CulvertParams(**_params(row))
+    geometry = size_culvert(params).geometry  # deterministic — same as the run's
+    compliance = json.loads((art_dir / "compliance.json").read_text(encoding="utf-8"))
+    result = ProofCheckResult(
+        items=[ChecklistItem(**item) for item in json.loads(row["checklist_json"])],
+        verdict=row["verdict"],
+        fe_agreement_pct=compliance["fe_agreement_pct"],
+        grounding_text="\n".join(reference_lines(params, geometry)),
+    )
+    facts = memo_facts(
+        result,
+        params=params,
+        geometry=geometry,
+        warnings=json.loads(row["warnings_json"] or "[]"),
+        assumptions=[Assumption(**a) for a in json.loads(row["assumptions_json"] or "[]")],
+    )
+    memo = (art_dir / "proof_memo.md").read_text(encoding="utf-8")
+    problems = validate_narration(memo, result, extra_facts=facts)
+    assert problems == [], f"memo failed grounding: {problems}"
+
+
 def test_canonical_prompt_completes_end_to_end(
     require_gemini, drawing_ready, make_session, run_and_wait, get_run,
     get_artifacts, _integration_settings,
@@ -36,11 +83,14 @@ def test_canonical_prompt_completes_end_to_end(
 
     run_id, events = run_and_wait(session_id, CANONICAL_PROMPT)
 
-    # Terminal event and persisted outcome
+    # Terminal event carries the rule-computed verdict (spec/api.md `done`)
     assert events[-1]["event"] == "done", f"events: {[e['event'] for e in events]}"
-    assert events[-1]["data"] == {"status": "completed", "verdict": None}
+    assert events[-1]["data"] == {
+        "status": "completed", "verdict": "recommended_for_approval",
+    }
     row = get_run(run_id)
     assert row["status"] == "completed"
+    assert row["verdict"] == "recommended_for_approval"
 
     # Extraction: the canonical parameters, exactly
     params = _params(row)
@@ -50,40 +100,77 @@ def test_canonical_prompt_completes_end_to_end(
     assert params["gauge"] == "BG"
     assert params["loading_standard"] == "25t-2008"
 
-    # Accounting: real tokens, real cost, real duration
+    # Accounting: 3 real LLM calls (understand + extract + review memo)
     assert row["prompt_tokens"] > 0
     assert row["cost_usd"] > 0
-    assert row["duration_ms"] > 0
     assert row["completed_at"] is not None
+    token_events = [e["data"] for e in events if e["event"] == "tokens"]
+    assert len(token_events) >= 4  # understand + extract + review + finalize total
+    assert token_events[-1]["cost_usd"] > 0
+    assert token_events[-1]["session_total_cost_usd"] >= token_events[-1]["cost_usd"]
 
-    # Step tracker persisted truthfully: stubs skipped, real steps done
+    # The 60 s budget (spec/roadmap.md success criterion)
+    print(f"\ncanonical full-run duration: {row['duration_ms']} ms")
+    assert 0 < row["duration_ms"] < 60_000
+
+    # Step tracker: every real step done, only the Phase-3 3D tag remains skipped
     steps = _steps(row)
-    assert steps["Understand"] == "done"
-    assert steps["Extract"] == "done"
-    assert steps["Analyse"] == "done"
-    assert steps["Check"] == "skipped"
-    assert steps["Draw"] == "done"
-    assert steps["Review"] == "skipped"
+    for name in ("Understand", "Extract", "Analyse", "Check", "Draw", "Review"):
+        assert steps[name] == "done", f"{name}: {steps[name]}"
 
-    # Artefacts on disk: genuine DXF (audit-clean) + SVG
+    # Artefacts on disk: the full Phase-2 set; the DXF still audits clean
     art_dir = _artifact_dir(_integration_settings, run_id)
-    dxf_path = art_dir / "ga.dxf"
-    svg_path = art_dir / "ga.svg"
-    assert dxf_path.exists() and dxf_path.stat().st_size > 0
-    assert svg_path.exists() and svg_path.stat().st_size > 0
-    auditor = ezdxf.readfile(dxf_path).audit()
+    for filename in PHASE2_ARTEFACTS:
+        path = art_dir / filename
+        assert path.exists() and path.stat().st_size > 0, filename
+    auditor = ezdxf.readfile(art_dir / "ga.dxf").audit()
     assert not auditor.has_errors, [str(e) for e in auditor.errors]
 
     # Artefact DB rows + SSE events with the API-contract URL shape
     artifacts = get_artifacts(run_id)
-    assert {a["kind"] for a in artifacts} == {"ga_dxf", "ga_svg"}
+    assert {a["kind"] for a in artifacts} == {
+        "ga_dxf", "ga_svg", "calc_sheet", "compliance", "proof_memo",
+        "bmd_svg", "sfd_svg",
+    }
     assert all(a["size_bytes"] > 0 for a in artifacts)
     artefact_events = [e["data"] for e in events if e["event"] == "artefact"]
-    assert [a["kind"] for a in artefact_events] == ["ga_dxf", "ga_svg"]
     for data in artefact_events:
         assert data["url"] == f"/api/designs/{run_id}/artifacts/{data['filename']}"
 
-    # The design plan streams before extraction completes
+    # SSE ordering: the calc sheet streams BEFORE the drawing, which streams
+    # BEFORE the proof-check outputs (calc-sheet.md success criterion)
+    kinds = [a["kind"] for a in artefact_events]
+    assert kinds == [
+        "calc_sheet", "ga_dxf", "ga_svg", "bmd_svg", "sfd_svg",
+        "compliance", "proof_memo",
+    ]
+    assert kinds.index("calc_sheet") < kinds.index("ga_svg") < kinds.index("compliance")
+
+    # checks_json: 13 IRS CBC rows, all PASS, exactly the api.md keys
+    checks = json.loads(row["checks_json"])
+    assert len(checks) == 13
+    for check_row in checks:
+        assert set(check_row) == CHECK_ROW_KEYS
+        assert check_row["status"] == "PASS"
+        assert check_row["clause"] and check_row["computed"] and check_row["limit"]
+
+    # checklist_json: the 12 pinned full-field items; sound design ⇒ no non-conformity
+    checklist = json.loads(row["checklist_json"])
+    assert [item["item"] for item in checklist] == list(range(1, 13))
+    for item in checklist:
+        assert set(item) == CHECKLIST_ITEM_KEYS
+        assert item["severity"] in {"PASS", "OBSERVATION"}
+
+    # calc sheet: four sections, member-check lines carry status
+    sheet = json.loads((art_dir / "calc_sheet.json").read_text(encoding="utf-8"))
+    assert [s["id"] for s in sheet["sections"]] == [
+        "design_basis", "loading", "analysis", "member_checks",
+    ]
+
+    # Memo grounding, end to end against the STORED run record
+    _assert_memo_is_grounded(row, art_dir)
+
+    # The design plan still streams before extraction completes (Phase-1 regression)
     event_kinds = [
         (e["event"], e["data"].get("step"), e["data"].get("status")) for e in events
     ]
@@ -93,11 +180,65 @@ def test_canonical_prompt_completes_end_to_end(
     )
     assert first_narration < extract_done
 
-    # Running token events after every LLM call, plus the finalize total
-    token_events = [e["data"] for e in events if e["event"] == "tokens"]
-    assert len(token_events) >= 3  # understand + extract + finalize
-    assert token_events[-1]["cost_usd"] > 0
-    assert token_events[-1]["session_total_cost_usd"] >= token_events[-1]["cost_usd"]
+
+def test_under_design_is_caught_then_revised_to_approval(
+    require_gemini, drawing_ready, make_session, run_and_wait, get_run,
+    _integration_settings,
+):
+    """The demo money-shot: thin top slab → return_for_revision naming the top
+    slab; the user-triggered revise turn recovers the verdict (proof-check.md)."""
+    session_id = make_session()
+
+    run_id, events = run_and_wait(session_id, UNDER_DESIGN_PROMPT)
+
+    # Completed WITH warnings — an under-design is graded, never silently fixed
+    assert events[-1]["data"] == {
+        "status": "completed", "verdict": "return_for_revision",
+    }
+    row = get_run(run_id)
+    assert row["status"] == "completed"
+    assert row["verdict"] == "return_for_revision"
+    assert _params(row)["top_slab_thickness_mm"] == 200.0
+
+    warnings = json.loads(row["warnings_json"])
+    assert any("thinner" in w.lower() for w in warnings)
+    warning_events = [e["data"]["message"] for e in events if e["event"] == "warning"]
+    assert any("thinner" in message.lower() for message in warning_events)
+
+    # FAIL check rows name the top slab (api.md keys only — member is in the text)
+    checks = json.loads(row["checks_json"])
+    failing = [c for c in checks if c["status"] == "FAIL"]
+    assert failing
+    assert all("Top slab" in c["requirement"] for c in failing)
+
+    # Flexure/shear graded MAJOR; the memo names the failing member
+    checklist = {item["item"]: item for item in json.loads(row["checklist_json"])}
+    assert checklist[7]["severity"] == "NON_CONFORMITY_MAJOR"
+    assert checklist[8]["severity"] == "NON_CONFORMITY_MAJOR"
+    art_dir = _artifact_dir(_integration_settings, run_id)
+    memo = (art_dir / "proof_memo.md").read_text(encoding="utf-8")
+    assert "RETURN FOR REVISION" in memo
+    assert "top slab" in memo.lower()
+    _assert_memo_is_grounded(row, art_dir)
+
+    # The revise loop: a corrective refinement in the SAME session recovers
+    revise_id, revise_events = run_and_wait(session_id, "increase the top slab to 450 mm")
+
+    assert revise_events[-1]["data"] == {
+        "status": "completed", "verdict": "recommended_for_approval",
+    }
+    revise_row = get_run(revise_id)
+    revise_params = _params(revise_row)
+    assert revise_params["top_slab_thickness_mm"] == 450.0
+    assert revise_params["clear_span_m"] == 4.0     # carried forward
+    assert revise_params["cushion_m"] == 2.5        # carried forward
+    assert all(
+        c["status"] == "PASS" for c in json.loads(revise_row["checks_json"])
+    )
+    revise_memo = (
+        _artifact_dir(_integration_settings, revise_id) / "proof_memo.md"
+    ).read_text(encoding="utf-8")
+    assert "RECOMMENDED FOR APPROVAL" in revise_memo
 
 
 def test_refinement_turn_carries_params_forward_and_regenerates(
@@ -110,16 +251,20 @@ def test_refinement_turn_carries_params_forward_and_regenerates(
 
     second_id, second_events = run_and_wait(session_id, "increase the fill to 4 m")
 
-    assert second_events[-1]["data"] == {"status": "completed", "verdict": None}
+    done = second_events[-1]["data"]
+    assert done["status"] == "completed"
+    assert done["verdict"] in VERDICTS  # graded either way — never None in Phase 2
     second = get_run(second_id)
+    assert second["verdict"] == done["verdict"]
     params = _params(second)
     assert params["cushion_m"] == 4.0            # the one named change
     assert params["clear_span_m"] == 4.0         # carried forward
     assert params["clear_height_m"] == 3.0       # carried forward
 
-    # Full regeneration: the new run has its own artefacts on disk
-    assert (_artifact_dir(_integration_settings, second_id) / "ga.dxf").exists()
-    assert (_artifact_dir(_integration_settings, second_id) / "ga.svg").exists()
+    # Full regeneration: the new run has its own Phase-2 artefact set on disk
+    art_dir = _artifact_dir(_integration_settings, second_id)
+    for filename in PHASE2_ARTEFACTS:
+        assert (art_dir / filename).exists(), filename
 
     # History intact: both runs keep their own params (audit trail)
     first = get_run(first_id)
@@ -136,16 +281,19 @@ def test_clarification_answer_completes_the_original_request(
 ):
     session_id = make_session()
     first_id, first_events = run_and_wait(session_id, "box culvert 3 m height, 2 m cushion")
-    assert first_events[-1]["data"]["status"] == "needs_input"
+    assert first_events[-1]["data"] == {"status": "needs_input", "verdict": None}
 
     second_id, second_events = run_and_wait(session_id, "4.5 m")
 
-    assert second_events[-1]["data"] == {"status": "completed", "verdict": None}
+    done = second_events[-1]["data"]
+    assert done["status"] == "completed"
+    assert done["verdict"] in VERDICTS
     params = _params(get_run(second_id))
     assert params["clear_span_m"] == 4.5         # the answer
     assert params["clear_height_m"] == 3.0       # from the original request
     assert params["cushion_m"] == 2.0            # from the original request
     assert (_artifact_dir(_integration_settings, second_id) / "ga.dxf").exists()
+    assert (_artifact_dir(_integration_settings, second_id) / "proof_memo.md").exists()
 
 
 def test_abnormally_high_cushion_is_flagged_and_run_proceeds(
@@ -158,7 +306,9 @@ def test_abnormally_high_cushion_is_flagged_and_run_proceeds(
         session_id, "box culvert 4000 mm clear span, 3 m height, 9 m cushion"
     )
 
-    assert events[-1]["data"] == {"status": "completed", "verdict": None}
+    done = events[-1]["data"]
+    assert done["status"] == "completed"
+    assert done["verdict"] in VERDICTS  # flagged and graded — never blocked
     row = get_run(run_id)
     params = _params(row)
     assert params["clear_span_m"] == 4.0         # mm → m conversion

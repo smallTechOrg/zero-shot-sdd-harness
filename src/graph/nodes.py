@@ -1,10 +1,13 @@
 """The ten pipeline nodes per spec/agent.md.
 
-LLM nodes (understand, extract) orchestrate and narrate; every engineering
-computation is deterministic. Phase 1: check / model3d / review are labelled
-skip-stubs; analyse is the sizing subset; draw produces the real GA DXF + SVG.
-Every node body is wrapped — exceptions set state["error"] and route to
-handle_error (clarify/finalize/handle_error propagate to the runner's catch-all).
+LLM nodes (understand, extract, and the review memo narration) orchestrate and
+narrate; every engineering computation is deterministic. Phase 2: analyse runs
+the full IRS engine (sizing + load cases + frame analysis), check runs the IRS
+CBC member checks and streams the calc sheet, review runs the automatic
+proof-check (FE cross-check, 12-item checklist, grounded memo). model3d stays
+a labelled Phase-3 skip-stub. Every node body is wrapped — exceptions set
+state["error"] and route to handle_error (clarify/finalize/handle_error
+propagate to the runner's catch-all).
 """
 
 import functools
@@ -14,8 +17,18 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ValidationError
 
 from config.settings import get_settings
-from domain.culvert import Assumption, BoxGeometry, CulvertParams, unusual_value_warnings
+from domain.culvert import (
+    AnalysisResult,
+    Assumption,
+    BoxGeometry,
+    CalcStep,
+    CulvertParams,
+    unusual_value_warnings,
+)
 from engine import size_culvert
+from engine.analysis import analyse_frame
+from engine.calcsheet import compose_calc_sheet
+from engine.checks import MEMBER_LABELS, CheckResult, run_member_checks
 from graph import persistence
 from graph.accounting import compute_cost_usd, run_totals
 from graph.extraction import (
@@ -32,8 +45,19 @@ from observability.progress import publish
 
 _PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
-_ARTIFACT_MIME = {"ga_dxf": "image/vnd.dxf", "ga_svg": "image/svg+xml"}
+_ARTIFACT_MIME = {
+    "ga_dxf": "image/vnd.dxf",
+    "ga_svg": "image/svg+xml",
+    "calc_sheet": "application/json",
+    "compliance": "application/json",
+    "proof_memo": "text/markdown",
+    "bmd_svg": "image/svg+xml",
+    "sfd_svg": "image/svg+xml",
+}
 _ARTIFACT_ORDER = ("ga_dxf", "ga_svg")
+
+# The spec/api.md `checks[]` row shape — exactly these keys are persisted.
+_CHECK_ROW_KEYS = ("clause", "requirement", "computed", "limit", "status")
 
 
 class UnderstandResult(BaseModel):
@@ -127,6 +151,38 @@ def _record_llm_call(state: AgentState, node: str, result: LLMResult) -> list[di
 
 def _narrate(state: AgentState, text: str) -> None:
     publish(state["run_id"], "narration", {"text": text})
+
+
+def _artifacts_dir(state: AgentState) -> Path:
+    out_dir = Path(get_settings().artifacts_dir) / state["run_id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _emit_artifact(
+    state: AgentState, artefacts: list[dict], kind: str, path: Path, node: str
+) -> None:
+    """Record the artifact DB row, publish the `artefact` SSE event, log it.
+
+    Called the moment each file is written — artefact delivery is incremental
+    (the calc sheet streams before draw/review complete by node order).
+    """
+    run_id = state["run_id"]
+    size_bytes = path.stat().st_size
+    persistence.record_artifact(run_id, kind, path.name, _ARTIFACT_MIME[kind], size_bytes)
+    publish(
+        run_id,
+        "artefact",
+        {
+            "kind": kind,
+            "filename": path.name,
+            "url": f"/api/designs/{run_id}/artifacts/{path.name}",
+        },
+    )
+    artefacts.append({"kind": kind, "filename": path.name})
+    _log(state, node).info(
+        "artefact_written", kind=kind, filename=path.name, size_bytes=size_bytes
+    )
 
 
 # --------------------------------------------------------------------------- nodes
@@ -292,42 +348,115 @@ def clarify(state: AgentState) -> dict:
 
 @_node
 def analyse(state: AgentState) -> dict:
+    """Deterministic IRS engine: sizing, then load cases + rigid-frame analysis."""
     tracker = StepTracker(state)
-    tracker.mark("Analyse", "active", detail="Running the IRS sizing engine")
+    tracker.mark("Analyse", "active", detail="Running the IRS engine")
     try:
         params = CulvertParams(**state["params"])
         _narrate(state, f"Sizing members for {params.clear_span_m:g} m span…")
-        result = size_culvert(params)
-        for warning in result.warnings:
+        sizing = size_culvert(params)
+        for warning in sizing.warnings:
             publish(state["run_id"], "warning", {"message": warning})
-        geometry = result.geometry
+        geometry = sizing.geometry
+
+        analysis = analyse_frame(params, geometry)
+        _narrate(
+            state,
+            f"Analysing {len(analysis.load_cases)} load cases across "
+            f"{len(analysis.combinations)} combinations…",
+        )
         tracker.mark(
             "Analyse",
             "done",
             detail=(
-                f"Top slab {geometry.top_slab_thickness_mm:g} mm, walls "
-                f"{geometry.wall_thickness_mm:g} mm, barrel {geometry.barrel_length_m:g} m"
+                f"{len(analysis.load_cases)} load cases, "
+                f"{len(analysis.combinations)} combinations; top slab "
+                f"{geometry.top_slab_thickness_mm:g} mm, walls "
+                f"{geometry.wall_thickness_mm:g} mm"
             ),
         )
         return {
             "geometry": geometry.model_dump(),
+            "analysis": analysis.model_dump(),
             "assumptions": list(state.get("assumptions") or [])
-            + [a.model_dump() for a in result.assumptions],
-            "trail": [step.model_dump() for step in result.trail],
-            "warnings": list(state.get("warnings") or []) + result.warnings,
+            + [a.model_dump() for a in sizing.assumptions]
+            + [a.model_dump() for a in analysis.assumptions],
+            # Engine-ordered trail segments retained for the calc-sheet composer.
+            "trail_segments": [
+                [step.model_dump() for step in sizing.trail],
+                [step.model_dump() for step in analysis.trail],
+            ],
+            "warnings": list(state.get("warnings") or []) + sizing.warnings,
             "steps": tracker.steps,
         }
     except Exception as exc:
         tracker.mark("Analyse", "failed", detail=str(exc))
-        return {"steps": tracker.steps, "error": f"Sizing the culvert failed: {exc}"}
+        return {"steps": tracker.steps, "error": f"IRS engine analysis failed: {exc}"}
 
 
 @_node
 def check(state: AgentState) -> dict:
-    """Phase-1 labelled skip-stub — IRS CBC member checks land in Phase 2."""
+    """IRS CBC member checks + the clause-cited calc sheet (streams immediately).
+
+    FAIL rows never fail the run — they flow to the proof-check, which grades
+    them (the deliberate under-design demo case depends on this).
+    """
     tracker = StepTracker(state)
-    tracker.mark("Check", "skipped", detail="Coming in Phase 2")
-    return {"steps": tracker.steps}
+    tracker.mark("Check", "active", detail="IRS CBC member checks")
+    try:
+        params = CulvertParams(**state["params"])
+        geometry = BoxGeometry(**state["geometry"])
+        analysis = AnalysisResult(**state["analysis"])
+        _narrate(
+            state,
+            "Checking members to IRS CBC — flexure, shear, minimum steel, "
+            "cover, crack control…",
+        )
+        output = run_member_checks(analysis, geometry, params)
+
+        assumptions = list(state.get("assumptions") or []) + [
+            a.model_dump() for a in output.assumptions
+        ]
+        segments = [
+            [CalcStep(**step) for step in segment]
+            for segment in (state.get("trail_segments") or [])
+        ] + [output.trail]
+        sheet_path = compose_calc_sheet(
+            trail=segments,
+            checks=output.checks,
+            assumptions=[Assumption(**a) for a in assumptions],
+            warnings=list(state.get("warnings") or []),
+            params=params,
+            geometry=geometry,
+            out_dir=_artifacts_dir(state),
+        )
+        artefacts = list(state.get("artefacts") or [])
+        # The calc sheet streams BEFORE draw/review by node order (calc-sheet.md).
+        _emit_artifact(state, artefacts, "calc_sheet", sheet_path, "check")
+
+        failing = [row for row in output.checks if row.status != "PASS"]
+        if failing:
+            members = ", ".join(
+                sorted({MEMBER_LABELS.get(row.member, row.member) for row in failing})
+            )
+            _narrate(
+                state,
+                f"{len(failing)} of {len(output.checks)} checks FAIL ({members}) — "
+                "the proof-check will grade them.",
+            )
+            detail = f"{len(failing)} of {len(output.checks)} checks FAIL ({members})"
+        else:
+            detail = f"All {len(output.checks)} checks PASS"
+        tracker.mark("Check", "done", detail=detail)
+        return {
+            "checks": [row.model_dump() for row in output.checks],
+            "assumptions": assumptions,
+            "artefacts": artefacts,
+            "steps": tracker.steps,
+        }
+    except Exception as exc:
+        tracker.mark("Check", "failed", detail=str(exc))
+        return {"steps": tracker.steps, "error": f"IRS CBC member checks failed: {exc}"}
 
 
 @_node
@@ -340,32 +469,14 @@ def draw(state: AgentState) -> dict:
         run_id = state["run_id"]
         geometry = BoxGeometry(**state["geometry"])
         params = CulvertParams(**state["params"])
-        out_dir = Path(get_settings().artifacts_dir) / run_id
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = _artifacts_dir(state)
         _narrate(state, "Drawing the GA sheet — plan, sections, dimensions…")
 
         paths = generate_ga(geometry, params, out_dir, run_id=run_id)
 
         artefacts = list(state.get("artefacts") or [])
         for kind in _ARTIFACT_ORDER:
-            path = paths[kind]
-            size_bytes = path.stat().st_size
-            persistence.record_artifact(
-                run_id, kind, path.name, _ARTIFACT_MIME[kind], size_bytes
-            )
-            publish(
-                run_id,
-                "artefact",
-                {
-                    "kind": kind,
-                    "filename": path.name,
-                    "url": f"/api/designs/{run_id}/artifacts/{path.name}",
-                },
-            )
-            artefacts.append({"kind": kind, "filename": path.name})
-            _log(state, "draw").info(
-                "artefact_written", kind=kind, filename=path.name, size_bytes=size_bytes
-            )
+            _emit_artifact(state, artefacts, kind, paths[kind], "draw")
         tracker.mark("Draw", "done", detail="GA drawing ready (DXF + SVG)")
         return {"artefacts": artefacts, "steps": tracker.steps}
     except Exception as exc:
@@ -387,17 +498,128 @@ def model3d(state: AgentState) -> dict:
 
 @_node
 def review(state: AgentState) -> dict:
-    """Phase-1 labelled skip-stub — the automatic proof-check lands in Phase 2."""
+    """The automatic proof-check: FE cross-check → 12-item checklist → memo.
+
+    ONE Gemini call narrates the memo from the deterministic facts (1 retry
+    with backoff inside the provider, then the run fails transparently). A
+    narration that fails the grounding validator is NOT fatal — the memo falls
+    back to the fully deterministic composition. The verdict is computed by
+    rule in `run_checklist`, never by the LLM.
+    """
     tracker = StepTracker(state)
-    tracker.mark("Review", "skipped", detail="Coming in Phase 2")
-    return {"steps": tracker.steps}
+    tracker.mark("Review", "active", detail="Independent proof-check")
+    try:
+        # Heavy deterministic deps (anastruct/matplotlib/ezdxf) load lazily here.
+        from engine.fe_check import BMD_FILENAME, SFD_FILENAME, cross_check
+        from proofcheck import (
+            COMPLIANCE_FILENAME,
+            PROOF_MEMO_FILENAME,
+            VERDICT_APPROVAL,
+            memo_facts,
+            render_memo,
+            run_checklist,
+            validate_narration,
+        )
+        from proofcheck.checklist import SEVERITY_MAJOR
+
+        params = CulvertParams(**state["params"])
+        geometry = BoxGeometry(**state["geometry"])
+        analysis = AnalysisResult(**state["analysis"])
+        checks = [CheckResult(**row) for row in (state.get("checks") or [])]
+        warnings = list(state.get("warnings") or [])
+        assumptions = [Assumption(**a) for a in (state.get("assumptions") or [])]
+        out_dir = _artifacts_dir(state)
+        artefacts = list(state.get("artefacts") or [])
+
+        _narrate(state, "Re-solving the frame independently (anaStruct FE cross-check)…")
+        fe = cross_check(params, geometry, analysis, out_dir)
+        _emit_artifact(state, artefacts, "bmd_svg", out_dir / BMD_FILENAME, "review")
+        _emit_artifact(state, artefacts, "sfd_svg", out_dir / SFD_FILENAME, "review")
+
+        _narrate(state, "Evaluating the 12-item proof-check checklist…")
+        result = run_checklist(
+            params=params,
+            geometry=geometry,
+            analysis=analysis,
+            checks=checks,
+            fe=fe,
+            ga_dxf_path=out_dir / "ga.dxf",
+            out_dir=out_dir,
+        )
+        _emit_artifact(
+            state, artefacts, "compliance", out_dir / COMPLIANCE_FILENAME, "review"
+        )
+
+        _narrate(state, "Drafting the proof-check memo…")
+        facts = memo_facts(
+            result,
+            params=params,
+            geometry=geometry,
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+        llm = LLMClient().generate(
+            facts, system=_load_prompt("memo.md"), temperature=0.2
+        )
+        token_usage = _record_llm_call(state, "review", llm)
+        narration: str | None = (llm.text or "").strip()
+        problems = validate_narration(narration, result, extra_facts=facts)
+        if problems:
+            # Rejection is never fatal — the memo stands fully deterministic.
+            publish(
+                state["run_id"],
+                "warning",
+                {
+                    "message": "The LLM memo narration failed the deterministic "
+                    "grounding validation and was discarded — the memo is fully "
+                    "deterministic."
+                },
+            )
+            _log(state, "review").warning("memo_narration_rejected", problems=problems)
+            narration = None
+        memo_md = render_memo(
+            result,
+            narration,
+            params=params,
+            geometry=geometry,
+            warnings=warnings,
+            assumptions=assumptions,
+        )
+        memo_path = out_dir / PROOF_MEMO_FILENAME
+        memo_path.write_text(memo_md, encoding="utf-8")
+        _emit_artifact(state, artefacts, "proof_memo", memo_path, "review")
+
+        if result.verdict == VERDICT_APPROVAL:
+            detail = (
+                f"Recommended for approval — FE agreement {result.fe_agreement_pct:g}%"
+            )
+        else:
+            majors = sum(1 for item in result.items if item.severity == SEVERITY_MAJOR)
+            detail = f"Return for revision — {majors} major non-conformities"
+        tracker.mark("Review", "done", detail=detail)
+        return {
+            "fe_comparison": fe.model_dump(),
+            "checklist": [item.model_dump() for item in result.items],
+            "verdict": result.verdict,
+            "artefacts": artefacts,
+            "token_usage": token_usage,
+            "steps": tracker.steps,
+        }
+    except Exception as exc:
+        tracker.mark("Review", "failed", detail=str(exc))
+        return {"steps": tracker.steps, "error": f"The automatic proof-check failed: {exc}"}
 
 
 @_node
 def finalize(state: AgentState) -> dict:
     status = "completed" if state.get("in_scope", True) else "out_of_scope"
+    verdict = state.get("verdict")
     prompt_tokens, completion_tokens = run_totals(state.get("token_usage") or [])
     cost_usd = compute_cost_usd(prompt_tokens, completion_tokens)
+    # checks_json rows carry EXACTLY the spec/api.md keys.
+    check_rows = [
+        {key: row[key] for key in _CHECK_ROW_KEYS} for row in (state.get("checks") or [])
+    ]
     persistence.finish_run(
         state["run_id"],
         status=status,
@@ -407,6 +629,9 @@ def finalize(state: AgentState) -> dict:
         assumptions=state.get("assumptions"),
         warnings=state.get("warnings"),
         steps=state.get("steps"),
+        checks=check_rows or None,
+        checklist=state.get("checklist") or None,
+        verdict=verdict,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=cost_usd,
@@ -424,10 +649,11 @@ def finalize(state: AgentState) -> dict:
             ),
         },
     )
-    publish(state["run_id"], "done", {"status": status, "verdict": None})
+    publish(state["run_id"], "done", {"status": status, "verdict": verdict})
     _log(state, "finalize").info(
         "run_outcome",
         status=status,
+        verdict=verdict,
         duration_ms=duration_ms(state),
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

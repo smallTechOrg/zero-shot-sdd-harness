@@ -99,9 +99,9 @@ def get_run():
         columns = (
             "id", "session_id", "prompt", "status", "plan_text", "scope_message",
             "clarification_question", "params_json", "assumptions_json",
-            "warnings_json", "steps_json", "verdict", "prompt_tokens",
-            "completion_tokens", "cost_usd", "error_message", "started_at",
-            "completed_at", "duration_ms",
+            "warnings_json", "steps_json", "checks_json", "checklist_json",
+            "verdict", "prompt_tokens", "completion_tokens", "cost_usd",
+            "error_message", "started_at", "completed_at", "duration_ms",
         )
         with create_db_session() as session:
             row = session.get(DesignRunRow, run_id)

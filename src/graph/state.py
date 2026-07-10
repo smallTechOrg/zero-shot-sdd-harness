@@ -28,12 +28,12 @@ class AgentState(TypedDict, total=False):
     # Deterministic pipeline (populated progressively)
     geometry: dict | None            # BoxGeometry
     assumptions: list[dict]          # Assumption records (value + source)
-    trail: list[dict]                # CalcStep records from the engine
-    analysis: dict | None            # AnalysisResult (Phase 2)
-    checks: list[dict]               # CheckResult rows (Phase 2)
-    fe_comparison: dict | None       # FE-vs-closed-form diff (Phase 2)
-    checklist: list[dict]            # 12-item proof-check results (Phase 2)
-    verdict: str | None              # Phase 2
+    trail_segments: list[list[dict]] # CalcStep segments in engine order (sizing, analysis)
+    analysis: dict | None            # AnalysisResult
+    checks: list[dict]               # full CheckResult rows (api.md keys + provenance)
+    fe_comparison: dict | None       # FeComparison — FE-vs-closed-form diff
+    checklist: list[dict]            # 12-item proof-check results (full item dicts)
+    verdict: str | None              # "recommended_for_approval" | "return_for_revision"
     artefacts: list[dict]            # [{kind, filename}] as written
     suggestions: list[str]           # Phase 3
 

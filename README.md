@@ -2,7 +2,7 @@
 
 > **All commands run from the repo root.** The repo root IS the project — there is no subdirectory to `cd` into (the only exception is the explicit `cd frontend` step in the frontend build).
 
-An agentic AI demonstrator for Indian Railways civil engineering: it designs single-cell RCC box culverts from natural-language requests and proof-checks its own design. From one prompt it streams a visible plan, extracts typed parameters with Gemini, runs a deterministic IRS engineering core (no LLM in the maths), and produces a dimensioned GA drawing as genuine DXF plus in-browser SVG — with a clause-cited calc sheet, automatic proof-check memo, and 3D model landing in later phases. Everything runs on your laptop; the only network call is the Gemini API.
+An agentic AI demonstrator for Indian Railways civil engineering: it designs single-cell RCC box culverts from natural-language requests and proof-checks its own design. From one prompt it streams a visible plan, extracts typed parameters with Gemini, runs a deterministic IRS engineering core (no LLM in the maths — 25t Loading-2008 EUDL + CDA, all load cases, closed-form rigid-frame analysis, IRS CBC member checks), and produces: a clause-cited calculation sheet with a drill-down trail, a dimensioned GA drawing as genuine DXF plus in-browser SVG, and an automatic proof-check — independent anaStruct FE cross-check with BMD/SFD diagrams, a 12-item compliance matrix, and a severity-graded memo with a rule-computed verdict. The 3D model and design library land in Phase 3. Everything runs on your laptop; the only network call is the Gemini API.
 
 ## Setup
 
@@ -47,13 +47,15 @@ Try the canonical prompt:
 single box culvert, 4 m clear span, 3 m height, 2.5 m cushion, BG single line, 25t loading
 ```
 
-Watch the six-step tracker, then open the Drawing tab: pan/zoom the GA sheet and click **Download DXF** (opens in AutoCAD and free viewers). A follow-up like `increase the fill to 4 m` regenerates the drawing in the same session.
+Watch the six-step tracker: the Calc Sheet tab fills first (click any number to expand its formula and inputs), then the Drawing tab (pan/zoom, **Download DXF** — opens in AutoCAD and free viewers), then the Proof-Check tab (verdict banner, memo, 12-row compliance matrix, BMD/SFD). A follow-up like `increase the fill to 4 m` regenerates everything in the same session.
+
+The demo money-shot: add `, top slab only 200 mm` to the canonical prompt → FAIL rows in the calc sheet and a red "Return for revision" verdict naming the thin slab; then type `increase the top slab to 450 mm` → the verdict recovers.
 
 ## Test
 
 ```bash
-uv run pytest tests/unit -q                # no API key needed
-uv run pytest tests/integration -q         # runs the real Gemini pipeline — needs AGENT_GEMINI_API_KEY in .env
+uv run pytest tests/unit -q                                # no API key needed
+uv run pytest tests/unit tests/validation tests/integration -q   # the Phase-2 gate: fixtures V1–V4 + real-Gemini full pipeline (needs AGENT_GEMINI_API_KEY in .env)
 npx playwright test tests/e2e              # E2E — boots the server itself via `uv run python -m src`
 ```
 
@@ -62,12 +64,12 @@ npx playwright test tests/e2e              # E2E — boots the server itself via
 | Feature | Status |
 |---------|--------|
 | NL prompt → parameter extraction (Gemini), incl. one-clarifying-question + scope gate | **Real (Phase 1)** |
-| Deterministic IRS sizing engine (member sizing, geometry, assumptions trail) | **Real (Phase 1)** |
+| Deterministic IRS engine — sizing, 25t-2008 loading, load cases, rigid-frame analysis, IRS CBC member checks | **Real (Phase 2)** |
+| Calc Sheet — clause-cited sheet with total drill-down trail, streams before the drawing | **Real (Phase 2)** |
+| Proof-check — anaStruct FE cross-check (BMD/SFD), 12-item compliance matrix, grounded memo, rule-computed verdict | **Real (Phase 2)** |
 | GA drawing — genuine DXF + pan/zoom SVG in the browser | **Real (Phase 1)** |
-| Session turn memory + refinement regeneration | **Real (Phase 1)** |
-| Live step tracker, narration, tokens/cost display (SSE) | **Real (Phase 1)** |
-| Calc Sheet tab (clause-cited sheet, drill-down trail) | Labelled stub — coming in Phase 2 |
-| Proof-Check tab (12-item checklist, FE cross-check, verdict memo) | Labelled stub — coming in Phase 2 |
+| Session turn memory + refinement regeneration (the review → revise loop) | **Real (Phase 1–2)** |
+| Live step tracker, narration, tokens/cost display (SSE), structlog JSON logs | **Real (Phase 1–2)** |
 | 3D Model tab (GLB viewer + STEP download) | Labelled stub — coming in Phase 3 |
 | Library tab (all past runs, presets editing) + suggestion chips | Labelled stub — coming in Phase 3 |
 
@@ -78,6 +80,7 @@ All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required.
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `AGENT_GEMINI_API_KEY` | **yes** | — | Google AI Studio key; used for all agent LLM steps |
+| `AGENT_PORT` | no | `8001` | Server port for `uv run python -m src` (host stays 127.0.0.1) |
 | `AGENT_DATABASE_URL` | no | `sqlite:///./data/agent.db` | SQLite audit-trail DB (SQLite IS production for this local demo) |
 | `AGENT_ARTIFACTS_DIR` | no | `data/artifacts` | Root for generated artefact files (`<run_id>/ga.dxf`, `ga.svg`, ...) |
 | `AGENT_LLM_PROVIDER` | no | auto-detected | `gemini` for this project |
@@ -90,8 +93,9 @@ All are read from `.env` (prefix `AGENT_`). Only the Gemini key is required.
 
 ```
 src/            FastAPI API (api/), LangGraph agent (graph/), Gemini client (llm/),
-                deterministic IRS core (engine/, drawing/), SQLite audit trail (db/),
-                settings (config/), typed domain models (domain/), observability/
+                deterministic IRS core (engine/, drawing/, proofcheck/), SQLite audit
+                trail (db/), settings (config/), typed domain models (domain/),
+                observability/ (structlog JSON + SSE progress bus)
 frontend/       Next.js static export (served at /app)
 alembic/        DB migrations (0002 = culvert schema + seeded default preset)
 tests/          unit/ (no key), integration/ (real Gemini), e2e/ (Playwright)

@@ -13,15 +13,17 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./data/agent.db")
     log_level: str = Field(default="INFO")
 
+    # Server bind port for `uv run python -m src` (host stays 127.0.0.1).
+    port: int = Field(default=8001)
+
     # Artefact files (DXF/SVG/JSON/...) live under <artifacts_dir>/<run_id>/.
     artifacts_dir: str = Field(default="data/artifacts")
 
-    # LLM provider — auto-detected from whichever key is set if left blank
-    llm_provider: str = Field(default="")   # "anthropic" | "gemini"
+    # LLM provider — this project pins Gemini for ALL agent steps.
+    llm_provider: str = Field(default="")   # "gemini"
     llm_model: str = Field(default="gemini-2.5-pro")
 
-    # Provider keys — set exactly one
-    anthropic_api_key: str = Field(default="")
+    # Gemini API key — required at runtime; lives only in .env (never in code).
     gemini_api_key: str = Field(default="")
 
     # Gemini 2.5 Pro pricing per million tokens (USD) — env-overridable so a

@@ -9,15 +9,19 @@ ALL exceptions: a run can fail, but it can never stall silently.
 import threading
 import time
 
+from config.settings import get_settings
 from graph import persistence
 from graph.agent import compiled_graph
 from graph.state import AgentState
 from graph.steps import initial_steps
 from observability import progress
-from observability.events import get_logger
+from observability.events import configure_logging, get_logger
 
 
 def start_design_run(session_id: str, prompt: str, preset_id: str | None = None) -> str:
+    # Idempotent: the app configures structlog at startup, but the runner can be
+    # entered directly (tests, scripts) — background-thread logs stay JSON either way.
+    configure_logging(get_settings().log_level)
     run_id = persistence.create_run_row(session_id, prompt)
     state: AgentState = {
         "run_id": run_id,
@@ -35,7 +39,12 @@ def start_design_run(session_id: str, prompt: str, preset_id: str | None = None)
         "clarification_question": None,
         "geometry": None,
         "assumptions": [],
-        "trail": [],
+        "trail_segments": [],
+        "analysis": None,
+        "checks": [],
+        "fe_comparison": None,
+        "checklist": [],
+        "verdict": None,
         "artefacts": [],
         "token_usage": [],
         "steps": initial_steps(),
