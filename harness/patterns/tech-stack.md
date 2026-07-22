@@ -1,84 +1,104 @@
 # Tech-Stack Rules
 
-Generic engineering rules that hold for **every** project, whatever stack is chosen. The project's *chosen* stack (language, framework, LLM provider/model, database, libraries) is recorded in `spec/architecture.md` under `## Stack`. This file is the permanent doctrine the spec-writer (filling the `## Stack`) and the frontend/code-generators (implementing against it) follow — it is not edited per project.
+Generic engineering rules that hold for **every** project, whatever stack is chosen — Python, TypeScript,
+Go, Ruby, a static site generator, anything. The project's *chosen* stack (language, framework, LLM
+provider/model if any, database, libraries) is recorded in `spec/architecture.md` under `## Stack`. This
+file is the permanent doctrine the spec-writer (filling the `## Stack`) and the code-generators
+(implementing against it) follow — it is not edited per project.
 
 ---
 
-## Default Dev Port
+## Dev Port / Local Run Rule
 
-All generated projects **must** use **port 8001** as the default development port (not 8000).
+Pick a dev port that doesn't collide with other common local services (e.g. avoid the framework's bare
+default if it commonly clashes — port 8000 is often taken by other local dev servers). Whatever port is
+chosen:
 
-Reason: port 8000 is commonly occupied by other local services (FastAPI apps, Django, `http.server`, etc.). Using 8001 avoids startup failures with no code change needed.
+- The chosen port is hard-coded (or defaulted) in the app's entry point, not left to chance
+- README must reference the actual URL the app serves on
+- `.env.example` should include the port if it's configurable
 
-- `__main__.py` must hard-code `port=8001` (not 8000) unless overridden by an env var
-- README must reference `http://localhost:8001`
-- `.env.example` should include `PORT=8001` if the port is configurable
+## Frontend Build & Serve Rule
 
-## Frontend Static-Export & Styling Rule
+**Whenever the frontend requires a build step before it can be served correctly** (a static export, a
+bundled SPA, a compiled asset pipeline — whatever this project's frontend actually is, per
+`spec/architecture.md`), three things are mandatory — each has been a real first-build failure class in
+practice:
 
-When the frontend is a **Next.js static export served by the backend** (the skeleton's model: `output: 'export'`, `basePath: '/app'`, mounted by FastAPI at `/app`), three things are mandatory — each was a real first-build failure:
+- **The documented run path is the one the user and the gate both use.** If the deployment model is
+  "build once, serve the built output" (e.g. `next build` with `output: 'export'` mounted under a
+  sub-path by the backend), the README and the gate must use that exact path — not a convenient
+  alternative dev server on a different port/origin that happens to work locally but isn't how it ships.
+  Handing the user a dev-only flow that diverges from the real deploy path reads as "nothing loads" when
+  they follow the README literally.
+- **The CSS/JS pipeline must actually run, not just exit 0.** Whatever this project's styling toolchain is
+  (Tailwind, Sass, CSS Modules, vanilla), code-generators must never replace or omit the config files that
+  wire it up, and the gate must verify the built output contains real compiled styles/selectors — not just
+  check for an HTTP 200.
+- **Runtime-version safety.** Pin the language/runtime version this project needs (`.nvmrc`, `.tool-versions`,
+  a lockfile-declared engine range, etc.) and document any known footgun for that version (e.g. a specific
+  Node major version breaking a global API some framework relies on). A project with no pinned version is
+  one upgrade away from an environment-specific failure nobody can reproduce.
+- **Automated E2E for any project with a frontend.** Every frontend build must include an automated
+  browser-driven smoke suite (Playwright, Cypress, or the ecosystem-standard equivalent) covering: page
+  loads and is styled, primary input works, real output appears (not a spinner or error state). Record the
+  exact gate command in `spec/roadmap.md`. **A frontend gate that only checks HTTP 200 or a CSS selector
+  grep is not a gate — the browser-driven suite must also pass.**
 
-- **Single-origin is the canonical run + test path.** The user (and the gate) runs **one** server: `cd frontend && pnpm build` → `uv run python -m src`, then opens **`http://localhost:8001/app/`** (note the port `8001`, the `/app/`, and the trailing slash). Do **not** hand the user the two-server `pnpm dev` (`:3000`) flow as the test path — with `basePath: '/app'`, `localhost:3000/` 404s and the API origin differs, which reads as "nothing loads". `pnpm dev` is for inner-loop dev only.
-- **Tailwind v4 requires `postcss.config.mjs` (plugin: `@tailwindcss/postcss`) and `@source "../";` in the global CSS file.** Without both, the built CSS has no utility classes — the UI renders unstyled even though the build exits 0. **Code-generators must never replace or omit these two files** — extend `globals.css` below the `@source` line, never overwrite the first two lines. The gate must verify the built CSS contains real utility selectors, not just check HTTP 200.
-- **Node-version safety.** Node ≥25 exposes a broken global `localStorage` unless `--localstorage-file` is set, which crashes Next SSR (`localStorage.getItem is not a function` → every page 500s). The frontend `dev`/`build`/`start` scripts must carry `NODE_OPTIONS=--no-experimental-webstorage` (or the project must pin a supported Node LTS via `.nvmrc`/`engines`).
-- **Playwright E2E (required for any project with a frontend).** Every frontend build must include a `tests/e2e/` directory with Playwright smoke tests. Install via `pnpm add -D @playwright/test && npx playwright install --with-deps chromium` (chromium only is sufficient for the gate). The Phase 1 smoke must cover: page loads and is styled, primary input works, real output appears (not a spinner or error state). Gate command: `npx playwright test tests/e2e/ --reporter=line`. **A frontend gate that only checks HTTP 200 or CSS selectors is not a gate — Playwright must also pass.**
-
-## LLM Model Name Rule
+## LLM Model Name Rule (only if this project has an LLM/AI dependency)
 
 **Always use a current, verified model name — never a deprecated or guessed one.**
 
-- Model names change. Before hardcoding any model identifier, verify it exists by calling the provider's `ListModels` API or checking current documentation.
-- The model name must be configurable via an env var (e.g. `APPNAME_LLM_MODEL`) so it can be changed without a code deployment.
-- A 404 NOT_FOUND from the LLM API almost always means the model name is wrong — check the name first before debugging anything else.
+- Model names change. Before hardcoding any model identifier, verify it exists by calling the provider's
+  `ListModels` API or checking current documentation.
+- The model name must be configurable via an env var (e.g. `APPNAME_LLM_MODEL`) so it can be changed
+  without a code deployment.
+- A 404 NOT_FOUND from the LLM API almost always means the model name is wrong — check the name first
+  before debugging anything else.
 
-Current safe defaults (as of 2026):
+Record the actually-chosen provider and model in `spec/architecture.md` → `## Stack`; this file does not
+hardcode a default, since not every project has an LLM dependency at all.
 
-| Provider | Default model | Notes |
-|----------|---------------|-------|
-| Anthropic | `claude-sonnet-4-6` | matches `.env.example`; verify against current docs before pinning |
-| OpenRouter | `anthropic/claude-sonnet-4-6` | provider-prefixed; routes to the underlying model |
-| Google Gemini | `gemini-3.1-pro` | default; `gemini-2.5-flash` is the fast/cheap alternative for latency-sensitive nodes. `gemini-2.0-flash`/`gemini-1.5-flash` are unavailable for new users |
-| OpenAI | `gpt-4o-mini` | |
+## DB Driver Rule (only if this project has a database)
 
-## DB Driver Rule
+The database driver (e.g. `psycopg2-binary`/`asyncpg` for PostgreSQL, `pg` for Node, `lib/pq` for Go)
+**must be declared as a main/production dependency**, never in a dev-only dependency group.
 
-The database driver (e.g. `psycopg2-binary` for PostgreSQL, `asyncpg` for async PostgreSQL) **must be declared in the main `[project.dependencies]` block**, never in `[dependency-groups.dev]` or equivalent dev-only groups.
+Reason: migrations run at deploy/setup time, not just in tests. If the driver is dev-only, migrations
+fail in any environment that didn't install dev deps.
 
-Reason: Alembic migrations run at deploy/setup time, not just in tests. If the driver is dev-only, `alembic upgrade head` fails in any environment that didn't install dev deps.
+## Test Environment Rule (only if this project has a database)
 
-## Test Environment Rule
+**Tests must use the same database engine as production.** If the production DB is PostgreSQL, tests run
+against PostgreSQL — not SQLite, not an in-memory substitute.
 
-**Tests must use the same database driver as production.** If the production DB is PostgreSQL, tests run against PostgreSQL — not SQLite.
+- Tests that pass on a lightweight substitute but were never run against the production engine are **not
+  a passing gate**.
+- The test database must be set up automatically. Use whatever this stack's equivalent of `conftest.py`
+  is (a test setup/teardown hook, a fixture file) to create and tear down the test database — no manual
+  steps.
+- The test DB URL is provided via env var (e.g. `TEST_DATABASE_URL`, or reuse `DATABASE_URL` pointing at a
+  `_test` database). The test setup creates all tables before tests and drops them after.
+- A `.env.test` file (gitignored) or CI environment variable provides the test DB URL. The README must
+  document this.
 
-- Tests that pass on SQLite but were never run against PostgreSQL are **not a passing gate**.
-- The test database must be set up automatically. Use `conftest.py` to create and tear down the test database — no manual steps.
-- The test DB URL is provided via env var (e.g. `TEST_DATABASE_URL`, or reuse `DATABASE_URL` pointing at a `_test` database). The `conftest.py` session fixture creates all tables before tests and drops them after.
-- A `.env.test` file (gitignored) or CI environment variable provides the test DB URL. The README must document this.
+## LLM / External-API Test Rule (only if this project calls a real external provider)
 
-Example `conftest.py` pattern for PostgreSQL + SQLAlchemy (sync):
+**Tests and gates run against the real dependency using credentials loaded from `.env`.** There is no
+offline-passing requirement; real-credential execution is the default and required path for every gate,
+against the production-shaped database (never a lightweight substitute if production is PostgreSQL). A
+stub provider MAY exist as an optional local fallback when a credential is genuinely absent, but it is
+never the gate. The quality bar is perfect, zero errors — edge-case, end-to-end, and UI tests are
+required, not optional.
 
-```python
-import pytest
-from sqlalchemy import create_engine
-from yourapp.db.models import Base
-from yourapp.config.settings import get_settings
+- The build and tests load credentials programmatically from `.env` (gitignored); confirm a credential by
+  presence (bool) only — never echo, print, paste, or commit a secret value.
+- A stub is permitted only for an integration whose external system isn't built yet — never as a
+  substitute for the real provider on a path that exists.
+- **CI contract:** a runner without secrets cannot pass the real-credential gate. Either inject the
+  credentials from a secret store, or guard the real-credential tests with a skip when they're unset.
+  Skipped is not passed: the gate for any phase that needs a missing credential is BLOCKED until it's
+  provided locally.
 
-@pytest.fixture(scope="session", autouse=True)
-def _setup_test_db():
-    settings = get_settings()
-    engine = create_engine(settings.database_url)
-    Base.metadata.create_all(engine)
-    yield
-    Base.metadata.drop_all(engine)
-    engine.dispose()
-```
-
-The `DATABASE_URL` in `.env` (or `.env.test`) must point at a real PostgreSQL test database before running tests.
-
-## LLM / API Test Rule
-
-**Tests and evals run against the real LLM/API using keys loaded from `.env`.** There is no offline-passing requirement; real-key execution is the default and required path for every gate, against the production DB driver (never SQLite if production is PostgreSQL). A stub provider MAY exist as an optional local fallback when a key is genuinely absent, but it is never the gate. The quality bar is perfect, zero errors — edge-case, end-to-end, and UI tests are required, not optional.
-
-- The build and tests load keys programmatically from `.env` (gitignored); confirm a key by presence (bool) only — never echo, print, paste, or commit a secret value.
-- A stub is permitted only for an integration whose external system isn't built yet — never as a substitute for the real provider on a path that exists.
-- **CI contract:** a runner without secrets cannot pass the real-key gate. Either inject the keys from a secret store, or guard the real-key tests with `pytest.skip` when keys are unset. Skipped is not passed: the Phase 2+ gate is BLOCKED if a required key is missing locally.
+Projects with no external LLM/API dependency (a static site, an internal CRUD tool with no third-party
+calls) simply have no surface for this rule — don't invent a substitute requirement.

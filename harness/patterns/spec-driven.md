@@ -1,12 +1,14 @@
 # Spec-Driven Development
 
-This project follows a strict spec-first discipline. This file explains what that means in practice.
+This project follows a strict spec-first discipline, regardless of what language or framework it's built
+in. This file explains what that means in practice.
 
 ## The Rule
 
 **The spec is always written before the code.**
 
-No exceptions. If you find yourself writing code for something that isn't in the spec, stop and spec it first.
+No exceptions. If you find yourself writing code for something that isn't in the spec, stop and spec it
+first.
 
 ## Why
 
@@ -20,22 +22,27 @@ When spec comes first:
 - Every AI session reads the same requirements
 - Tests can be derived mechanically from the spec
 - "Does this match the spec?" is a concrete, answerable question
-- Drift audits (see the `qa-auditor` sub-agent, driven by `/zero-shot-sync`) can catch divergence automatically
+- Drift audits (see the `qa-auditor` sub-agent, driven by `/zero-shot-sync`) can catch divergence
+  automatically
 
 ## What Goes in the Spec
 
 **Product spec (`spec/`):**
-- What the agent does (behavior, not implementation)
+- What the project does (behavior, not implementation)
 - Who uses it and why
 - What data it handles
 - What APIs and integrations it uses
 - What the UI looks like (if any)
 
 **Chosen stack (in `spec/architecture.md`):**
-- The project's language/framework/LLM/database lives in the `## Stack` section — app-specific, captured at intake.
+- The project's language/framework/database/hosting lives in the `## Stack` section — app-specific,
+  captured at intake. This is the ONE place stack facts live; every generic harness rule refers back to
+  it instead of assuming a language.
 
 **Engineering harness (`harness/`):**
-- `harness/patterns/tech-stack.md` — generic stack rules; `harness/patterns/code.md` — generic code conventions; `harness/patterns/agentic-ai.md` — agentic-pattern catalogue
+- `harness/patterns/tech-stack.md` — generic, stack-agnostic rules; `harness/patterns/code.md` — generic
+  code conventions; `harness/patterns/agentic-ai.md` — agentic-pattern catalogue, only relevant if a
+  capability is itself an AI agent
 - How to handle errors, secrets, and testing
 - What the implementation phases are
 - Repeatable workflows for AI sessions
@@ -62,4 +69,6 @@ If the spec says X and the code does Y:
 
 ## Adding a New Capability
 
-Run `/zero-shot-build` on the existing spec — it drives the spec-writer to add the capability, then plans, builds, and verifies it. Do not add capabilities by writing code and then describing what you built.
+Run `/zero-shot-build` on the existing spec — it drives the spec-writer to add the capability, then
+plans, builds, and verifies it. Do not add capabilities by writing code and then describing what you
+built.

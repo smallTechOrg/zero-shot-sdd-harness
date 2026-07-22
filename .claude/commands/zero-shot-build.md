@@ -1,8 +1,7 @@
 ---
-description: Turn a zero-shot idea into a perfectly-working, thoroughly-tested agent (alias for the zero-shot-build skill).
+description: Turn a zero-shot idea into a working, tested, spec-driven project (or add a capability to an existing one). Alias for the /zero-shot-build skill — see .claude/skills/zero-shot-build/SKILL.md for the full procedure.
 argument-hint: [your idea]
 ---
 
-Run the **zero-shot-build** skill with the user's idea: `$ARGUMENTS`.
-
-The skill at `.claude/skills/zero-shot-build/SKILL.md` is the source of truth — invoke it and follow it exactly. This command exists only so `/zero-shot-build` works as a slash command in addition to the skill.
+Follow `.claude/skills/zero-shot-build/SKILL.md` exactly, with `$ARGUMENTS` as the idea. The skill is the
+source of truth for this command — this file is only a slash-command alias so it never drifts from it.

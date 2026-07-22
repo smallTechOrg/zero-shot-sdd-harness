@@ -1,8 +1,8 @@
 ---
-description: Reconcile spec and code so they match — spec wins — then verify (alias for the zero-shot-sync skill).
+description: Reconcile spec and code so they match (spec wins), then verify. Alias for the /zero-shot-sync skill — see .claude/skills/zero-shot-sync/SKILL.md for the full procedure.
 argument-hint: [optional path or capability to scope to]
 ---
 
-Run the **zero-shot-sync** skill with the optional scope: `$ARGUMENTS`.
-
-The skill at `.claude/skills/zero-shot-sync/SKILL.md` is the source of truth — invoke it and follow it exactly. This command exists only so `/zero-shot-sync` works as a slash command in addition to the skill.
+Follow `.claude/skills/zero-shot-sync/SKILL.md` exactly, with `$ARGUMENTS` as the optional scope. The
+skill is the source of truth for this command — this file is only a slash-command alias so it never
+drifts from it.

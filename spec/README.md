@@ -1,42 +1,51 @@
 # Spec — Single Source of Truth
 
-This directory is the authoritative specification for this project. All code must match this spec. When spec and code disagree, spec wins — fix the code.
+This directory is the authoritative specification for this project. All code must match this spec. When
+spec and code disagree, spec wins — fix the code.
+
+This harness and this spec structure are stack-agnostic — they work the same whether this project is a
+website, an API service, a CLI, or something with an AI-agent component.
 
 ## Status
 
-Check `spec/roadmap.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->` markers, the spec-writer sub-agent needs to complete it before any application code is written.
+Check `spec/roadmap.md` to see if the spec has been filled in. If it still contains `<!-- FILL IN -->`
+markers, the spec-writer sub-agent needs to complete it before any application code is written.
 
 ## Structure
 
-`spec/` is **the product** — what the agent does, in terms a user can read and edit. Generic engineering doctrine (how to build anything) lives in `harness/`.
+`spec/` is **the product** — what the project does, in terms a user can read and edit. Generic
+engineering doctrine (how to build anything) lives in `harness/`.
 
 ```
 spec/                 ← The product (you read & edit this)
   roadmap.md       ← Purpose, goals, success criteria, future phases
   architecture.md  ← System design, layers, data flow, and the chosen ## Stack
-  agent.md         ← This agent's graph (state, nodes, edges) — if a framework is used
+  agent.md         ← OPTIONAL — only if a capability is itself an AI agent (most projects don't have one)
   data.md          ← Data schema
-  api.md           ← API surface (REST/GraphQL/CLI/etc.)
-  ui.md            ← UI requirements (if any)
+  api.md           ← API surface (REST/GraphQL/CLI/etc.) — delete if N/A
+  ui.md            ← UI requirements — delete if there's no UI
   capabilities/    ← One file per discrete capability
 
-harness/              ← How to build it (generic engineering doctrine)
+harness/              ← How to build it (generic engineering doctrine, stack-agnostic)
   rules/           ← Mandatory rules (ai-agents, git, secret-hygiene)
   patterns/        ← phases, project-layout, test-driven, ui-ux, engineering-practices,
                      spec-driven, tech-stack (generic stack rules), code (conventions),
-                     agentic-ai (pattern catalogue)
+                     agentic-ai (OPTIONAL pattern catalogue, only if agent.md exists)
 ```
 
 ## Governance Rules
 
 1. **Spec first** — no code change without a spec backing it
 2. **One fact, one place** — never duplicate facts across spec files; cross-reference with links
-3. **Capabilities are atomic** — each file in `capabilities/` describes exactly one discrete thing the agent can do
+3. **Capabilities are atomic** — each file in `capabilities/` describes exactly one discrete thing the
+   project can do
 4. **No implementation details in product spec** — `spec/` describes WHAT, `harness/` describes HOW
 5. **Update spec before code** — if requirements change, update the spec first, then update the code
 
 ## Who Updates the Spec
 
-- **New project:** the `/zero-shot-build` skill drives the spec-writer sub-agent, which drafts and self-reviews the spec
-- **New capability:** run `/zero-shot-build` on an existing spec — it adds the capability via the spec-writer
+- **New project:** the `/zero-shot-build` skill drives the spec-writer sub-agent, which drafts and
+  self-reviews the spec
+- **New capability:** run `/zero-shot-build` on an existing spec — it adds the capability via the
+  spec-writer
 - **Drift between spec and code:** run `/zero-shot-sync` to reconcile (spec wins)

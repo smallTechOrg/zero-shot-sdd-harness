@@ -1,8 +1,7 @@
 ---
-description: Diagnose and fix a bug, error, failing test, or spec/code drift, then verify (alias for the zero-shot-fix skill).
+description: Diagnose and fix a bug, error, failing test, or spec/code drift, then verify. Alias for the /zero-shot-fix skill — see .claude/skills/zero-shot-fix/SKILL.md for the full procedure.
 argument-hint: [bug description / error / "tests" / "drift"]
 ---
 
-Run the **zero-shot-fix** skill with the user's target: `$ARGUMENTS`.
-
-The skill at `.claude/skills/zero-shot-fix/SKILL.md` is the source of truth — invoke it and follow it exactly. This command exists only so `/zero-shot-fix` works as a slash command in addition to the skill.
+Follow `.claude/skills/zero-shot-fix/SKILL.md` exactly, with `$ARGUMENTS` as the target. The skill is the
+source of truth for this command — this file is only a slash-command alias so it never drifts from it.
