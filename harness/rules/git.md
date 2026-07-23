@@ -58,7 +58,7 @@ phase-N: [what you did]
 
 Examples:
 - `phase-1: add domain models`
-- `phase-2: stub agent loop end-to-end`
+- `phase-2: stub project loop end-to-end`
 - `harness: add git discipline doc`
 
 The diff shows the *what*. The message answers: *why was this change needed, and what is the outcome?*

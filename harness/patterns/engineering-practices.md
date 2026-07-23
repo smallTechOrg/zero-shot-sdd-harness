@@ -76,7 +76,7 @@ Rules that apply to every implementation phase, regardless of stack or project t
 
 **Structured logging.** Emit JSON logs (or a structured format your logging pipeline can parse). Include `timestamp`, `level`, `trace_id`/`request_id`, and `message` on every line. Free-text logs are hard to aggregate and alert on.
 
-**Trace IDs propagate.** Any operation that spans multiple services or agent nodes must carry a trace ID from entry to exit. Log it at every step.
+**Trace IDs propagate.** Any operation that spans multiple services or project nodes must carry a trace ID from entry to exit. Log it at every step.
 
 **Every external call is instrumented.** Latency and error rate for each DB query, LLM call, and HTTP request should be observable. You will debug production issues from these numbers.
 

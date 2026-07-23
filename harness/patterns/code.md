@@ -109,10 +109,10 @@ When your runner calls an async `init_db()` or similar startup function, monkeyp
 ```python
 # CORRECT
 async def _noop(): pass
-monkeypatch.setattr("mypackage.agent.runner.init_db", _noop)
+monkeypatch.setattr("mypackage.project.runner.init_db", _noop)
 
 # WRONG — breaks await
-monkeypatch.setattr("mypackage.agent.runner.init_db", lambda: None)
+monkeypatch.setattr("mypackage.project.runner.init_db", lambda: None)
 ```
 
 ### Replacing the DB session factory in integration tests
@@ -131,7 +131,7 @@ async def _use_test_db(monkeypatch, tmp_path):
     monkeypatch.setattr(s, "engine", engine)
 
     async def _noop(): pass
-    monkeypatch.setattr("mypackage.agent.runner.init_db", _noop)
+    monkeypatch.setattr("mypackage.project.runner.init_db", _noop)
     yield
     await engine.dispose()
 ```

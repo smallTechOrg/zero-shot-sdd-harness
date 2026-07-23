@@ -1,18 +1,18 @@
 ---
 name: zero-shot-sync
-description: Reconcile spec and code so they match. Audits the whole tree for drift, brings code in line with the spec (spec wins), and verifies. Calls worker agents directly; runs autonomously to a CLEAN audit.
+description: Reconcile spec and code so they match. Audits the whole tree for drift, brings code in line with the spec (spec wins), and verifies. Calls worker projects directly; runs autonomously to a CLEAN audit.
 argument-hint: [optional path or capability to scope to]
 disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a spec↔code sync by calling worker agents directly. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/patterns/spec-driven.md). Optional scope in `$ARGUMENTS`; otherwise the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (surface it — don't silently rewrite the spec to match code).
+You orchestrate a spec↔code sync by calling worker projects directly. **Spec is the source of truth — when spec and code disagree, fix the code** (harness/patterns/spec-driven.md). Optional scope in `$ARGUMENTS`; otherwise the whole project. Run autonomously to a CLEAN audit; pause only on a hard blocker or if a divergence reveals the *spec* is wrong (surface it — don't silently rewrite the spec to match code).
 
 **qa-auditor runs FIRST** — read-only, it finds and classifies every divergence and its direction; its verdict routes each fix to the responsible **code-generator** and/or **code-generator** by surface. You (the skill) own the commit + push.
 
 ## Step 1 — Audit (qa-auditor first, drift mode)
 
-Invoke **qa-auditor** in drift mode (whole-tree). For each divergence it returns: severity, the **direction** (code-wrong vs spec-wrong), and **which surface** (frontend / backend) + file(s). CLEAN → report and stop. It stays read-only and never spawns agents.
+Invoke **qa-auditor** in drift mode (whole-tree). For each divergence it returns: severity, the **direction** (code-wrong vs spec-wrong), and **which surface** (frontend / backend) + file(s). CLEAN → report and stop. It stays read-only and never spawns projects.
 
 ## Step 2 — Triage by direction
 

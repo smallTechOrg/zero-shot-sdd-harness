@@ -1,12 +1,12 @@
 ---
 name: zero-shot-fix
-description: Diagnose and fix a problem in an existing agent — a bug description, a runtime error/stack trace, failing tests, or spec/code drift — then verify the fix. Calls the worker agents directly; runs autonomously to a verified result.
+description: Diagnose and fix a problem in an existing project — a bug description, a runtime error/stack trace, failing tests, or spec/code drift — then verify the fix. Calls the worker projects directly; runs autonomously to a verified result.
 argument-hint: [bug description / error / "tests" / "drift"]
 disable-model-invocation: true
 allowed-tools: Bash(git*) Bash(uv run*)
 ---
 
-You orchestrate a targeted fix by calling worker agents directly — no full agent-builder needed. The target is in `$ARGUMENTS`. **If `$ARGUMENTS` is empty, ask the user in plain text to describe what's broken — the bug, error, failing test, or drift — and WAIT for their free-text reply before doing anything else.** Do NOT load `AskUserQuestion` to solicit, suggest, or pick the problem — the problem statement must come from the user as their own text. Only once you have it do you proceed to Step 1. Run autonomously: diagnose+classify → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or explicit request.
+You orchestrate a targeted fix by calling worker projects directly — no full project-builder needed. The target is in `$ARGUMENTS`. **If `$ARGUMENTS` is empty, ask the user in plain text to describe what's broken — the bug, error, failing test, or drift — and WAIT for their free-text reply before doing anything else.** Do NOT load `AskUserQuestion` to solicit, suggest, or pick the problem — the problem statement must come from the user as their own text. Only once you have it do you proceed to Step 1. Run autonomously: diagnose+classify → fix → verify, looping until the failure signal is gone. Pause only on a hard blocker or explicit request.
 
 **qa-auditor runs FIRST** — it diagnoses, captures the failing signal, and CLASSIFIES the root cause (SPEC vs CODE, and which surface). Its verdict ROUTES the fix and names which generator. Fixing happens in the **code-generator** and/or **code-generator** (picked by surface); judging happens in read-only **qa-auditor**; you (the skill) own the commit + push.
 
@@ -17,7 +17,7 @@ You orchestrate a targeted fix by calling worker agents directly — no full age
 Otherwise, invoke **qa-auditor** with the target. It:
 - captures the current red state — the failing test output, the reproduced error, or the specific drift divergence + file — as your before/after baseline;
 - CLASSIFIES the root cause as **SPEC** (spec wrong/missing) vs **CODE** (code diverges from spec), and names **which surface** (frontend / backend) and file(s);
-- returns a routed verdict. It stays read-only and never spawns agents.
+- returns a routed verdict. It stays read-only and never spawns projects.
 
 State the classification in one line. If qa-auditor can't reproduce the reported problem, say so and ask for repro steps rather than guessing.
 
@@ -39,7 +39,7 @@ Give the generator the precise target, the responsible files, and the spec secti
 
 ## Step 3 — Verify (qa-auditor always; scope tiered by fix size)
 
-**qa-auditor verifies every fix** — independence is the point: the agent that judges the fix is never the one that wrote it. What changes by tier is the **scope of what qa-auditor runs**, not whether it runs.
+**qa-auditor verifies every fix** — independence is the point: the project that judges the fix is never the one that wrote it. What changes by tier is the **scope of what qa-auditor runs**, not whether it runs.
 
 ### Scoped gate (express) — use when ALL hold
 - Root cause is **CODE**, not SPEC

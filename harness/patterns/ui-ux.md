@@ -2,7 +2,7 @@
 
 The bar every user-facing surface must clear — web, CLI, or chat. `spec/ui.md` says *what* the UI is for this project; this file says *how good it has to be*. If the spec is silent on a question here, this file is the default.
 
-A build that returns 200 but looks broken is a failing build (`rules/ai-agents.md` rule 6). These standards make "looks broken" a concrete, testable thing.
+A build that returns 200 but looks broken is a failing build (`rules/ai-projects.md` rule 6). These standards make "looks broken" a concrete, testable thing.
 
 ---
 
@@ -61,7 +61,7 @@ A view that only handles state 4 is half-built.
 ## CLI / Chat Surfaces (the same bar, different shape)
 
 - **CLI:** `--help` is complete and accurate; errors go to stderr with a non-zero exit; long operations stream progress; output is greppable (and `--json` where a machine might consume it). Colour degrades gracefully when piped.
-- **Chat:** the agent states what it's doing before a long action and confirms after; it never goes silent mid-task; it surfaces tool failures in plain language; it makes the next step obvious.
+- **Chat:** the project states what it's doing before a long action and confirms after; it never goes silent mid-task; it surfaces tool failures in plain language; it makes the next step obvious.
 - **Chat responses are markdown:** LLM-generated text must be rendered through a markdown renderer (`react-markdown` + `remark-gfm`, or equivalent) — never as a plain text node. Raw string rendering leaves `**bold**`, bullet lists, and code fences visible as syntax, indistinguishable from a broken LLM. For code returned in structured fields, request formatted output (newlines, indentation) in the system prompt — single-line code is unreadable in any disclosure.
 - **No dual-representation — every piece of information reaches the user exactly once.** This is a hard rule across *both* the API contract and the rendered UI. No value, sentence, or result may appear twice — not in two fields, and not in two on-screen components.
 
@@ -70,7 +70,7 @@ A view that only handles state 4 is half-built.
 
 ## Verification
 
-The Phase 2 golden-path smoke test is a **live-server** test that runs against the **real provider** using keys from `.env`. It walks the **full primary user journey** and asserts on **real response content**, not status codes (`rules/ai-agents.md` rule 6, `patterns/phases.md`). Extend it to assert that:
+The Phase 2 golden-path smoke test is a **live-server** test that runs against the **real provider** using keys from `.env`. It walks the **full primary user journey** and asserts on **real response content**, not status codes (`rules/ai-projects.md` rule 6, `patterns/phases.md`). Extend it to assert that:
 
 - the live golden-path smoke runs against the real provider and asserts real response content,
 - the empty state renders its guidance copy,

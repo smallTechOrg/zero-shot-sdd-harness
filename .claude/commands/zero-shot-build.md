@@ -1,5 +1,5 @@
 ---
-description: Turn a zero-shot idea into a perfectly-working, thoroughly-tested agent (alias for the zero-shot-build skill).
+description: Turn a zero-shot idea into a perfectly-working, thoroughly-tested project (alias for the zero-shot-build skill).
 argument-hint: [your idea]
 ---
 

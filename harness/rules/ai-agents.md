@@ -1,4 +1,4 @@
-# AI Agent Rules
+# AI Project Rules
 
 **These rules apply to every Claude Code session in this repo.**
 
@@ -54,20 +54,20 @@ Complete all steps in order before writing any code:
 - [ ] If spec is complete: read the full spec manifest in `CLAUDE.md`
 - [ ] Run `git status` — working tree must be clean before starting
 - [ ] **Branch from the current HEAD**: `base=$(git rev-parse --abbrev-ref HEAD)` then `git checkout -b feature/<slug>-v0.1` — branch from wherever you are so the build dogfoods THIS harness version; never `git checkout main` first (see `harness/rules/git.md`)
-- [ ] **Create the project directory** `<agent-slug>/` if it doesn't exist — never write agent code into the boilerplate root
+- [ ] **Create the project directory** `<project-slug>/` if it doesn't exist — never write project code into the boilerplate root
 - [ ] Confirm `.env` exists and contains the required API keys/secrets (requested at intake) — tests and the build run against the real LLM/API using these keys
 - [ ] Confirm which phase you are implementing (see `harness/patterns/phases.md`)
 
 ## 2. Build Flow
 
-The goal is: **one prompt → a perfectly-working, thoroughly-tested agent, delivered one user-testable phase at a time.** Intake is the only interactive setup step. After it, the build is autonomous *within* a phase, with a **human testing gate between phases** — the user tests each phase before the next one starts.
+The goal is: **one prompt → a perfectly-working, thoroughly-tested project, delivered one user-testable phase at a time.** Intake is the only interactive setup step. After it, the build is autonomous *within* a phase, with a **human testing gate between phases** — the user tests each phase before the next one starts.
 
 ```
 INTAKE (capture scope, stack, trigger, constraints; ask additional clarifying
         questions up front if anything is ambiguous; request the user fill .env
         with the required API keys/secrets)
         ↓
-BUILD PHASE N (spec + architecture + agent + roadmap on the first phase, then
+BUILD PHASE N (spec + architecture + project + roadmap on the first phase, then
        implement the phase; gated by passing real-key tests) → publish the
        phase test-handoff
         ↓
@@ -84,7 +84,7 @@ BUILD PHASE N+1 … (repeat at every phase boundary)
 - Filling `.env` is the only manual user step, requested at intake.
 - Each build phase must pass its gate against the real LLM/API before the next phase starts.
 - The human tests each phase before the next one starts — that is the gate between phases.
-- spec-writer self-reviews its spec (architecture + agent-graph + roadmap), frontend and backend generators build independent slices in parallel, and qa-auditor independently gates each phase.
+- spec-writer self-reviews its spec (architecture + project-graph + roadmap), frontend and backend generators build independent slices in parallel, and qa-auditor independently gates each phase.
 
 ```
 [Phase implemented] → [real-key gate passes] → [committed] → [human tests] → [next phase]
@@ -111,7 +111,7 @@ See `harness/patterns/spec-driven.md` for full details.
 Each phase ends when:
 - All code for that phase is written and committed
 - All tests for that phase pass
-- The qa-auditor sub-agent has returned VERIFIED (or you have run the gate checklist manually)
+- The qa-auditor sub-project has returned VERIFIED (or you have run the gate checklist manually)
 - **README is updated** to reflect what this phase added — any new setup steps, commands, endpoints, or environment variables must be accurate and runnable before the gate is declared passed (Rule 1 applies at every phase boundary, not just at session close)
 
 See `harness/patterns/phases.md` for the phase definitions and gates.
@@ -143,9 +143,9 @@ A phase is not done until all tests pass against the real LLM/API. "It looks rig
 ## 7. Error Resilience
 
 Every external call (API, database, LLM) must have:
-- Error handling that doesn't crash the agent
+- Error handling that doesn't crash the project
 - Logged failures (to file or stdout at minimum)
-- Graceful degradation (the agent continues if a non-critical step fails)
+- Graceful degradation (the project continues if a non-critical step fails)
 
 Surface a clear, actionable error when an API key is missing or invalid (point the user at `.env`) — never silently fall back in a way that hides a real failure during tests.
 

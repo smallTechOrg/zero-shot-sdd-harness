@@ -4,9 +4,9 @@
 
 ---
 
-## What This Agent Does
+## What This Project Does
 
-<!-- FILL IN: One paragraph describing what this agent does, who uses it, and what problem it solves. -->
+<!-- FILL IN: One paragraph describing what this project does, who uses it, and what problem it solves. -->
 
 ## Who Uses It
 
@@ -14,19 +14,19 @@
 
 ## Core Problem Being Solved
 
-<!-- FILL IN: What manual or broken process does this agent replace or improve? -->
+<!-- FILL IN: What manual or broken process does this project replace or improve? -->
 
 ## Success Criteria
 
-<!-- FILL IN: How do we know the agent is working? List 3-5 measurable outcomes. -->
+<!-- FILL IN: How do we know the project is working? List 3-5 measurable outcomes. -->
 
 - [ ] <!-- criterion 1 -->
 - [ ] <!-- criterion 2 -->
 - [ ] <!-- criterion 3 -->
 
-## What This Agent Does NOT Do (Out of Scope)
+## What This Project Does NOT Do (Out of Scope)
 
-<!-- FILL IN: Explicit exclusions prevent scope creep. List things the agent will never do. -->
+<!-- FILL IN: Explicit exclusions prevent scope creep. List things the project will never do. -->
 
 ## Key Constraints
 

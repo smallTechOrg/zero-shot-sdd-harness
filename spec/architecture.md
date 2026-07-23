@@ -22,7 +22,7 @@
 
 ## Layers
 
-<!-- FILL IN: Describe the layers of the system (e.g., API → Agent Loop → Tools → Storage). -->
+<!-- FILL IN: Describe the layers of the system (e.g., API → Project Loop → Tools → Storage). -->
 
 | Layer | Responsibility |
 |-------|----------------|
@@ -32,14 +32,14 @@
 
 <!-- FILL IN: Walk through the main data flow from trigger to output. -->
 
-1. Trigger: <!-- how does the agent start? (cron, webhook, user input, etc.) -->
+1. Trigger: <!-- how does the project start? (cron, webhook, user input, etc.) -->
 2. <!-- step 2 -->
 3. <!-- step 3 -->
-4. Output: <!-- what does the agent produce? -->
+4. Output: <!-- what does the project produce? -->
 
 ## External Dependencies
 
-<!-- FILL IN: APIs, services, databases the agent depends on. -->
+<!-- FILL IN: APIs, services, databases the project depends on. -->
 
 | Dependency | Purpose | Failure Mode |
 |------------|---------|--------------|
@@ -50,7 +50,7 @@
 > This project's concrete technology choices (captured at intake, filled by the spec-writer). The generic, every-project rules — model-naming, DB driver, dev port, test environment — live in `harness/patterns/tech-stack.md`; this section is only what **this** project picked.
 
 - **Language:** <!-- FILL IN: e.g., Python 3.12 -->
-- **Agent framework:** <!-- FILL IN: e.g., LangGraph / custom / none -->
+- **Project framework:** <!-- FILL IN: e.g., LangGraph / custom / none -->
 - **LLM provider + model:** <!-- FILL IN: e.g., Anthropic / claude-sonnet-4-6 -->
 - **Backend:** <!-- FILL IN: e.g., FastAPI / none -->
 - **Database + ORM:** <!-- FILL IN: e.g., PostgreSQL + SQLAlchemy 2.0 / none -->

@@ -1,22 +1,22 @@
-# Agent
+# Project
 
-> Required when the project uses an agent framework. Delete this file if your project has no agent framework.
+> Required when the project uses an project framework. Delete this file if your project has no project framework.
 >
-> If your project has no agent framework (e.g., a simple script or single-LLM API call), delete this file.
+> If your project has no project framework (e.g., a simple script or single-LLM API call), delete this file.
 >
 
 ---
 
-## Agent Architecture Pattern
+## Project Architecture Pattern
 
-<!-- FILL IN: Which pattern does this agent follow? Choose one and describe why. -->
+<!-- FILL IN: Which pattern does this project follow? Choose one and describe why. -->
 
 | Pattern | Use when |
 |---------|----------|
-| **Single-agent loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
+| **Single-project loop** | One LLM drives a deterministic tool-call loop. No branches, no handoffs. |
 | **Graph (LangGraph)** | Multi-step pipeline with conditional edges, checkpointing, or parallel nodes. |
-| **Multi-agent** | Specialised sub-agents with distinct roles; orchestrator routes between them. |
-| **Supervisor** | One supervisor LLM dispatches to worker agents based on task type. |
+| **Multi-project** | Specialised sub-projects with distinct roles; orchestrator routes between them. |
+| **Supervisor** | One supervisor LLM dispatches to worker projects based on task type. |
 | **Human-in-the-loop** | Execution pauses at defined checkpoints for user review or approval. |
 
 **Chosen:** <!-- state pattern + one-sentence rationale -->
@@ -25,9 +25,9 @@
 
 ## LLM Provider & Model
 
-<!-- FILL IN: Which model drives each agent/node? State provider, model ID, and why. -->
+<!-- FILL IN: Which model drives each project/node? State provider, model ID, and why. -->
 
-| Agent / Node | Provider | Model ID | Rationale |
+| Project / Node | Provider | Model ID | Rationale |
 |-------------|----------|----------|-----------|
 | <!-- node --> | Anthropic | <!-- e.g. claude-sonnet-4-6 --> | <!-- latency vs. quality trade-off --> |
 
@@ -39,19 +39,19 @@
 
 ## Tools & Tool Calling
 
-<!-- FILL IN: Every tool the agent can call. -->
+<!-- FILL IN: Every tool the project can call. -->
 
 | Tool name | Description | Inputs | Output | Side-effects |
 |-----------|-------------|--------|--------|--------------|
 | <!-- name --> | <!-- what it does --> | <!-- params --> | <!-- return type --> | <!-- DB write, API call, file write, etc. --> |
 
-**Tool selection strategy:** <!-- How does the agent decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
+**Tool selection strategy:** <!-- How does the project decide which tool to call? (LLM choice, rule-based routing, forced single tool) -->
 
 **Tool failure handling:** <!-- retry, fallback, abort — per tool or global policy? -->
 
 ---
 
-## Agent State
+## Project State
 
 <!-- FILL IN: The full state type. Every field must be named, typed, and annotated with what populates it. -->
 
@@ -78,7 +78,7 @@ class AgentState(TypedDict):
 
 ## Nodes / Steps
 
-<!-- FILL IN: One section per node. For single-agent loops, describe each "step" or "tool call phase." -->
+<!-- FILL IN: One section per node. For single-project loops, describe each "step" or "tool call phase." -->
 
 ### `node_[name]`
 
@@ -128,7 +128,7 @@ node_b ──(condition)──► node_c
 
 ## Memory & Context
 
-<!-- FILL IN: How does the agent remember things across turns, steps, or runs? -->
+<!-- FILL IN: How does the project remember things across turns, steps, or runs? -->
 
 | Scope | Mechanism | What is stored |
 |-------|-----------|----------------|
@@ -146,13 +146,13 @@ node_b ──(condition)──► node_c
 
 | Checkpoint | What is shown to the user | Expected user action | Timeout / default |
 |------------|--------------------------|----------------------|-------------------|
-| <!-- name --> | <!-- what the agent surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
+| <!-- name --> | <!-- what the project surfaces --> | <!-- approve / edit / abort --> | <!-- timeout action --> |
 
 ---
 
 ## Error Handling & Recovery
 
-<!-- FILL IN: How the agent handles failures at each level. -->
+<!-- FILL IN: How the project handles failures at each level. -->
 
 **Node-level:** <!-- Each node catches its own exceptions; fatal errors set state["error"] and route to handle_error node. -->
 
@@ -164,7 +164,7 @@ node_b ──(condition)──► node_c
 
 **Resume / retry strategy:** <!-- Can a failed run be resumed from its last checkpoint? How? -->
 
-**Partial failure:** <!-- If a non-critical step fails, does the agent degrade gracefully or abort? -->
+**Partial failure:** <!-- If a non-critical step fails, does the project degrade gracefully or abort? -->
 
 ---
 
@@ -183,7 +183,7 @@ node_b ──(condition)──► node_c
 
 ## Concurrency Model
 
-<!-- FILL IN: How concurrent agent runs are handled. -->
+<!-- FILL IN: How concurrent project runs are handled. -->
 
 - **Run isolation:** <!-- one-at-a-time (API returns 409) / queue / parallel with run_id scoping -->
 - **Parallel nodes within a run:** <!-- which nodes run in parallel and why -->
@@ -191,7 +191,7 @@ node_b ──(condition)──► node_c
 
 ---
 
-## Graph Assembly (`agent/graph.py`)
+## Graph Assembly (`project/graph.py`)
 
 <!-- FILL IN: Pseudocode showing how nodes and edges are wired. Must be ≤ 60 lines in the real file. -->
 

@@ -49,8 +49,8 @@ A flaky test is worse than no test — it trains everyone to ignore red.
 For pure-unit isolation, prefer a thin real implementation (in-memory queue, fake repository, stub LLM provider) over a framework mock. Integration and E2E tests use the **real provider**, not a stub.
 
 - Stubs **compose** and survive refactors; mocks encode call sequences and break on them.
-- IF a stub LLM provider is used (unit tests or optional offline dev), it should produce **distinct, node-tagged output** (see `rules/ai-agents.md` rule 8) so it is credible and node cross-contamination is caught.
-- Use the production DB driver in integration tests (PostgreSQL via `conftest.py` setup/teardown) — **never** SQLite-as-a-substitute (`rules/ai-agents.md` rule 5).
+- IF a stub LLM provider is used (unit tests or optional offline dev), it should produce **distinct, node-tagged output** (see `rules/ai-projects.md` rule 8) so it is credible and node cross-contamination is caught.
+- Use the production DB driver in integration tests (PostgreSQL via `conftest.py` setup/teardown) — **never** SQLite-as-a-substitute (`rules/ai-projects.md` rule 5).
 
 ---
 
@@ -103,7 +103,7 @@ Push assertions **down** the pyramid: if a unit test can catch it, don't wait fo
 ## Before You Claim Done
 
 - Run the **full** suite, not just the test you touched. Show the output.
-- "It should pass" is not a passing test (`rules/ai-agents.md` rule 2). Run it or say you couldn't.
+- "It should pass" is not a passing test (`rules/ai-projects.md` rule 2). Run it or say you couldn't.
 - A phase is not complete until its gate suite is green against the production DB driver WITH real LLM/API keys from `.env`, including edge-case and E2E/UI tests.
 - For analytical capabilities: assert the correct answer against a fixture with a known result — a non-empty response is not a passing gate.
 - For stateful capabilities: drive at least two interactions in the same session and assert the second sees the first — a single happy-path call proves nothing about state.

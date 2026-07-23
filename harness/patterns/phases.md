@@ -1,6 +1,6 @@
 # Implementation Phases
 
-Agents are built phase by phase, derived from the user's requirements — not a fixed ladder. **Phase 1 is the smallest user-testable win that works first time;** each later phase wires a stub into a real feature. Production concerns trail behind the requirements.
+Projects are built phase by phase, derived from the user's requirements — not a fixed ladder. **Phase 1 is the smallest user-testable win that works first time;** each later phase wires a stub into a real feature. Production concerns trail behind the requirements.
 
 ## Core Principle
 
@@ -29,7 +29,7 @@ Phase 1 is the **smallest user-testable win** — the full primary user journey 
   2. `uv run alembic upgrade head` succeeds against the configured database — run and confirmed, not assumed
   3. **Boots via the documented run command** — the app starts on its exact README/roadmap run command from the project root (e.g. `uv run python -m src`) with no `ImportError`/`ModuleNotFoundError`. A green pytest run does NOT prove this (pytest's path masks `src.`-prefixed import bugs); the test path must equal the run path.
   4. Primary user journey works end-to-end against the real LLM/API; tests pass
-  5. **Agentic stack gate:** graph compiles, state flows through nodes, agent is invocable — confirmed by the Phase 1 test
+  5. **Agentic stack gate:** graph compiles, state flows through nodes, project is invocable — confirmed by the Phase 1 test
   6. **Styled-render (any static-export UI):** after `pnpm build`, the served page at the single-origin path (`:8001/app/`) is rendered AND styled — the built CSS bundle contains real utility selectors and no unexpanded `@tailwind`/`@source` remains. An unstyled 200 fails the gate.
   7. **Headless E2E (any project with a frontend):** Playwright smoke runs against the live app (`http://localhost:8001/app/`) and asserts the primary user journey renders correctly, is interactive, and shows real output — not just a 200. A CSS-grep pass without a Playwright pass is not sufficient.
   8. **Observability wired:** LangSmith tracing enabled (LangGraph builds) and/or structured request/response logging to stdout confirmed working — a log line or trace appears for the Phase 1 end-to-end run. Observability is never deferred.
@@ -48,28 +48,28 @@ Each phase covers a chunk of remaining user requirements from `spec/roadmap.md`.
 
 ---
 
-### Phase N+1 — Agentic Stack Upgrade + Resilience *(only if `spec/agent.md` calls for patterns beyond the base loop)*
+### Phase N+1 — Agentic Stack Upgrade + Resilience *(only if `spec/project.md` calls for patterns beyond the base loop)*
 
-If the spec's agent graph needs more than the base ReAct loop, add a phase to upgrade the agentic architecture and harden external calls. A simple single-loop agent that already meets its requirements does not need this phase — do not add it by default.
+If the spec's project graph needs more than the base ReAct loop, add a phase to upgrade the agentic architecture and harden external calls. A simple single-loop project that already meets its requirements does not need this phase — do not add it by default.
 
-- **Upgrade the agentic stack** per `spec/agent.md`: wire in the patterns it calls for beyond the base ReAct loop — planning, reflection, multi-agent coordination, memory, or whatever the spec requires. Phase 1 laid the skeleton; this phase promotes it to the production-grade architecture.
-- Add error handling to all external calls: try/except, retries, timeouts. Agent continues (degraded, not crashed) on non-critical failures.
+- **Upgrade the agentic stack** per `spec/project.md`: wire in the patterns it calls for beyond the base ReAct loop — planning, reflection, multi-project coordination, memory, or whatever the spec requires. Phase 1 laid the skeleton; this phase promotes it to the production-grade architecture.
+- Add error handling to all external calls: try/except, retries, timeouts. Project continues (degraded, not crashed) on non-critical failures.
 - **Gate (all must pass):**
-  1. Every pattern listed in `spec/agent.md` beyond the base loop is wired and exercised by a real test
-  2. Agent handles all documented failure modes without crashing
+  1. Every pattern listed in `spec/project.md` beyond the base loop is wired and exercised by a real test
+  2. Project handles all documented failure modes without crashing
 
 ---
 
 ### Phase N+2 — Complete Agentic System *(the final requirements phase — every capability real)*
 
-The last phase turns the remaining labelled stubs into real features so every capability in `spec/roadmap.md` is active and the system runs fully end-to-end. (When the agent is simple, this is just the last requirements phase — not a separate agentic milestone.)
+The last phase turns the remaining labelled stubs into real features so every capability in `spec/roadmap.md` is active and the system runs fully end-to-end. (When the project is simple, this is just the last requirements phase — not a separate agentic milestone.)
 
 - Every capability in `spec/roadmap.md` is real — no stubs on any active path.
 - Complete any remaining integrations; system runs against all real services.
 - **Gate (all must pass):**
-  1. All integrations are real; agent runs fully end-to-end against the real LLM/API
+  1. All integrations are real; project runs fully end-to-end against the real LLM/API
   2. Every capability in the spec is implemented and tested with real data
-  3. `spec/agent.md` graph matches the running code — drift audit passes on the agentic surfaces
+  3. `spec/project.md` graph matches the running code — drift audit passes on the agentic surfaces
 
 ---
 
@@ -97,7 +97,7 @@ After a phase passes its automated gate and is committed, the build publishes a 
 ## Parallel Slices Within a Phase
 
 - spec-writer carves each phase into INDEPENDENT SLICES (the parallel units) with explicit dependencies; default to independence so slices build concurrently.
-- agent-builder fans out a generator per slice — multiple code-generator invocations in a SINGLE message so they run concurrently (disjoint paths: frontend writes the frontend surface, backend writes `src/` — never the same file). Then fans out qa-auditor per slice concurrently and aggregates verdicts.
+- project-builder fans out a generator per slice — multiple code-generator invocations in a SINGLE message so they run concurrently (disjoint paths: frontend writes the frontend surface, backend writes `src/` — never the same file). Then fans out qa-auditor per slice concurrently and aggregates verdicts.
 - Serialize ONLY across a true declared dependency. On a BLOCKED slice, loop only that slice's generator; other slices are unaffected. For headless/CLI builds, only backend generators run.
 
 ## Phase Gates
@@ -107,7 +107,7 @@ A phase is complete when ALL of the following are true:
 2. All tests for the phase pass
 3. Working tree is clean
 4. Phase test-handoff published; (build) human tested and approved
-5. qa-auditor sub-agent (or manual QA checklist) has signed off
+5. qa-auditor sub-project (or manual QA checklist) has signed off
 6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
 7. **README updated** — every command, env var, setup step, route, or capability this phase added is reflected in `README.md`, and every README command in scope has been run and confirmed to work from the stated directory. A stale README is a BLOCKER.
 
@@ -127,7 +127,7 @@ The spec-writer derives the phases from `spec/roadmap.md`. What is fixed:
 
 - **Phase 1 is always the smallest user-testable win** — the one core path real and first-time-right, the rest as labelled stubs (this matches `spec-writer.md` exactly; the two never disagree)
 - **The agentic stack is always wired in Phase 1** — graph, state, nodes, assembly; never deferred (the skeleton is wired even though most nodes start as stubs)
-- **An Agentic Stack Upgrade phase and a Complete Agentic System phase are added only when `spec/agent.md` calls for patterns beyond the base loop** — a simple agent that meets its requirements does not get them by default
+- **An Agentic Stack Upgrade phase and a Complete Agentic System phase are added only when `spec/project.md` calls for patterns beyond the base loop** — a simple project that meets its requirements does not get them by default
 - **Trailing phases are only added when the spec explicitly requires them**
 
 What varies (derived from requirements):
