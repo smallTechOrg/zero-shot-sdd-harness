@@ -1,6 +1,6 @@
 # Project Layout — Canonical Structure
 
-All projects built from this boilerplate must follow this layout exactly. The sales-agent repo (`smallTechOrg/sales-agent`) is the canonical reference.
+All projects built from this boilerplate must follow this layout exactly. A standard **Payload CMS v3 + Next.js 16 app** — a single application rooted at the repo, with Payload embedded *inside* the Next app (as scaffolded by `create-payload-app`, then extended) — is the canonical reference.
 
 ---
 
@@ -8,9 +8,9 @@ All projects built from this boilerplate must follow this layout exactly. The sa
 
 Every generated project **must** have a README that:
 
-1. **States "all commands run from the repo root"** — the repo root IS the project (no subdirectory to cd into). Put this as a blockquote or bold warning at the very top, before any other content.
-2. **Prefixes all commands with `uv run`** — never bare `alembic`, `pytest`, or `python`. Bare commands fail unless the venv is manually activated.
-3. **Includes `uv run alembic current` after `upgrade head`** — so the user can verify tables were actually created (blank output = silent failure).
+1. **States "all commands run from the repo root"** — the repo root IS the project (a single Next+Payload app; no subdirectory to cd into). Put this as a blockquote or bold warning at the very top, before any other content.
+2. **Runs every command through pnpm** (`pnpm dev`, `pnpm build`, `pnpm start`, `pnpm test`, `pnpm payload ...`) — never bare `next`, `payload`, `vitest`, or `playwright`. Bare commands fail unless the local binaries are on PATH.
+3. **Includes a boot/schema verification step after setup** — start the app (`pnpm dev`), then confirm `GET http://localhost:3000/` returns 200 and `/admin` loads. A loading `/admin` proves Payload pushed the schema to Postgres. When production migrations are used, `pnpm payload migrate:status` must list the migration as applied (blank output = silent failure).
 4. **Stays accurate** — every README command must be tested before a phase is marked complete. If a command fails, fix the README before claiming the phase is done.
 
 The README is the first thing a user touches. A wrong README fails the entire build regardless of whether the code works.
@@ -19,453 +19,247 @@ The README is the first thing a user touches. A wrong README fails the entire bu
 
 ## Source Code Rule (Non-Negotiable)
 
-**All application source code must live inside `src/`.** Never place HTML, CSS, JavaScript, Python packages, templates, or data files at the repo root.
+**All application source code must live inside `src/`.** Never place page components, CSS, React components, Payload collections, or any app-level code at the repo root.
 
-The repo root is for project-level config only: `pyproject.toml`, `alembic.ini`, `README.md`, `.env.example`, and boilerplate infrastructure (`spec/`, `harness/`, `CLAUDE.md`). If you are about to create an application file at the root, stop and put it in `src/` instead.
+The repo root is for project-level config only: `package.json`, `tsconfig.json`, `next.config.mjs`, `tailwind.config.ts`, `postcss.config.js`, `.env.example`, and boilerplate infrastructure (`spec/`, `harness/`, `CLAUDE.md`). Tests are the one deliberate exception — `tests/` (vitest) and `e2e/` (playwright) sit at the repo root, **not** inside `src/`. If you are about to create an application file at the root, stop and put it under `src/` instead.
 
-This applies to all project types — Python packages, static web apps, TypeScript projects, and any other stack.
+This applies to every part of the app — the public marketing site, shared components, and the Payload CMS config alike.
 
 ---
 
 ## Directory Tree
 
-The repo root **is** the project. There is no `<project-slug>/` subdirectory — boilerplate files (`spec/`, `harness/`, `CLAUDE.md`) coexist with project files at the root.
+The repo root **is** the project. There is no `<project-slug>/` subdirectory — boilerplate files (`spec/`, `harness/`, `CLAUDE.md`) coexist with app files at the root.
 
-**One package only.** The skeleton ships `src/agent/`. If the spec needs a different package name (e.g. `xyz_agent`), **rename `src/agent/` in place** — never create a second package beside it. `src/xyz/` sitting next to `src/agent/` is always wrong: it duplicates the wired-up baseline instead of extending it, leaving dead code and two sources of truth.
+**One app only.** The skeleton ships a single Next+Payload app under `src/`. **Extend that tree in place** — never stand up a second app beside it, and never split the public site into a separate top-level `frontend/` directory. A parallel app or a second `src/`-like tree is always wrong: it duplicates the wired-up baseline instead of extending it, leaving dead code and two sources of truth.
 
 ```
-<repo root>                           ← repo root IS the project
+<repo root>                              ← repo root IS the project (one Next + Payload app)
 ├── src/
-│   └── <package>/                    ← Python package (snake_case matches slug)
-│       ├── __init__.py               ← __version__ = "0.1.0"
-│       ├── api/                      ← FastAPI routers
-│       │   ├── __init__.py           ← create_app() factory + lifespan
-│       │   ├── _common.py            ← ok(), api_error()
-│       │   └── <resource>.py         ← one router per domain entity
-│       ├── config/
-│       │   ├── __init__.py
-│       │   └── settings.py           ← Pydantic BaseSettings with env prefix
-│       ├── db/
-│       │   ├── __init__.py
-│       │   ├── models.py             ← SQLAlchemy 2.0 declarative (Mapped types)
-│       │   └── session.py            ← engine + sessionmaker + init_db
-│       ├── domain/
-│       │   ├── __init__.py           ← re-exports all domain models
-│       │   └── <entity>.py           ← Pydantic BaseModel per entity
-│       ├── graph/
-│       │   ├── __init__.py
-│       │   ├── agent.py              ← StateGraph compiled once at startup
-│       │   ├── nodes.py              ← node functions: (state) → state
-│       │   ├── edges.py              ← conditional routing functions
-│       │   ├── state.py              ← AgentState TypedDict
-│       │   └── runner.py             ← run_agent() entry point
-│       ├── llm/
-│       │   ├── __init__.py
-│       │   ├── client.py             ← LLMClient wrapper
-│       │   └── providers/
-│       │       ├── base.py           ← abstract LLMProvider
-│       │       ├── factory.py        ← create_llm_client()
-│       │       └── anthropic.py      ← default provider
-│       ├── tools/                    ← pure functions: (inputs) → domain models
-│       │   └── <tool>.py
-│       ├── prompts/                  ← LLM prompt templates (.md files)
-│       │   └── <name>.md
-│       └── observability/
-│           ├── __init__.py
-│           └── events.py             ← structlog configuration
-├── tests/                            ← tests at repo root, NOT inside src/
-│   ├── conftest.py                   ← settings singleton reset fixture
-│   ├── unit/
-│   │   ├── test_smoke.py             ← import pkg; assert __version__
-│   │   ├── config/test_settings.py
-│   │   ├── db/test_models.py
-│   │   ├── domain/test_models.py
-│   │   └── graph/test_agent.py       ← graph compiles without env vars
-│   ├── integration/
-│   │   └── test_pipeline.py          ← real-provider run end-to-end, one DB record, status=completed (+ edge cases / error paths)
-│   ├── e2e/                          ← full primary journey against the real LLM/API + live server
-│   └── ui/                           ← UI-only projects: rendered content + empty/loading/error states
-├── alembic/
-│   ├── env.py                        ← reads DB URL from settings; sets target_metadata = Base.metadata
-│   ├── script.py.mako                ← REQUIRED — standard mako template; alembic revision fails without it
-│   └── versions/0001_initial.py      ← generated by: uv run alembic revision --autogenerate -m "initial"
-├── spec/                             ← project spec files (preserved from boilerplate)
-├── harness/                          ← engineering harness (preserved from boilerplate)
-├── CLAUDE.md                         ← preserved from boilerplate
-├── pyproject.toml
-├── alembic.ini
-├── .env.example
-└── README.md                         ← replaces the boilerplate README
+│   ├── app/
+│   │   ├── (frontend)/                  ← public marketing site routes
+│   │   │   ├── globals.css              ← design tokens (CSS custom properties) + @tailwind layers
+│   │   │   ├── layout.tsx               ← root layout for the public site
+│   │   │   └── page.tsx                 ← home page ("/")
+│   │   └── (payload)/                   ← Payload admin + API route groups (from create-payload-app)
+│   │       ├── admin/[[...segments]]/   ← /admin UI
+│   │       ├── api/[...slug]/           ← Payload REST API at /api
+│   │       ├── api/graphql/             ← GraphQL endpoint at /api/graphql
+│   │       └── layout.tsx
+│   ├── collections/                     ← Payload collections, one file per collection — only if the phase adds any
+│   │   └── <Collection>.ts              ← e.g. Properties.ts, Media.ts, Users.ts
+│   ├── components/                      ← React/Tailwind components for the public site
+│   │   └── <Component>.tsx
+│   ├── lib/                             ← shared, non-UI helpers (data fetching, utils)
+│   ├── payload.config.ts                ← Payload config: db adapter, collections, admin, editor
+│   └── payload-types.ts                 ← GENERATED (pnpm payload generate:types) — do not hand-edit
+├── tests/                               ← vitest (unit/integration, incl. Payload local API) — NOT inside src/
+│   └── ...
+├── e2e/                                 ← playwright (E2E/UI against the running app on :3000)
+│   └── ...
+├── spec/                                ← project spec files (preserved from boilerplate)
+├── harness/                             ← engineering harness (preserved from boilerplate)
+├── CLAUDE.md                            ← preserved from boilerplate
+├── next.config.mjs                      ← wrapped with withPayload
+├── tailwind.config.ts
+├── postcss.config.js
+├── tsconfig.json                        ← strict: true
+├── package.json
+├── .env.example                         ← DATABASE_URI, PAYLOAD_SECRET
+└── README.md                            ← replaces the boilerplate README
 ```
 
-**Critical:** `tests/` is at the repo root — **not** inside `src/`. The `pyproject.toml` must have `testpaths = ["tests"]` (not `["src/tests"]`).
+**Critical:** `tests/` and `e2e/` are at the repo root — **not** inside `src/`. `vitest.config.ts` must set `test.include` to `tests/**` (not `src/**`), and `playwright.config.ts` must set `testDir: './e2e'`.
 
 ---
 
 ## Exact File Shapes
 
-### alembic/script.py.mako
+### next.config.mjs
 
-This file **must be created manually** — it is not generated by anything. Without it, `alembic revision --autogenerate` fails with `FileNotFoundError`.
+The Next config **must** be wrapped with `withPayload` — Payload is the server, not a separate process. Without the wrapper the `/admin` and `/api` route groups do not mount.
 
-```mako
-"""${message}
+```js
+import { withPayload } from '@payloadcms/next/withPayload'
 
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-Create Date: ${create_date}
+/** @type {import('next').NextConfig} */
+const nextConfig = {}
 
-"""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-${imports if imports else ""}
-
-# revision identifiers, used by Alembic.
-revision: str = ${repr(up_revision)}
-down_revision: Union[str, None] = ${repr(down_revision)}
-branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
-depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
-
-
-def upgrade() -> None:
-    ${upgrades if upgrades else "pass"}
-
-
-def downgrade() -> None:
-    ${downgrades if downgrades else "pass"}
+export default withPayload(nextConfig)
 ```
 
-### Phase 1 alembic sequence (mandatory, in order)
+### src/payload.config.ts
 
-All commands run from the **repo root** (where `alembic.ini` and `pyproject.toml` live).
+The single source of truth for the CMS: the Postgres adapter, the collections array, the admin panel, and the editor. Secrets come from the environment — never hardcoded.
+
+```ts
+import { postgresAdapter } from '@payloadcms/db-postgres'
+import { lexicalEditor } from '@payloadcms/richtext-lexical'
+import path from 'path'
+import { buildConfig } from 'payload'
+import { fileURLToPath } from 'url'
+import sharp from 'sharp'
+
+const filename = fileURLToPath(import.meta.url)
+const dirname = path.dirname(filename)
+
+export default buildConfig({
+  admin: {
+    importMap: { baseDir: path.resolve(dirname) },
+  },
+  // Collections are registered here as the CMS phase adds them (imported from src/collections/).
+  collections: [],
+  editor: lexicalEditor(),
+  secret: process.env.PAYLOAD_SECRET || '',
+  typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
+  db: postgresAdapter({
+    pool: { connectionString: process.env.DATABASE_URI || '' },
+  }),
+  // Media/storage: local disk in dev; @payloadcms/storage-gcs wired in a later phase.
+  sharp,
+})
+```
+
+### src/collections/&lt;Collection&gt;.ts (add only when the phase needs a collection)
+
+Payload owns the schema through these configs — there is no separate ORM or model file.
+
+```ts
+import type { CollectionConfig } from 'payload'
+
+export const Properties: CollectionConfig = {
+  slug: 'properties',
+  admin: { useAsTitle: 'title' },
+  fields: [
+    { name: 'title', type: 'text', required: true },
+    { name: 'price', type: 'number' },
+    { name: 'description', type: 'richText' },
+    { name: 'hero', type: 'upload', relationTo: 'media' },
+  ],
+}
+```
+
+Register it in `src/payload.config.ts`: `collections: [Properties, Media]`.
+
+### tailwind.config.ts (the tokens slice)
+
+Tailwind content is **scoped to the frontend** so its base/preflight styles never leak into the Payload admin UI. Colors and fonts map to the CSS custom properties defined in `globals.css`.
+
+```ts
+import type { Config } from 'tailwindcss'
+
+export default {
+  content: [
+    './src/app/(frontend)/**/*.{ts,tsx}',
+    './src/components/**/*.{ts,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        bg: 'var(--color-bg)',
+        fg: 'var(--color-fg)',
+        accent: 'var(--color-accent)',
+      },
+      fontFamily: {
+        display: ['var(--font-display)'],
+        body: ['var(--font-body)'],
+      },
+    },
+  },
+  plugins: [],
+} satisfies Config
+```
+
+### src/app/(frontend)/globals.css (the other half of the tokens slice)
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: #0b0b0c;
+    --color-fg: #f5f5f4;
+    --color-accent: #b8975a;             /* luxury gold */
+    --font-display: 'Playfair Display', serif;
+    --font-body: 'Inter', sans-serif;
+  }
+}
+```
+
+### Phase 1 schema sequence (mandatory, in order)
+
+All commands run from the **repo root** (where `package.json` and `next.config.mjs` live). Payload owns the schema — there is no Alembic, no SQLAlchemy, no autogenerate.
 
 ```bash
-# 1. Create the alembic/ directory and files (env.py, alembic.ini, script.py.mako)
-# 2. Define all SQLAlchemy models in src/<package>/db/models.py
-# 3. Generate the initial migration — requires the DB to be reachable and DATABASE_URL to be set:
-uv run alembic revision --autogenerate -m "initial"
-# 4. Apply the migration:
-uv run alembic upgrade head
-# 5. Verify — this command must show the revision hash, not blank output:
-uv run alembic current
+# 1. Define collections in src/collections/*.ts and register them in src/payload.config.ts.
+# 2. Set DATABASE_URI and PAYLOAD_SECRET in .env (the single manual user step, requested at intake).
+# 3. Dev: Payload pushes the schema to Postgres automatically on boot.
+pnpm dev
+#    Confirm http://localhost:3000/admin loads and the first admin user can be created — this proves the schema was pushed.
+# 4. Regenerate types after any collection change:
+pnpm payload generate:types
+# 5. Production only — create and apply a migration, then verify:
+pnpm payload migrate:create initial
+pnpm payload migrate
+pnpm payload migrate:status   # must list the migration as applied, not blank
 ```
 
-**Phase 1 is not complete until `alembic current` shows a revision.** Blank output from `alembic current` means no migration was applied.
+**Phase 1 is not complete until the app boots (`GET http://localhost:3000/` → 200) and `/admin` loads.** For production, blank output from `migrate:status` means no migration was applied.
 
-### config/settings.py
+### tests/property.int.test.ts (Payload local API integration)
 
-```python
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+Integration tests run against the **real local Postgres** (`DATABASE_URI` from `.env`) via Payload's Local API — never a mock DB and never an alternate driver (no SQLite substitution when production is PostgreSQL). Assert on structural results (shape, key fields, counts), not on exact prose.
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="APP_",   # replace APP_ with your project's prefix
-        env_file=".env",
-        case_sensitive=False,
-        extra="ignore",
-    )
+```ts
+import { getPayload, type Payload } from 'payload'
+import config from '@/payload.config'
+import { beforeAll, describe, expect, it } from 'vitest'
 
-    database_url: str = Field(...)
-    # Filled from .env (the single manual user step, requested at intake) and
-    # required for the real-provider gate; fail fast at startup if it is absent.
-    anthropic_api_key: str = Field(default="")
-    llm_model: str = Field(default="claude-sonnet-4-6")
-    log_level: str = Field(default="INFO")
+let payload: Payload
 
-_settings: Settings | None = None
+beforeAll(async () => {
+  payload = await getPayload({ config })
+})
 
-def get_settings() -> Settings:
-    global _settings
-    if _settings is None:
-        _settings = Settings()
-    return _settings
+describe('payload local API', () => {
+  it('connects to the real Postgres DB and serves a collection', async () => {
+    const result = await payload.find({ collection: 'properties', limit: 1 })
+    expect(result).toBeDefined()
+    expect(Array.isArray(result.docs)).toBe(true)
+  })
+})
 ```
 
-### db/session.py
+### e2e/home.spec.ts (Playwright, against the running app)
 
-```python
-from contextlib import contextmanager
-from collections.abc import Generator
-from sqlalchemy import create_engine, Engine
-from sqlalchemy.orm import Session, sessionmaker
+```ts
+import { expect, test } from '@playwright/test'
 
-_engine: Engine | None = None
-_SessionLocal: sessionmaker | None = None
+test('home page renders', async ({ page }) => {
+  const res = await page.goto('http://localhost:3000/')
+  expect(res?.status()).toBe(200)
+  await expect(page).toHaveTitle(/.+/)
+})
 
-def _get_engine() -> Engine:
-    global _engine
-    if _engine is None:
-        from <package>.config.settings import get_settings
-        _engine = create_engine(get_settings().database_url, echo=False)
-    return _engine
-
-def _get_session_factory() -> sessionmaker:
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=_get_engine(), autoflush=False, autocommit=False)
-    return _SessionLocal
-
-def get_session() -> Generator[Session, None, None]:
-    """FastAPI dependency."""
-    with _get_session_factory()() as session:
-        try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-@contextmanager
-def create_db_session() -> Generator[Session, None, None]:
-    """Standalone — for graph nodes, CLI, scripts."""
-    with _get_session_factory()() as session:
-        try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-
-def init_db() -> None:
-    from <package>.db.models import Base
-    Base.metadata.create_all(bind=_get_engine())
-```
-
-### db/models.py
-
-```python
-from datetime import datetime, timezone
-from uuid import uuid4
-from sqlalchemy import Text, TIMESTAMP
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-def _uuid() -> str:
-    return str(uuid4())
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-class Base(DeclarativeBase):
-    pass
-
-class RunRow(Base):
-    __tablename__ = "runs"
-    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=_now)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, default=_now, onupdate=_now)
-```
-
-### graph/state.py
-
-```python
-from typing import TypedDict
-
-class AgentState(TypedDict, total=False):
-    run_id: str
-    error: str | None
-    # add domain fields here
-```
-
-### graph/nodes.py (Phase 1 placeholder shape)
-
-```python
-from <package>.graph.state import AgentState
-
-STUB_RESULT = {"stub": True}  # placeholder — replaced by real provider calls before the Phase 2 gate
-
-def fetch_data(state: AgentState) -> AgentState:
-    return {**state, "data": STUB_RESULT}
-
-def process(state: AgentState) -> AgentState:
-    return {**state, "processed": True}
-
-def handle_error(state: AgentState) -> AgentState:
-    return {**state, "status": "failed"}
-
-def finalize(state: AgentState) -> AgentState:
-    return {**state, "status": "completed"}
-```
-
-### graph/edges.py
-
-```python
-from <package>.graph.state import AgentState
-
-def after_fetch(state: AgentState) -> str:
-    if state.get("error"):
-        return "handle_error"
-    return "process"
-
-def after_process(state: AgentState) -> str:
-    if state.get("error"):
-        return "handle_error"
-    return "finalize"
-```
-
-### graph/agent.py
-
-```python
-from langgraph.graph import StateGraph, END
-from <package>.graph.state import AgentState
-from <package>.graph.nodes import fetch_data, process, handle_error, finalize
-from <package>.graph.edges import after_fetch, after_process
-
-def _build_graph() -> StateGraph:
-    g = StateGraph(AgentState)
-    g.add_node("fetch_data", fetch_data)
-    g.add_node("process", process)
-    g.add_node("handle_error", handle_error)
-    g.add_node("finalize", finalize)
-    g.set_entry_point("fetch_data")
-    g.add_conditional_edges("fetch_data", after_fetch, {"process": "process", "handle_error": "handle_error"})
-    g.add_conditional_edges("process", after_process, {"finalize": "finalize", "handle_error": "handle_error"})
-    g.add_edge("finalize", END)
-    g.add_edge("handle_error", END)
-    return g.compile()
-
-agentic_ai = _build_graph()
-```
-
-### graph/runner.py
-
-```python
-from <package>.graph.agent import agentic_ai
-from <package>.graph.state import AgentState
-from <package>.db.session import create_db_session, init_db
-from <package>.db.models import RunRow
-
-def run_agent() -> str:
-    init_db()
-    with create_db_session() as session:
-        run = RunRow()
-        session.add(run)
-        session.flush()
-        run_id = run.id
-
-    initial: AgentState = {"run_id": run_id, "error": None}
-    final = agentic_ai.invoke(initial)
-
-    with create_db_session() as session:
-        run = session.get(RunRow, run_id)
-        run.status = final.get("status", "completed")
-        run.error_message = final.get("error")
-
-    return run_id
-```
-
-### api/__init__.py
-
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-
-@asynccontextmanager
-async def _lifespan(app: FastAPI):
-    from <package>.db.session import init_db
-    init_db()
-    yield
-
-def create_app() -> FastAPI:
-    app = FastAPI(title="<Agent Name>", version="0.1.0", lifespan=_lifespan)
-    from <package>.api import health
-    app.include_router(health.router)
-    return app
-
-app = create_app()
-```
-
-### api/_common.py
-
-```python
-from typing import Any
-from fastapi import HTTPException
-
-def ok(data: Any) -> dict:
-    return {"data": data, "error": None}
-
-def api_error(code: str, message: str, status_code: int = 400) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
-```
-
-### tests/conftest.py
-
-```python
-import pytest
-
-@pytest.fixture(autouse=True)
-def _reset_settings_singleton():
-    """Reset cached settings so env patches take effect in every test."""
-    import importlib, <package>.config.settings as m
-    m._settings = None
-    yield
-    m._settings = None
-```
-
-### tests/integration/test_pipeline.py
-
-Integration tests run end-to-end against the **real LLM/API** using keys loaded
-from `.env` (via `get_settings()`), against an isolated copy of the production DB
-driver. Assert on the run's structural result (status, shape, key fields), not on
-exact model prose. If a required key is genuinely absent, `pytest.skip` — never
-fall back to a stub key as the default path. Integration tests also cover edge
-cases and error paths, not just the happy run.
-
-```python
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from <package>.config.settings import get_settings
-from <package>.db.models import Base, RunRow
-from <package>.db import session as session_module
-from <package>.graph.runner import run_agent
-
-@pytest.fixture(autouse=True)
-def _isolated_db(tmp_path, monkeypatch):
-    # Isolated copy of the production DB driver (use a temp PostgreSQL DB if prod
-    # is PostgreSQL — never substitute SQLite for a production DB).
-    engine = create_engine(f"sqlite:///{tmp_path}/test.db")
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    monkeypatch.setattr(session_module, "_engine", engine)
-    monkeypatch.setattr(session_module, "_SessionLocal", factory)
-    monkeypatch.setattr(session_module, "init_db", lambda: None)
-    yield
-    engine.dispose()
-
-@pytest.fixture(autouse=True)
-def _real_env(monkeypatch, tmp_path):
-    # The provider key is loaded from .env via get_settings(); confirm presence
-    # only (bool) — never echo or hardcode the value. Skip (do NOT stub) if absent.
-    monkeypatch.setenv("APP_DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
-    if not get_settings().anthropic_api_key:
-        pytest.skip("real LLM/API key not set in .env — required for the real-provider run")
-
-def test_pipeline_runs_end_to_end(_isolated_db, _real_env):
-    from sqlalchemy.orm import Session
-    run_id = run_agent()  # exercises the real provider end-to-end
-    assert run_id is not None
-    with Session(session_module._engine) as s:
-        run = s.get(RunRow, run_id)
-        assert run is not None
-        assert run.status == "completed"
+test('admin panel loads', async ({ page }) => {
+  const res = await page.goto('http://localhost:3000/admin')
+  expect(res?.status()).toBeLessThan(400)
+})
 ```
 
 ---
 
 ## Rules
 
-1. **Project code goes in `src/<package>/`** — never in the boilerplate root
-2. **No repository pattern** — direct SQLAlchemy queries in graph nodes and API handlers
-3. **`graph/` not `agent/`** — directory name matches sales-agent convention
-4. **TypedDict state** — not dataclass or Pydantic model
-5. **Tools are pure functions** — `(inputs) → domain model`, no class instantiation
-6. **Prompts are `.md` files** in `<package>/prompts/` — loaded at runtime
-7. **LLM abstraction** — `LLMClient` wrapper, never call provider SDK directly in nodes
-8. **FastAPI response envelope** — every route returns `ok(data)` or raises `api_error()`
-9. **Settings singleton** must be resettable via `monkeypatch.setattr(m, "_settings", None)`
-10. **Phase 2 gate runs against real services** — tests and the golden-path smoke hit the real LLM/API using keys loaded from `.env` (requested at intake), against the production DB driver (never SQLite if production is PostgreSQL). A stub provider remains only as an optional fallback when a key is genuinely absent; offline-passing is no longer required, and real-key execution is the default and required path for the gate.
+1. **App code goes in `src/`** (`src/app/**`, `src/components/**`, `src/collections/**`, `src/lib/**`) — never in the boilerplate root
+2. **No hand-rolled ORM or raw SQL** — Payload owns the schema and data access. Read/write through the Payload Local API (`getPayload`) or the auto-generated REST/GraphQL endpoints; never add a second ORM or migration tool (no Alembic/SQLAlchemy/Prisma alongside Payload)
+3. **Collections live in `src/collections/`** — one file per collection, each registered in the `collections` array of `src/payload.config.ts`, the single source of truth for the schema
+4. **Generated types are canonical** — run `pnpm payload generate:types` after any collection change and import entity types from `src/payload-types.ts`; never hand-write them. TypeScript `strict` throughout
+5. **Components are typed React function components** in `src/components/`, consumed by routes in `src/app/(frontend)/`; shared non-UI helpers go in `src/lib/`
+6. **Design tokens are the tokens slice** — CSS custom properties in `src/app/(frontend)/globals.css` plus their mapping in `tailwind.config.ts`; Tailwind content is scoped to the frontend so it never leaks into the Payload admin UI
+7. **Media/storage adapter is configured in `payload.config.ts`** — local disk for dev, `@payloadcms/storage-gcs` wired in a later phase; no cloud creds needed early
+8. **Payload auto-generates the API** — REST at `/api`, GraphQL at `/api/graphql`; do not hand-roll CRUD route handlers for collection data
+9. **Runtime config comes from `.env`** (`DATABASE_URI`, `PAYLOAD_SECRET`) read by `payload.config.ts` — fail fast at startup if a required var is absent; never hardcode secrets
+10. **Phase 2 gate runs against real services** — vitest (incl. the Payload local API) and the golden-path smoke hit the **real local Postgres** and the **real running Next+Payload app** (boot check: `GET http://localhost:3000/` → 200, `/admin` loads). Never gate on a mock DB; there is no LLM key for this project

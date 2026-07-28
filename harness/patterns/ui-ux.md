@@ -62,7 +62,7 @@ A view that only handles state 4 is half-built.
 
 - **CLI:** `--help` is complete and accurate; errors go to stderr with a non-zero exit; long operations stream progress; output is greppable (and `--json` where a machine might consume it). Colour degrades gracefully when piped.
 - **Chat:** the agent states what it's doing before a long action and confirms after; it never goes silent mid-task; it surfaces tool failures in plain language; it makes the next step obvious.
-- **Chat responses are markdown:** LLM-generated text must be rendered through a markdown renderer (`react-markdown` + `remark-gfm`, or equivalent) — never as a plain text node. Raw string rendering leaves `**bold**`, bullet lists, and code fences visible as syntax, indistinguishable from a broken LLM. For code returned in structured fields, request formatted output (newlines, indentation) in the system prompt — single-line code is unreadable in any disclosure.
+- **Rich text is serialized, never dumped raw:** any CMS-authored rich text (Payload Lexical fields) must be rendered through its serializer to real HTML — never printed as a raw string or JSON node. Raw rendering leaves markup/JSON visible, indistinguishable from a broken page.
 - **No dual-representation — every piece of information reaches the user exactly once.** This is a hard rule across *both* the API contract and the rendered UI. No value, sentence, or result may appear twice — not in two fields, and not in two on-screen components.
 
 

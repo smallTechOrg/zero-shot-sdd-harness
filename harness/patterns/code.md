@@ -8,7 +8,7 @@
 
 These apply regardless of language or framework:
 
-1. **Types at boundaries** — every function that crosses a module boundary must use typed inputs and outputs (Pydantic, TypeScript interfaces, Go structs, etc.) — never raw dicts or `any`
+1. **Types at boundaries** — every function that crosses a module boundary must use typed inputs and outputs (TypeScript interfaces, Zod schemas, Go structs, etc.) — never raw dicts or `any`
 2. **One responsibility per file** — a file does one thing; if it's doing two things, split it
 3. **No comments explaining WHAT** — code should be self-documenting via names; only comment WHY something non-obvious is done
 4. **No dead code** — remove unused imports, functions, and variables immediately; don't comment them out
@@ -47,134 +47,133 @@ These apply to all projects. No exceptions.
 
 1. **Same DB as production** — if the app uses PostgreSQL, tests use PostgreSQL. SQLite is not a substitute. A test suite that only passes on SQLite tells you nothing about whether migrations and queries work against the real database.
 
-2. **Automated setup — no manual steps** — the `conftest.py` (or equivalent test setup) must create all required tables and tear them down automatically. The test runner must work with a single command (`uv run pytest`, `bun test`, etc.) after setting the test DB URL.
+2. **Automated setup — no manual steps** — the Vitest global setup (`tests/setup.ts` / `globalSetup`) must bring up the schema (Payload dev push against the test DB) and tear it down automatically. The test runner must work with a single command — `pnpm test` (vitest run) — after setting the test DB URL.
 
 3. **Isolated test database** — use a dedicated database (e.g. `myapp_test`, not `myapp`). Never run tests against the development or production database.
 
-4. **Test DB URL via environment** — expose the test database URL through the same env var mechanism as the app (e.g. `DATABASE_URL` pointing at the test DB, or a `TEST_DATABASE_URL` that the conftest reads). Document this in the README.
+4. **Test DB URL via environment** — expose the test database URL through the same env var mechanism as the app (e.g. `DATABASE_URI` pointing at the test DB, or a `TEST_DATABASE_URI` that the Vitest setup reads). Document this in the README.
 
-5. **DB URL and API keys in `.env.example`** — the `.env.example` file must include the test DB URL and every required LLM/API key with clear placeholders (e.g. `APPNAME_ANTHROPIC_API_KEY=`) so the user knows what to fill in. Filling `.env` with real keys is the only manual user step, requested at intake; tests and evals load these keys programmatically and confirm them by presence only.
+5. **DB URL and secrets in `.env.example`** — the `.env.example` file must include the test DB URL and every required secret with clear placeholders (e.g. `PAYLOAD_SECRET=`, `DATABASE_URI=`) so the user knows what to fill in. This project has no LLM/API key — the secrets are `PAYLOAD_SECRET` and `DATABASE_URI` (plus GCS credentials later). Filling `.env` with real values is the only manual user step, requested at intake; tests load these programmatically and confirm them by presence only.
 
-6. **`alembic upgrade head` in CI / README** — the README must include `alembic upgrade head` as an explicit step before running the app or tests. Never rely on auto-create from SQLAlchemy metadata alone in production.
+6. **Payload owns the schema — migrations in CI / README** — in dev, Payload pushes schema changes automatically (dev push); for production, the README/CI must include generating and applying migrations (`pnpm payload migrate:create` then `pnpm payload migrate`) as an explicit step before running the app or tests. Never rely on dev push (auto-schema-sync) alone in production; there is no Alembic and no SQLAlchemy metadata auto-create.
 
 ---
 
 ## Framework Gotchas (keep up to date — known footguns)
 
-### Starlette ≥ 1.0 `TemplateResponse` signature
+### Next.js 16 App Router — `params`/`searchParams` and dynamic APIs are async
 
-Starlette 1.0 and FastAPI 0.115+ require the **new** `TemplateResponse` call signature:
+In the Next.js 16 App Router, route `params` and `searchParams` (and `cookies()`, `headers()`, `draftMode()`) are **async** — they return Promises and must be awaited. Reading them synchronously yields `undefined` or throws.
 
-```python
-# CORRECT (Starlette ≥ 1.0)
-return templates.TemplateResponse(request, "page.html", {"foo": bar})
+```tsx
+// CORRECT (Next.js 16)
+export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  // ...
+}
 
-# WRONG (pre-1.0 form) — fails with TypeError: unhashable type: 'dict'
-return templates.TemplateResponse("page.html", {"request": request, "foo": bar})
+// WRONG (pre-15 form) — params is a Promise, not a plain object
+export default function Page({ params }: { params: { slug: string } }) {
+  const slug = params.slug // undefined
+}
 ```
 
-A small helper in the routes module keeps call sites tidy:
-
-```python
-def render(request: Request, name: str, **ctx):
-    return templates.TemplateResponse(request, name, ctx)
-```
-
-### LLM provider selection and stubs
-
-**Tests and evals run against the real provider using keys loaded from `.env`** (edge-case, end-to-end, and UI tests are required, not optional). The real provider is the default and required path; the stub below is an optional local fallback only.
-
-Any project with an LLM dependency must follow these patterns:
-
-1. **`provider=auto` by default → real when the key is set.** Resolve to the real provider when the API key env var is present in `.env`; the user never flips a flag in addition to setting the key. Add a `resolved_llm_provider` property on `Settings` that encapsulates this. Only when a key is genuinely absent may it fall back to an optional stub.
-
-2. **Tolerate dirty `.env` values.** Config resolution must strip inline `#` comments and surrounding whitespace before comparing enum-like env values (`provider`, `mode`, etc.). A `.env` written months ago with `APPNAME_LLM_PROVIDER=anthropic   # anthropic | openai` must not silently pin the wrong provider. Pydantic-settings does NOT strip inline comments — do it yourself in a `resolved_*` property, never trust the raw field.
-
-**If you keep the optional stub fallback**, it should be credible and self-evident:
-
-- Outputs branch on explicit node tags, not prose keywords. Each node injects a unique tag (`<node:plan>`, `<node:draft>`, ...) and the stub matches those tags, so a draft prompt containing "expand this outline" never triggers the stub's "outline" branch.
-- "Draft"-class outputs are shaped like the real thing (paragraphs/headings, not a bare bullet list).
-- If the stub is active in dev, label it visibly so its output is never mistaken for real. This is a should-when-used, not a gate: the gate runs against real keys.
+Fetch Payload data from Server Components via the local API — `const payload = await getPayload({ config })` — never an HTTP round-trip to your own `/api` route.
 
 ---
 
 ## Integration Test Patterns
 
-Integration and e2e tests call the **real** LLM provider with keys loaded from `.env` — the call is NOT stubbed. The suite is overly tested: edge cases, error paths, end-to-end journeys, and (for any UI/HTTP surface) UI states are all required. Because real responses are non-deterministic, integration/e2e assertions check stable structural properties (status, shape, key fields) rather than exact prose; unit tests stay fully deterministic (inject the clock, seed randomness). Run against the production DB driver, never SQLite if production is PostgreSQL.
+Integration and e2e tests exercise the **real** Payload local API against a real local PostgreSQL database — the DB is NOT mocked and SQLite is never substituted. The suite is overly tested: edge cases, error paths, end-to-end journeys, and (for any UI surface) UI states are all required. Integration/e2e assertions check stable structural properties (status, shape, key fields, persisted rows) rather than volatile details; unit tests stay fully deterministic (inject the clock, seed randomness). Run against the production DB driver (`@payloadcms/db-postgres`), never SQLite and never an in-memory DB.
 
-### Replacing an async init function in tests
+### Stubbing an async startup function in tests
 
-When your runner calls an async `init_db()` or similar startup function, monkeypatch it with an async noop — not a sync lambda:
+When you replace an async startup function (e.g. an async `seedDatabase()` the app runs before serving) with a Vitest mock, give the mock an **async** implementation. A bare `vi.fn()` returns `undefined`; if the caller `.then()`-chains the result instead of `await`-ing it, that throws `Cannot read properties of undefined (reading 'then')`.
 
-```python
-# CORRECT
-async def _noop(): pass
-monkeypatch.setattr("mypackage.agent.runner.init_db", _noop)
+```ts
+import { vi } from 'vitest'
 
-# WRONG — breaks await
-monkeypatch.setattr("mypackage.agent.runner.init_db", lambda: None)
+// CORRECT — resolves like the real async function
+vi.mock('@/lib/bootstrap', () => ({
+  seedDatabase: vi.fn(async () => {}),
+}))
+
+// WRONG — vi.fn() returns undefined; a `.then()` on it throws
+vi.mock('@/lib/bootstrap', () => ({
+  seedDatabase: vi.fn(),
+}))
 ```
 
-### Replacing the DB session factory in integration tests
+### Resetting the database between integration tests
 
-```python
-@pytest.fixture(autouse=True)
-async def _use_test_db(monkeypatch, tmp_path):
-    db_url = f"sqlite+aiosqlite:///{tmp_path}/test.db"
-    engine = create_async_engine(db_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+Use a Vitest `beforeEach` that talks to the Payload local API against the `_test` PostgreSQL database — the Vitest analogue of an autouse fixture — so each test starts from a known state:
 
-    import mypackage.db.session as s
-    monkeypatch.setattr(s, "AsyncSessionLocal", factory)
-    monkeypatch.setattr(s, "engine", engine)
+```ts
+import { beforeEach } from 'vitest'
+import { getPayload, type Payload } from 'payload'
+import config from '@payload-config'
 
-    async def _noop(): pass
-    monkeypatch.setattr("mypackage.agent.runner.init_db", _noop)
-    yield
-    await engine.dispose()
+let payload: Payload
+
+beforeEach(async () => {
+  payload = await getPayload({ config })
+  // clear collections so each test starts clean
+  await payload.delete({ collection: 'properties', where: { id: { exists: true } } })
+})
 ```
 
-Use `tmp_path` (not `:memory:`) for integration tests — it avoids shared-state issues across tests. The pattern above is illustrative; if production is PostgreSQL the fixture must point at the real production driver (a `_test` PostgreSQL database), never SQLite.
+Point `DATABASE_URI` at a dedicated `_test` PostgreSQL database — the real production driver, never SQLite and never an in-memory DB — so migrations and queries are exercised for real. For Playwright E2E, do the equivalent seed/teardown in a fixture (`test.extend`) or global setup rather than inline in each spec.
 
 ---
 
-## Pydantic-settings — Always Set `extra="ignore"`
+## Typed Config Module — Validate Env at Startup
 
-`pydantic-settings` reads **the entire `.env` file** and passes every key to Pydantic for validation. If the `.env` file contains variables the `Settings` model doesn't declare (e.g. `TEST_DATABASE_URL`, `EDITOR`, CI vars), Pydantic will raise:
+There is no `pydantic-settings` here. Read env through a single typed config module that validates every required variable **at module load** and throws if one is missing — so the process fails loudly at startup, not at the first request. Node's `process.env` never rejects unknown keys, so extra variables in `.env` (`TEST_DATABASE_URI`, `EDITOR`, CI vars) are harmless and need no `extra="ignore"` equivalent — but you must still assert presence of the ones you own.
 
-```
-ValidationError: Extra inputs are not permitted [type=extra_forbidden]
-```
+```ts
+// lib/config.ts — the ONLY place process.env is read
+function required(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`Missing required env var: ${name}`)
+  return value
+}
 
-**Fix:** always set `extra="ignore"` in the `model_config`:
-
-```python
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="APPNAME_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",          # ← required — .env may contain vars we don't own
-    )
+export const config = {
+  payloadSecret: required('PAYLOAD_SECRET'),
+  databaseUri: required('DATABASE_URI'),
+} as const
 ```
 
-This is mandatory for any project whose `.env` contains variables owned by other tools (test runners, editors, CI, Docker, etc.).
+Import `config` everywhere instead of touching `process.env` directly. (A schema validator such as Zod is an acceptable upgrade for richer types/coercion — the non-negotiable is: one typed module, validated at startup, that fails loudly on a missing required var.) This is mandatory for any project whose `.env` contains variables owned by other tools (test runners, editors, CI, Docker, etc.).
 
 ---
 
-## Pipeline Errors — Render an Error Template, Never Raise HTTPException
+## Route Errors — Use App Router Boundaries and Payload Errors
 
-When an LLM pipeline node fails (provider 4xx/5xx, invalid response, timeout), the failure propagates back to the route via the pipeline state's `error` field. Render an error page — don't re-raise it as an `HTTPException` (a bare JSON body with a 422 status).
+When a Server Component or route handler hits a failure (a data fetch fails, a record is missing, validation rejects input), don't hand-render a bare JSON error body or swallow it. Use the App Router's built-in boundaries plus Payload's own error surfaces:
 
-```python
-if state["error"]:
-    # WRONG: raise HTTPException(status_code=422, detail=state["error"])
-    log.error("analyze.pipeline_error", error=state["error"])
-    return render(request, "error.html", detail=state["error"])  # readable page + "Try again" link
+- **`error.tsx`** — catches errors thrown anywhere in a route segment and renders a readable page with a `reset()` retry affordance.
+- **`not-found.tsx` + `notFound()`** — for missing records (e.g. an unknown property slug), rendering a proper 404 page.
+- **Payload access control and field `validate` functions** enforce authz/validation at the data layer; let their errors propagate to these boundaries rather than catching and discarding them.
+
+```tsx
+// app/properties/[slug]/page.tsx
+import { notFound } from 'next/navigation'
+import { getPayload } from 'payload'
+import config from '@payload-config'
+
+export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  const payload = await getPayload({ config })
+  const { docs } = await payload.find({
+    collection: 'properties',
+    where: { slug: { equals: slug } },
+    limit: 1,
+  })
+  if (!docs.length) notFound()   // → renders not-found.tsx
+  // any thrown/awaited error below bubbles to error.tsx
+  return <PropertyView property={docs[0]} />
+}
 ```
 
-`error.html` must always exist and link back to the start page. Every web route that calls `run_pipeline()` (or equivalent) must follow this pattern.
+Every route segment that fetches data must have an `error.tsx` boundary (and a `not-found.tsx` wherever records can be missing) so failures render a readable page with a way back — never an unhandled exception or a raw 500 JSON response.

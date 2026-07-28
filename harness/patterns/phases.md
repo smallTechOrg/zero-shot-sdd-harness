@@ -21,20 +21,19 @@ Four roles are always present; the middle phases are derived from requirements:
 Phase 1 is the **smallest user-testable win** — the full primary user journey end-to-end, real and working the first time, that the person who briefed the idea immediately appreciates. Not every feature: the complete primary flow, done right, with supporting features as labelled stubs.
 
 - **Full primary journey, not "all the features."** Deliver the complete end-to-end flow that proves the idea (e.g. upload → profile → ask → answer-with-chart) — every step the user must take to get a real result. Defer secondary features (export, history, multi-file, settings) to later phases as clearly-labelled stubs. Over-scoping Phase 1 to cover every feature is the failure mode, not the goal.
-- **Agentic stack is wired from day one.** The graph framework (LangGraph or equivalent), state type, core nodes, and assembly are set up in Phase 1 even if some capability nodes are stubs. Never defer the agentic skeleton.
+- **The Next + Tailwind foundation is established from day one.** The Next.js App Router app and the Tailwind token layer are scaffolded in Phase 1. Payload CMS + the Postgres connection are introduced when the roadmap's CMS phase calls for them — for Silverwave that is **Phase 3**, per the fixed PR order (design tokens → component library → CMS integration → homepage). Do NOT front-load Payload or a database into a pure-frontend phase. Never defer the app foundation itself.
 - Frontend is visually complete: real UI for the one path Phase 1 delivers, PLUS clearly-labelled stubs for what's coming. Stubs are never mistaken for bugs.
-- All calls on the tested path hit the real LLM/API (keys from `.env`) — no fake data on what the user tests.
+- When the tested path has a backend, all its calls hit the real backend — the Payload API and Postgres, config from `.env` — no fake data on what the user tests. A pure-frontend phase (design tokens, component library) has no backend to hit and requires no database.
 - **Gate (all must pass):**
-  1. `pyproject.toml` declares the DB driver in `[project.dependencies]` (e.g. `psycopg2-binary` for PostgreSQL) — never dev-only
-  2. `uv run alembic upgrade head` succeeds against the configured database — run and confirmed, not assumed
-  3. **Boots via the documented run command** — the app starts on its exact README/roadmap run command from the project root (e.g. `uv run python -m src`) with no `ImportError`/`ModuleNotFoundError`. A green pytest run does NOT prove this (pytest's path masks `src.`-prefixed import bugs); the test path must equal the run path.
-  4. Primary user journey works end-to-end against the real LLM/API; tests pass
-  5. **Agentic stack gate:** graph compiles, state flows through nodes, agent is invocable — confirmed by the Phase 1 test
-  6. **Styled-render (any static-export UI):** after `pnpm build`, the served page at the single-origin path (`:8001/app/`) is rendered AND styled — the built CSS bundle contains real utility selectors and no unexpanded `@tailwind`/`@source` remains. An unstyled 200 fails the gate.
-  7. **Headless E2E (any project with a frontend):** Playwright smoke runs against the live app (`http://localhost:8001/app/`) and asserts the primary user journey renders correctly, is interactive, and shows real output — not just a 200. A CSS-grep pass without a Playwright pass is not sufficient.
-  8. **Observability wired:** LangSmith tracing enabled (LangGraph builds) and/or structured request/response logging to stdout confirmed working — a log line or trace appears for the Phase 1 end-to-end run. Observability is never deferred.
-  9. Working tree is clean and committed
-  10. Phase test-handoff published; the human has tested and approved (see Human Testing Gate)
+  1. `package.json` declares `@payloadcms/db-postgres` in `dependencies` (a real runtime dep) — never dev-only
+  2. Payload dev schema push / `pnpm payload migrate` succeeds against the configured Postgres — run and confirmed, not assumed — but ONLY when the phase introduces or changes collections; a pure-frontend phase (e.g. design tokens) has no DB step
+  3. **Boots via the documented run command** — the app starts on its exact README/roadmap run command from the project root (`pnpm dev`, or `pnpm build && pnpm start`) and serves `GET http://localhost:3000/` => 200 with no build/module-resolution errors. A green `pnpm test` (vitest) alone does NOT prove the boot path; the test path must equal the run path.
+  4. Primary user journey works end-to-end against the real Payload API + Postgres; tests pass
+  5. **Styled-render (any UI phase):** after `pnpm build`, the page served by Next at `GET http://localhost:3000/` is rendered AND styled — the built CSS bundle contains real utility selectors and no unexpanded `@tailwind` remains. An unstyled 200 fails the gate.
+  6. **Headless E2E (any project with a frontend):** Playwright smoke runs against the live app (`http://localhost:3000/`) and asserts the primary user journey renders correctly, is interactive, and shows real output — not just a 200. A CSS-grep pass without a Playwright pass is not sufficient.
+  7. **Observability wired:** structured Next/Payload request/response logging to stdout confirmed working — a log line appears for the Phase 1 end-to-end run. Observability is never deferred.
+  8. Working tree is clean and committed
+  9. Phase test-handoff published; the human has tested and approved (see Human Testing Gate)
 
 ---
 
@@ -43,33 +42,32 @@ Phase 1 is the **smallest user-testable win** — the full primary user journey 
 Each phase covers a chunk of remaining user requirements from `spec/roadmap.md`. The spec-writer **names these phases after what they deliver**, not after generic production concerns. Aim for all user requirements covered by phase 2–3 — fewer, bigger phases beat many thin ones.
 
 - Each phase wires Phase-1 stubs into real functionality — a **minimum of 3 capabilities per phase**. Never deliver a single capability in isolation; group related capabilities that form a coherent user story and build them together. A phase with fewer than 3 capabilities is too thin — collapse it into the adjacent phase.
-- All external calls hit the real provider using keys from `.env`; tests assert on real responses (shape/content), not hardcoded strings.
-- **Gate:** The phase's user-testable increment works end-to-end against the real LLM/API; tests pass; working tree clean; human approved.
+- All external calls hit the real services (Payload API + Postgres, and any configured integrations) using config from `.env`; tests assert on real responses (shape/content), not hardcoded strings.
+- **Gate:** The phase's user-testable increment works end-to-end against the real Payload API + Postgres; tests pass; working tree clean; human approved.
 
 ---
 
-### Phase N+1 — Agentic Stack Upgrade + Resilience *(only if `spec/agent.md` calls for patterns beyond the base loop)*
+### Phase N+1 — Resilience + Hardening *(only if the spec calls for hardening beyond the base app)*
 
-If the spec's agent graph needs more than the base ReAct loop, add a phase to upgrade the agentic architecture and harden external calls. A simple single-loop agent that already meets its requirements does not need this phase — do not add it by default.
+If the spec calls for more than the base request/response path — external integrations, media storage (GCS), form handling, rate limiting — add a phase to harden those surfaces. A site that already meets its requirements on the base path does not need this phase — do not add it by default.
 
-- **Upgrade the agentic stack** per `spec/agent.md`: wire in the patterns it calls for beyond the base ReAct loop — planning, reflection, multi-agent coordination, memory, or whatever the spec requires. Phase 1 laid the skeleton; this phase promotes it to the production-grade architecture.
-- Add error handling to all external calls: try/except, retries, timeouts. Agent continues (degraded, not crashed) on non-critical failures.
+- **Harden external calls** per the spec: add error handling to every external call (media storage, third-party APIs, form submissions) — try/catch, retries, timeouts. The app continues (degraded, not crashed) on non-critical failures.
 - **Gate (all must pass):**
-  1. Every pattern listed in `spec/agent.md` beyond the base loop is wired and exercised by a real test
-  2. Agent handles all documented failure modes without crashing
+  1. Every hardening requirement the spec lists beyond the base path is wired and exercised by a real test
+  2. The app handles all documented failure modes without crashing
 
 ---
 
-### Phase N+2 — Complete Agentic System *(the final requirements phase — every capability real)*
+### Phase N+2 — Complete System *(the final requirements phase — every capability real)*
 
-The last phase turns the remaining labelled stubs into real features so every capability in `spec/roadmap.md` is active and the system runs fully end-to-end. (When the agent is simple, this is just the last requirements phase — not a separate agentic milestone.)
+The last phase turns the remaining labelled stubs into real features so every capability in `spec/roadmap.md` is active and the site runs fully end-to-end.
 
 - Every capability in `spec/roadmap.md` is real — no stubs on any active path.
-- Complete any remaining integrations; system runs against all real services.
+- Complete any remaining integrations; the site runs against all real services (Payload + Postgres + configured storage).
 - **Gate (all must pass):**
-  1. All integrations are real; agent runs fully end-to-end against the real LLM/API
+  1. All integrations are real; the site runs fully end-to-end against the real Payload API + Postgres
   2. Every capability in the spec is implemented and tested with real data
-  3. `spec/agent.md` graph matches the running code — drift audit passes on the agentic surfaces
+  3. `spec/roadmap.md` matches the running code — drift audit passes
 
 ---
 
@@ -79,7 +77,7 @@ These phases exist only when the spec explicitly calls for them — never as def
 
 - **API / CLI Surface** — only if `spec/api.md` calls for an external API or CLI
 - **UI Polish** — only if `spec/ui.md` calls for further UI work beyond Phase 1
-- **Advanced Observability** — dashboards, metrics, alerting beyond the basic LangSmith tracing + structured logging already wired in Phase 1
+- **Advanced Observability** — dashboards, metrics, alerting beyond the basic structured Next/Payload logging already wired in Phase 1
 - **Polish + Hand-off** — final drift audit; README verified end-to-end from a clean clone; user accepts hand-off
 
 ---
@@ -108,14 +106,14 @@ A phase is complete when ALL of the following are true:
 3. Working tree is clean
 4. Phase test-handoff published; (build) human tested and approved
 5. qa-auditor sub-agent (or manual QA checklist) has signed off
-6. For Phase 1 specifically: `alembic upgrade head` has been run against the real DB and succeeded
+6. If the phase introduces or changes collections: Payload schema push / `pnpm payload migrate` has been run against the real Postgres and succeeded (a pure-frontend phase like design tokens has no DB step)
 7. **README updated** — every command, env var, setup step, route, or capability this phase added is reflected in `README.md`, and every README command in scope has been run and confirmed to work from the stated directory. A stale README is a BLOCKER.
 
 **Never mark a phase complete if any gate is red.**
 
 **Never claim a phase passes based on tests alone if those tests use a different DB driver than production.** SQLite tests passing does not mean PostgreSQL migrations work.
 
-**Never claim Phase 2+ passes on stubbed providers** — the gate runs against the real LLM/API with keys from `.env`.
+**Never claim Phase 2+ passes on stubbed services** — the gate runs against the real Payload API + Postgres with config from `.env`.
 
 ## Phase Tracking
 
@@ -126,8 +124,8 @@ The current phase is recorded in git commit messages (`phase-N: [description]`).
 The spec-writer derives the phases from `spec/roadmap.md`. What is fixed:
 
 - **Phase 1 is always the smallest user-testable win** — the one core path real and first-time-right, the rest as labelled stubs (this matches `spec-writer.md` exactly; the two never disagree)
-- **The agentic stack is always wired in Phase 1** — graph, state, nodes, assembly; never deferred (the skeleton is wired even though most nodes start as stubs)
-- **An Agentic Stack Upgrade phase and a Complete Agentic System phase are added only when `spec/agent.md` calls for patterns beyond the base loop** — a simple agent that meets its requirements does not get them by default
+- **The Next.js + Tailwind foundation is always wired in Phase 1** — the App Router app and the Tailwind token layer; never deferred. Payload CMS + the Postgres connection are introduced at the roadmap's CMS phase (Silverwave: **Phase 3**), not front-loaded into a pure-frontend phase
+- **A Resilience + Hardening phase and a Complete System phase are added only when the spec calls for work beyond the base app** — a site that meets its requirements on the base path does not get them by default
 - **Trailing phases are only added when the spec explicitly requires them**
 
 What varies (derived from requirements):
@@ -142,26 +140,29 @@ The spec-writer sets the exact gate command per phase in `spec/roadmap.md` (## P
 
 | Language | Phase 1 gate | Phase 2+ gate |
 |----------|-------------|-------------|
-| Python | `uv run alembic upgrade head` + `uv run pytest` | `uv run pytest` (PostgreSQL, automated via conftest) |
+| Next+Payload | `pnpm payload migrate` (only if collections changed) + `pnpm build` | `pnpm test` (vitest) + `pnpm exec playwright test` — against real local Postgres + Payload |
 | TypeScript (Bun) | migration tool + `bun test tests/unit/` | `bun test tests/integration/` |
 | TypeScript (Node) | migration tool + `npx vitest run tests/unit/` | `npx vitest run tests/integration/` |
 | Go | `migrate up` + `go test ./internal/...` | `go test ./...` |
 
-Phase 2+ gates run with **real LLM/API keys loaded from `.env`** regardless of language; both the DB URL and the provider key(s) must be set.
+Phase 2+ gates run against the **real local Postgres and Payload app (config loaded from `.env`)** regardless of language; `DATABASE_URI` and any integration config must be set.
 
-## TypeScript/Bun Integration Test Pattern
+## Vitest + Payload Integration Test Pattern
 
 ```typescript
-// tests/integration/pipeline.test.ts
-import { describe, it, expect, beforeEach } from "bun:test";
+// tests/integration/pages.test.ts
+import { describe, it, expect, beforeAll } from "vitest";
+import { getPayload } from "payload";
+import config from "@/payload.config";
 
-// Use the production DB driver via conftest-style setup/teardown — never SQLite-as-a-substitute
-// Call the real LLM/API using keys from .env
+// Use the production DB driver (real local Postgres) — never a mock DB or SQLite-as-a-substitute
+// Exercise the real Payload local API against the configured database
 
-describe("pipeline", () => {
-  it("runs end-to-end against the real provider", async () => {
-    // call runner against the real provider
-    // assert DB record created with correct status
+describe("pages", () => {
+  it("creates and reads a record end-to-end against the real DB", async () => {
+    const payload = await getPayload({ config });
+    // create + query via the Payload local API
+    // assert the record exists with the correct status
   });
 });
 ```

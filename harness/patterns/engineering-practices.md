@@ -20,15 +20,15 @@ Rules that apply to every implementation phase, regardless of stack or project t
 
 **Tests are part of the phase — not an afterthought.** Write the test alongside the code, not after. A function that is written before its test is harder to test by design.
 
-**Testing pyramid.** Unit tests form the base (fast, many, isolated). Integration tests sit above them (slower, fewer, test the real DB and the real LLM/API boundary with keys from `.env`). End-to-end / smoke tests at the top (fewest, run on a real process against the real provider). Edge-case, error-path, and UI tests are required, not optional — the quality bar is perfect, zero errors, within a ~20-30 min build budget.
+**Testing pyramid.** Unit tests form the base (fast, many, isolated). Integration tests sit above them (slower, fewer, test the real Postgres DB and the Payload local API boundary with config from `.env`). End-to-end / smoke tests at the top (fewest, run on a real process — the running Next+Payload app on :3000 via Playwright). Edge-case, error-path, and UI tests are required, not optional — the quality bar is perfect, zero errors, within a ~20-30 min build budget.
 
 **Test behaviour, not implementation.** Tests assert what the function returns or what side-effects occur — not which internal calls were made. Tests that mirror the implementation break on refactors that don't change behaviour.
 
-**Never mock what you can stub.** Prefer thin stub implementations (e.g. an in-memory queue) over framework mocks. Stubs compose, mocks create test-coupling. Stubbing is reserved for pure-unit isolation: the LLM/external provider is **not** stubbed in integration and e2e tests — those hit the real provider with keys from `.env`.
+**Never mock what you can stub.** Prefer thin stub implementations (e.g. an in-memory queue) over framework mocks. Stubs compose, mocks create test-coupling. Stubbing is reserved for pure-unit isolation: the real local Postgres + Payload app is **not** stubbed in integration and e2e tests — those run against the real database and running app, config from `.env`.
 
 **One assertion per concept.** When a test fails you want to know exactly what broke. Multiple unrelated assertions per test obscure failures.
 
-**Unit tests must be deterministic.** No random data, no wall-clock-dependent assertions. If you need "random" data, seed it; if you need time, inject it. Integration and e2e tests *do* make real LLM/API calls — keep them stable by asserting on structural properties (status, shape, key fields), not exact prose, so real calls don't make them flaky.
+**Unit tests must be deterministic.** No random data, no wall-clock-dependent assertions. If you need "random" data, seed it; if you need time, inject it. Integration and e2e tests *do* exercise the real Postgres/Payload app (and Playwright E2E) — keep them stable by asserting on structural properties (status, shape, key fields, rendered landmarks), not brittle exact copy, so real runs don't make them flaky.
 
 ---
 
@@ -78,7 +78,7 @@ Rules that apply to every implementation phase, regardless of stack or project t
 
 **Trace IDs propagate.** Any operation that spans multiple services or agent nodes must carry a trace ID from entry to exit. Log it at every step.
 
-**Every external call is instrumented.** Latency and error rate for each DB query, LLM call, and HTTP request should be observable. You will debug production issues from these numbers.
+**Every external call is instrumented.** Latency and error rate for each DB query and HTTP request should be observable. You will debug production issues from these numbers.
 
 **Metrics are not logs.** Counters, histograms, and gauges belong in a metrics system (Prometheus, StatsD, OpenTelemetry). Logs are for events; metrics are for rates and distributions.
 

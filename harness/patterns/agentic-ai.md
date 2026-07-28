@@ -1,6 +1,8 @@
 # Agentic-AI Patterns
 
-The reusable catalogue of agentic design patterns — generic engineering doctrine, not a project's design. The spec-writer picks the minimal set a project actually needs and records the concrete composition in [`spec/agent.md`](../../spec/agent.md), citing the patterns chosen here. Prefer the simplest pattern that works: do not reach for multi-agent when a single tool-use loop suffices.
+> **Not applicable to this project.** Silverwave is a luxury real-estate marketing website (Next.js + Payload CMS) — there is **no LLM and no agent graph**, so nothing in this catalogue is used and `spec/agent.md` is N/A. This file is a dormant, generic reference only; do **not** wire up any pattern below for this build. If a future phase ever introduces an LLM/agent feature, this catalogue and `spec/agent.md` become relevant again — until then, ignore it.
+
+The reusable catalogue of agentic design patterns — generic engineering doctrine, not a project's design. When a project *does* use an LLM/agent, the spec-writer picks the minimal set it actually needs and records the concrete composition in [`spec/agent.md`](../../spec/agent.md), citing the patterns chosen here. Prefer the simplest pattern that works: do not reach for multi-agent when a single tool-use loop suffices.
 
 ---
 

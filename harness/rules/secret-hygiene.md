@@ -43,11 +43,15 @@ raise ValueError(f"Auth failed with token {token}")
 raise ValueError("Auth failed. Check your API key in .env.")
 ```
 
-### Never `print()` or `repr()` a config object that may contain secrets
+### Never log or serialize a config object that may contain secrets
 
-Config models use pydantic. Secret fields must use pydantic's `SecretStr` type.
-`SecretStr.get_secret_value()` is the only way to extract the raw value, and it
-should be called only at the boundary where the secret is actually used.
+Secrets (`PAYLOAD_SECRET`, `DATABASE_URI`, and later GCS credentials) are read
+only through the typed `src/lib/config.ts` module, which throws on a missing
+required value at startup. Read a secret only at the boundary where it is
+actually used; never `console.log`/`JSON.stringify` the config object, and keep
+secrets out of Payload responses and client bundles (server-only env, never
+`NEXT_PUBLIC_*`). Payload handles its own secret (`PAYLOAD_SECRET`) internally —
+do not echo it.
 
 ## Rules for `.gitignore`
 
