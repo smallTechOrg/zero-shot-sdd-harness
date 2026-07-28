@@ -1,12 +1,12 @@
 # Capabilities Index
 
-> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the agent can do.
+> **Boilerplate status:** The spec-writer sub-agent creates one file per capability in this directory. Each file describes exactly one discrete thing the project can do.
 
 ---
 
 ## What Is a Capability?
 
-A capability is a single, discrete action or behavior the agent performs. Examples:
+A capability is a single, discrete action or behavior the project performs. Examples:
 - "Search the web for companies matching criteria X"
 - "Draft a personalized email given a lead profile"
 - "Send a Slack notification when a threshold is crossed"

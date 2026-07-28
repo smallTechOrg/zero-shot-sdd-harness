@@ -39,7 +39,7 @@
 
 ## External Dependencies
 
-<!-- FILL IN: APIs, services, databases the agent depends on. -->
+<!-- FILL IN: APIs, services, databases the project depends on. -->
 
 | Dependency | Purpose | Failure Mode |
 |------------|---------|--------------|

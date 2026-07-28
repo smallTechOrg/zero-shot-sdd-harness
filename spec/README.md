@@ -8,7 +8,7 @@ Check `spec/roadmap.md` to see if the spec has been filled in. If it still conta
 
 ## Structure
 
-`spec/` is **the product** — what the agent does, in terms a user can read and edit. Generic engineering doctrine (how to build anything) lives in `harness/`.
+`spec/` is **the product** — what the project does, in terms a user can read and edit. Generic engineering doctrine (how to build anything) lives in `harness/`.
 
 ```
 spec/                 ← The product (you read & edit this)
@@ -31,7 +31,7 @@ harness/              ← How to build it (generic engineering doctrine)
 
 1. **Spec first** — no code change without a spec backing it
 2. **One fact, one place** — never duplicate facts across spec files; cross-reference with links
-3. **Capabilities are atomic** — each file in `capabilities/` describes exactly one discrete thing the agent can do
+3. **Capabilities are atomic** — each file in `capabilities/` describes exactly one discrete thing the project can do
 4. **No implementation details in product spec** — `spec/` describes WHAT, `harness/` describes HOW
 5. **Update spec before code** — if requirements change, update the spec first, then update the code
 

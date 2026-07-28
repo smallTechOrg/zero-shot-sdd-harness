@@ -62,7 +62,7 @@ Before every commit involving new or changed files:
 2. If anything matches, **stop**. Do not include in the commit. Rotate the secret if it was real.
 3. `git diff --cached` is your friend.
 
-## Rules for AI agents
+## Rules for AI projects
 
 - **Load keys programmatically, never echo them.** The build and tests load keys from `.env` programmatically (e.g. via the config loader / process env) — that is expected. Do not echo or paste raw `.env` values into responses or logs. When you must confirm a key, confirm by presence only (a bool), never by value.
 - **Never echo, print, or paste a secret value** into your response.

@@ -4,8 +4,8 @@ This is a spec-driven AI agent boilerplate. Read this file first, then follow th
 
 ## What This Repo Is
 
-A starting template for building AI agents. The spec in `spec/` is either:
-- **Partially or fully filled in** — you are implementing an agent from a completed spec
+A starting template for building AI projects. The spec in `spec/` is either:
+- **Partially or fully filled in** — you are implementing a project from a completed spec
 - **Empty / placeholder** — you are in the build phase; run `/zero-shot-build` to drive the spec and build
 
 ## Your First Action Every Session
@@ -42,7 +42,7 @@ harness/rules/git.md
 
 ## If the Spec Is Not Ready
 
-Tell the user to run **`/zero-shot-build [their idea]`**. That skill runs one intake round — the only interactive setup step. It may ask additional clarifying questions, and asks the user to fill `.env` with the required API keys/secrets. Once intake completes, the **agent-builder** orchestrator runs design → scaffold → build, one phase per invocation. It is autonomous *within* a phase and stops at each phase boundary for a **human testing gate** — the user tests the increment before the next phase starts. Each phase delivers the smallest user-testable win, built first-time-right on the tested path.
+Tell the user to run **`/zero-shot-build [their idea]`**. That skill runs one intake round — the only interactive setup step. It may ask additional clarifying questions, and asks the user to fill `.env` with the required API keys/secrets. Once intake completes, the **project-builder** orchestrator runs design → scaffold → build, one phase per invocation. It is autonomous *within* a phase and stops at each phase boundary for a **human testing gate** — the user tests the increment before the next phase starts. Each phase delivers the smallest user-testable win, built first-time-right on the tested path.
 
 ## Skills (entry points)
 
@@ -50,7 +50,7 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 
 | Skill / command | Purpose |
 |-----------------|---------|
-| `/zero-shot-build [idea]` | Idea → working, verified skeleton (drives the agent-builder). Also adds a new capability. |
+| `/zero-shot-build [idea]` | Idea → working, verified skeleton (drives the project-builder). Also adds a new capability. |
 | `/zero-shot-fix [target]` | Diagnose + fix a bug, error, failing test, or spec/code drift, then verify. |
 | `/zero-shot-sync [scope]` | Reconcile spec ↔ code so they match (spec wins), then verify. |
 
@@ -76,13 +76,13 @@ Everything else (graph structure, runner, API, DB session, settings, test fixtur
 
 ## Sub-agents (the team)
 
-`/zero-shot-build` delegates a full build to **agent-builder**, which plans and coordinates the rest and owns git/PR. `/zero-shot-fix` and `/zero-shot-sync` call the workers directly (no agent-builder) and own git themselves. Each agent is one full, self-contained definition at `.claude/agents/<name>.md` (the path is the agent slug).
+`/zero-shot-build` delegates a full build to **project-builder**, which plans and coordinates the rest and owns git/PR. `/zero-shot-fix` and `/zero-shot-sync` call the workers directly (no project-builder) and own git themselves. Each agent is one full, self-contained definition at `.claude/agents/<name>.md` (the path is the agent slug).
 
 | Agent | Role | Tools |
 |-------|------|-------|
-| agent-builder | Orchestrator — plans phases, fans out code-generator instances per slice (in parallel), and owns the git/PR surface for a build | read/bash/agent |
+| project-builder | Orchestrator — plans phases, fans out code-generator instances per slice (in parallel), and owns the git/PR surface for a build | read/bash/agent |
 | spec-writer | The single design authority — writes the FULL spec (incl. architecture + agent-graph + phased plan) **and** self-reviews it | read/write |
 | code-generator | Implements ONE independent slice (backend `src/`, frontend `frontend/`, or both) plus tests — spawned in parallel, one per slice | read/write/bash |
 | qa-auditor | Independent review **and** run gates/tests/app **and** audit spec↔code drift; runs FIRST in fix/sync and classifies root cause SPEC-vs-CODE | read-only (bash) |
 
-Pattern: **spec-writer** writes the whole spec and carves each phase into independent slices. **agent-builder** fans out one **code-generator** per slice in a single Agent message (max parallelism — disjoint paths, never conflict). **qa-auditor** independently gates each slice and audits drift — it never edits. The **human tests between phases**.
+Pattern: **spec-writer** writes the whole spec and carves each phase into independent slices. **project-builder** fans out one **code-generator** per slice in a single Agent message (max parallelism — disjoint paths, never conflict). **qa-auditor** independently gates each slice and audits drift — it never edits. The **human tests between phases**.

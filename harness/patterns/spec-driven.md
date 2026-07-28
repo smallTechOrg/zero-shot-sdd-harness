@@ -25,7 +25,7 @@ When spec comes first:
 ## What Goes in the Spec
 
 **Product spec (`spec/`):**
-- What the agent does (behavior, not implementation)
+- What the project does (behavior, not implementation)
 - Who uses it and why
 - What data it handles
 - What APIs and integrations it uses

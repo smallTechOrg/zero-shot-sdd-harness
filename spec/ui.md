@@ -1,6 +1,6 @@
 # UI
 
-> **Boilerplate status:** Delete this file if the agent has no UI. Otherwise, filled in by the spec-writer sub-agent.
+> **Boilerplate status:** Delete this file if the project has no UI. Otherwise, filled in by the spec-writer sub-agent.
 
 ---
 
